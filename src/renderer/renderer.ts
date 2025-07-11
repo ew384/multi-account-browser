@@ -26,7 +26,7 @@ interface APIResponse<T = any> {
 // ========================================
 let currentTabs: TabData[] = [];
 let activeTabId: string | null = null;
-let tabBar: any = null;
+
 let testPanel: any = null;
 let apiConnected: boolean = false;
 let appInitialized: boolean = false;
@@ -85,25 +85,24 @@ async function initializeApplication(): Promise<void> {
  */
 async function initializeComponents(): Promise<void> {
     try {
-        // 初始化标签页栏
-        if (typeof (window as any).TabBar !== 'undefined') {
-            tabBar = new (window as any).TabBar('tab-bar');
-            if (tabBar) {
-                tabBar.onTabSwitchCallback(switchTab);
-                tabBar.onTabCloseCallback(closeTab);
-                console.log('✅ 标签页栏初始化完成');
-            }
-        }
-
         // 初始化测试面板
-        if (typeof (window as any).TestPanel !== 'undefined') {
-            testPanel = new (window as any).TestPanel('test-results');
-            console.log('✅ 测试面板初始化完成');
+        if (typeof (window as any).TestPanel !== 'undefined' &&
+            typeof process !== 'undefined' &&
+            process.env?.NODE_ENV === 'development') {
+
+            // 检查测试结果容器是否存在
+            const testResultsContainer = document.getElementById('test-results');
+            if (testResultsContainer) {
+                testPanel = new (window as any).TestPanel('test-results');
+                console.log('✅ 测试面板初始化完成');
+            } else {
+                console.log('ℹ️ 测试结果容器不存在，跳过测试面板初始化');
+            }
         }
 
         // 确保必要的DOM元素存在
         ensureRequiredElements();
-
+        console.log('✅ 组件初始化完成');
     } catch (error) {
         console.error('组件初始化失败:', error);
         throw new Error(`组件初始化失败: ${handleError(error)}`);
@@ -115,14 +114,12 @@ async function initializeComponents(): Promise<void> {
  */
 function ensureRequiredElements(): void {
     const requiredElements = [
-        'tab-bar',
-        'test-results',
-        'current-tab-name',
-        'current-tab-platform',
-        'current-tab-status',
-        'current-tab-url',
-        'api-connection-status',
-        'notification-container'
+        'tab-bar-content',        // 新的标签页容器
+        'new-tab-btn',           // 新建标签页按钮
+        'url-input',             // URL输入框
+        'notification-container', // 通知容器
+        'loading',               // 加载覆盖层
+        'no-tabs-message'        // 无标签页消息
     ];
 
     for (const elementId of requiredElements) {
@@ -139,7 +136,24 @@ function ensureRequiredElements(): void {
 function setupEventListeners(): void {
     try {
         // 顶部按钮
-        addEventListenerSafely('new-tab-btn', 'click', () => showNewTabDialog());
+        addEventListenerSafely('new-tab-btn', 'click', () => createNewTab());
+        addEventListenerSafely('back-btn', 'click', () => navigateBack());
+        addEventListenerSafely('forward-btn', 'click', () => navigateForward());
+        addEventListenerSafely('refresh-btn', 'click', () => refreshCurrentTab());
+
+        // URL输入框
+        const urlInput = document.getElementById('url-input');
+        if (urlInput) {
+            urlInput.addEventListener('keypress', (e: KeyboardEvent) => {
+                if (e.key === 'Enter') {
+                    navigateToUrl();
+                }
+            });
+        }
+        addEventListenerSafely('go-btn', 'click', () => navigateToUrl());
+
+        // 工具栏按钮
+        addEventListenerSafely('cookie-btn', 'click', () => showCookieDialog());
         addEventListenerSafely('test-isolation-btn', 'click', () => testIsolation());
 
         // 侧边栏快速操作
@@ -175,7 +189,210 @@ function setupEventListeners(): void {
     }
 }
 
+async function navigateBack(): Promise<void> {
+    if (!activeTabId) return;
 
+    try {
+        const response = await fetch('http://localhost:3000/api/account/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                tabId: activeTabId,
+                script: 'window.history.back(); true;'
+            })
+        });
+
+        if (response.ok) {
+            console.log('✅ 后退导航执行');
+        }
+    } catch (error) {
+        console.error('后退导航失败:', error);
+    }
+}
+
+async function navigateForward(): Promise<void> {
+    if (!activeTabId) return;
+
+    try {
+        const response = await fetch('http://localhost:3000/api/account/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                tabId: activeTabId,
+                script: 'window.history.forward(); true;'
+            })
+        });
+
+        if (response.ok) {
+            console.log('✅ 前进导航执行');
+        }
+    } catch (error) {
+        console.error('前进导航失败:', error);
+    }
+}
+
+async function navigateToUrl(): Promise<void> {
+    const urlInput = document.getElementById('url-input') as HTMLInputElement;
+    if (!urlInput) return;
+
+    let url = urlInput.value.trim();
+    if (!url) return;
+
+    // 如果没有活动标签页，先创建一个
+    if (!activeTabId) {
+        await createNewTab();
+        // 等待标签页创建完成
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    if (!activeTabId) {
+        showNotification('无法创建标签页', 'error');
+        return;
+    }
+
+    // URL处理逻辑
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        if (url.includes('.') && !url.includes(' ')) {
+            url = 'https://' + url;
+        } else {
+            url = 'https://www.google.com/search?q=' + encodeURIComponent(url);
+        }
+    }
+
+    try {
+        showLoading('正在导航...');
+
+        const response = await fetch('http://localhost:3000/api/account/navigate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                tabId: activeTabId,
+                url: url
+            })
+        });
+
+        if (response.ok) {
+            console.log('✅ 导航到:', url);
+            // 不要立即更新URL输入框，让页面加载后自然更新
+            showNotification(`正在加载: ${url}`, 'info');
+        } else {
+            throw new Error('导航请求失败');
+        }
+    } catch (error) {
+        console.error('导航失败:', error);
+        showNotification('导航失败', 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+function showCookieDialog(): void {
+    const modal = document.getElementById('cookie-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+function hideCookieDialog(): void {
+    const modal = document.getElementById('cookie-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function updateTabBar(): void {
+    const tabBarContent = document.getElementById('tab-bar-content');
+    const tabCount = document.getElementById('tab-count');
+
+    if (!tabBarContent) {
+        console.warn('⚠️ 标签页容器不存在');
+        return;
+    }
+
+    // 清空现有标签页
+    tabBarContent.innerHTML = '';
+
+    // 更新标签页计数
+    if (tabCount) {
+        tabCount.textContent = currentTabs.length.toString();
+    }
+
+    // 创建标签页元素
+    currentTabs.forEach(tab => {
+        const tabElement = createChromeTab(tab);
+        tabBarContent.appendChild(tabElement);
+    });
+
+    console.log(`📑 更新了 ${currentTabs.length} 个标签页`);
+}
+function createChromeTab(tab: TabData): HTMLElement {
+    const tabElement = document.createElement('div');
+    tabElement.className = `chrome-tab ${tab.id === activeTabId ? 'active' : ''}`;
+    tabElement.setAttribute('data-tab-id', tab.id);
+
+    // 获取平台图标
+    const platformIcon = getPlatformIcon(tab.platform);
+
+    tabElement.innerHTML = `
+        <div class="chrome-tab-icon" style="background: ${getPlatformColor(tab.platform)};">${platformIcon}</div>
+        <div class="chrome-tab-title" title="${tab.accountName}">${tab.accountName}</div>
+        <button class="chrome-tab-close" title="关闭标签页"></button>
+    `;
+
+    // 点击切换标签页
+    tabElement.addEventListener('click', (e) => {
+        if (!(e.target as HTMLElement).classList.contains('chrome-tab-close')) {
+            switchTab(tab.id);
+        }
+    });
+
+    // 关闭按钮事件
+    const closeBtn = tabElement.querySelector('.chrome-tab-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeTab(tab.id);
+        });
+    }
+
+    return tabElement;
+}
+
+/**
+ * 获取平台图标
+ */
+function getPlatformIcon(platform: string): string {
+    const icons: Record<string, string> = {
+        'xiaohongshu': '📱',
+        'weixin': '💬',
+        'douyin': '🎵',
+        'kuaishou': '⚡',
+        'bilibili': '📺',
+        'other': '🌐'
+    };
+    return icons[platform] || '🌐';
+}
+
+/**
+ * 获取平台颜色
+ */
+function getPlatformColor(platform: string): string {
+    const colors: Record<string, string> = {
+        'xiaohongshu': '#fe2c55',
+        'weixin': '#07c160',
+        'douyin': '#000000',
+        'kuaishou': '#ff6600',
+        'bilibili': '#00a1d6',
+        'other': '#1a73e8'
+    };
+    return colors[platform] || '#1a73e8';
+}
+
+
+// 全局函数
+(window as any).hideCookieDialog = hideCookieDialog;
+(window as any).createChromeTab = createChromeTab;
+(window as any).updateTabBar = updateTabBar;
 /**
  * 安全地添加事件监听器
  */
@@ -339,65 +556,32 @@ function hideNewTabDialog(): void {
 }
 
 /**
- * 创建新标签页
+ * 创建新标签页 - 简化版本，直接创建空白标签页
  */
 async function createNewTab(): Promise<void> {
-    const accountNameInput = document.getElementById('account-name') as HTMLInputElement;
-    const platformSelect = document.getElementById('platform') as HTMLSelectElement;
-    const urlInput = document.getElementById('initial-url') as HTMLInputElement;
-    const cookieFileInput = document.getElementById('cookie-file') as HTMLInputElement;
-
-    const accountName = accountNameInput?.value?.trim() || '';
-    const platform = platformSelect?.value || '';
-    const initialUrl = urlInput?.value?.trim() || '';
-
-    // 验证输入
-    if (!accountName) {
-        showNotification('请输入账号名称', 'warning');
-        accountNameInput?.focus();
-        return;
-    }
-
-    if (!platform) {
-        showNotification('请选择平台类型', 'warning');
-        platformSelect?.focus();
-        return;
-    }
-
     try {
         showLoading('正在创建标签页...');
 
-        console.log('创建标签页:', { accountName, platform, initialUrl });
+        // 生成简单的标签页名称
+        const tabNumber = currentTabs.length + 1;
+        const accountName = `标签页 ${tabNumber}`;
+
+        console.log('创建标签页:', { accountName });
 
         // 检查API连接
         if (!apiConnected) {
             throw new Error('API服务未连接，请检查服务状态');
         }
 
-        // 创建标签页
-        const result = await window.electronAPI.createAccountTab(accountName, platform, initialUrl);
+        // 创建标签页 - 使用默认值
+        const result = await window.electronAPI.createAccountTab(
+            accountName,
+            'other',  // 默认平台类型
+            'about:blank'  // 空白页面
+        );
 
         if (result.success) {
             const tabId = result.tabId;
-
-            // 如果有Cookie文件，加载Cookie
-            if (cookieFileInput?.files && cookieFileInput.files[0]) {
-                const file = cookieFileInput.files[0];
-                console.log('加载Cookie文件:', file.name);
-
-                try {
-                    const cookieResult = await window.electronAPI.loadCookies(tabId, file.path);
-                    if (cookieResult.success) {
-                        showNotification('Cookie加载成功', 'success');
-                    } else {
-                        console.warn('Cookie加载失败:', cookieResult.error);
-                        showNotification(`Cookie加载失败: ${cookieResult.error}`, 'warning');
-                    }
-                } catch (error) {
-                    console.warn('Cookie加载异常:', error);
-                    showNotification('Cookie加载异常，但标签页已创建', 'warning');
-                }
-            }
 
             // 切换到新标签页
             await window.electronAPI.switchTab(tabId);
@@ -406,9 +590,16 @@ async function createNewTab(): Promise<void> {
             // 刷新标签页列表
             await refreshTabList();
 
-            hideNewTabDialog();
-            showNotification(`成功创建标签页: ${accountName}`, 'success');
+            // 聚焦到URL输入框
+            setTimeout(() => {
+                const urlInput = document.getElementById('url-input') as HTMLInputElement;
+                if (urlInput) {
+                    urlInput.focus();
+                    urlInput.select();
+                }
+            }, 500);
 
+            showNotification(`已创建新标签页`, 'success');
             console.log('✅ 标签页创建成功:', tabId);
         } else {
             throw new Error(result.error || '创建失败');
@@ -420,7 +611,6 @@ async function createNewTab(): Promise<void> {
         hideLoading();
     }
 }
-
 // ========================================
 // 标签页管理
 // ========================================
@@ -437,11 +627,7 @@ async function switchTab(tabId: string): Promise<void> {
             activeTabId = tabId;
             updateCurrentTabInfo();
             updateNoTabsMessage();
-
-            if (tabBar) {
-                tabBar.setActiveTab(tabId);
-            }
-
+            updateTabBar();
             console.log('✅ 切换到标签页:', tabId);
         } else {
             throw new Error(result.error || '切换失败');
@@ -498,14 +684,8 @@ async function refreshTabList(): Promise<void> {
         if (result.success) {
             currentTabs = result.tabs || [];
 
-            // 更新标签页栏
-            if (tabBar) {
-                tabBar.setTabs(currentTabs);
-                if (activeTabId) {
-                    tabBar.setActiveTab(activeTabId);
-                }
-            }
-
+            // 使用新的Chrome风格标签页更新逻辑
+            updateTabBar();
             updateCurrentTabInfo();
             updateNoTabsMessage();
 
@@ -522,38 +702,36 @@ async function refreshTabList(): Promise<void> {
  */
 function updateCurrentTabInfo(): void {
     const currentTab = currentTabs.find(tab => tab.id === activeTabId);
+    const urlInput = document.getElementById('url-input') as HTMLInputElement;
 
-    const nameElement = document.getElementById('current-tab-name');
-    const platformElement = document.getElementById('current-tab-platform');
-    const statusElement = document.getElementById('current-tab-status');
-    const urlElement = document.getElementById('current-tab-url');
-
-    if (currentTab) {
-        if (nameElement) nameElement.textContent = currentTab.accountName;
-        if (platformElement) platformElement.textContent = currentTab.platform;
-        if (statusElement) {
-            statusElement.textContent = getStatusText(currentTab.loginStatus);
-            statusElement.className = `value status-${currentTab.loginStatus}`;
+    // 只有在URL真正变化时才更新输入框，避免清空用户正在输入的内容
+    if (urlInput && currentTab) {
+        // 检查输入框是否有焦点，如果有焦点说明用户正在输入，不要覆盖
+        if (document.activeElement !== urlInput) {
+            const newUrl = currentTab.url || '';
+            if (urlInput.value !== newUrl) {
+                urlInput.value = newUrl;
+            }
         }
-        if (urlElement) {
-            const url = currentTab.url || '-';
-            urlElement.textContent = url;
-            urlElement.title = url;
-        }
-    } else {
-        if (nameElement) nameElement.textContent = '未选择';
-        if (platformElement) platformElement.textContent = '-';
-        if (statusElement) {
-            statusElement.textContent = '未知';
-            statusElement.className = 'value status-unknown';
-        }
-        if (urlElement) {
-            urlElement.textContent = '-';
-            urlElement.title = '';
+    } else if (urlInput && !currentTab) {
+        // 只有在没有标签页时才清空
+        if (document.activeElement !== urlInput) {
+            urlInput.value = '';
         }
     }
-}
 
+    // 更新导航按钮状态
+    updateNavigationButtons();
+}
+function updateNavigationButtons(): void {
+    const backBtn = document.getElementById('back-btn') as HTMLButtonElement;
+    const forwardBtn = document.getElementById('forward-btn') as HTMLButtonElement;
+
+    // 这里可以根据实际需要启用/禁用按钮
+    // 暂时保持按钮可用状态
+    if (backBtn) backBtn.disabled = !activeTabId;
+    if (forwardBtn) forwardBtn.disabled = !activeTabId;
+}
 /**
  * 更新无标签页消息显示
  */
@@ -1228,9 +1406,17 @@ function setupKeyboardShortcuts(): void {
         // Ctrl/Cmd + T: 新建标签页
         if ((e.ctrlKey || e.metaKey) && e.key === 't') {
             e.preventDefault();
-            showNewTabDialog();
+            createNewTab();
         }
-
+        // Ctrl/Cmd + L: 聚焦到地址栏
+        if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+            e.preventDefault();
+            const urlInput = document.getElementById('url-input') as HTMLInputElement;
+            if (urlInput) {
+                urlInput.focus();
+                urlInput.select();
+            }
+        }
         // Ctrl/Cmd + W: 关闭当前标签页
         if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
             e.preventDefault();
@@ -1482,10 +1668,6 @@ function delay(ms: number): Promise<void> {
 // 页面卸载时清理资源
 window.addEventListener('beforeunload', () => {
     try {
-        if (tabBar && typeof tabBar.destroy === 'function') {
-            tabBar.destroy();
-        }
-
         if (testPanel && typeof testPanel.destroy === 'function') {
             testPanel.destroy();
         }
@@ -1542,7 +1724,7 @@ function getAppState(): object {
 console.log('🎨 渲染进程脚本加载完成');
 
 // 暴露调试接口
-if (process.env.NODE_ENV === 'development') {
+if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
     (window as any).debugAPI = {
         showNotification,
         showLoading,

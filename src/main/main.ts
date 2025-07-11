@@ -11,6 +11,15 @@ class MultiAccountBrowser {
     private apiServer!: APIServer;    // 使用断言赋值
 
     constructor() {
+        app.commandLine.appendSwitch('--enable-features', 'VaapiVideoDecoder');
+        app.commandLine.appendSwitch('--disable-features', 'VizDisplayCompositor');
+        app.commandLine.appendSwitch('--enable-gpu-rasterization');
+        app.commandLine.appendSwitch('--enable-zero-copy');
+        app.commandLine.appendSwitch('--ignore-gpu-blacklist');
+        app.commandLine.appendSwitch('--disable-background-timer-throttling');
+        app.commandLine.appendSwitch('--disable-backgrounding-occluded-windows');
+        app.commandLine.appendSwitch('--disable-renderer-backgrounding');
+
         this.sessionManager = new SessionManager(
             path.join(app.getPath('userData'), 'sessions')
         );

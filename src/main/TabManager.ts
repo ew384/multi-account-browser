@@ -10,6 +10,11 @@ export class TabManager {
     private sessionManager: SessionManager;
     private cookieManager: CookieManager;
 
+    // 添加窗口布局常量
+    private readonly HEADER_HEIGHT = 60;
+    private readonly TAB_BAR_HEIGHT = 48;
+    private readonly TOP_OFFSET = 108; // 60px header + 48px tab-bar
+
     constructor(mainWindow: BrowserWindow, sessionManager: SessionManager) {
         this.mainWindow = mainWindow;
         this.sessionManager = sessionManager;
@@ -20,6 +25,25 @@ export class TabManager {
     private setupWindowEvents(): void {
         this.mainWindow.on('resize', () => {
             this.updateActiveBrowserViewBounds();
+        });
+
+        // 监听窗口状态变化
+        this.mainWindow.on('maximize', () => {
+            setTimeout(() => this.updateActiveBrowserViewBounds(), 100);
+        });
+
+        this.mainWindow.on('unmaximize', () => {
+            setTimeout(() => this.updateActiveBrowserViewBounds(), 100);
+        });
+
+        // 监听窗口获得焦点事件
+        this.mainWindow.on('focus', () => {
+            if (this.activeTabId) {
+                const tab = this.tabs.get(this.activeTabId);
+                if (tab && tab.browserView) {
+                    tab.browserView.webContents.focus();
+                }
+            }
         });
     }
 
@@ -37,9 +61,12 @@ export class TabManager {
                     session: session,
                     nodeIntegration: false,
                     contextIsolation: true,
-                    sandbox: true,
+                    sandbox: false, // 改为false，沙盒模式会影响性能
                     webSecurity: true,
-                    allowRunningInsecureContent: false
+                    allowRunningInsecureContent: false,
+                    backgroundThrottling: false,
+                    v8CacheOptions: 'bypassHeatCheck',
+                    plugins: false
                 }
             });
 
@@ -61,7 +88,6 @@ export class TabManager {
             // 如果有初始URL，开始导航（非阻塞）
             if (initialUrl) {
                 console.log(`🔗 Starting initial navigation for ${accountName}...`);
-                // 不等待导航完成，让标签页创建立即返回
                 setImmediate(() => {
                     this.navigateTab(tabId, initialUrl).catch((error) => {
                         console.warn(`⚠️ Initial navigation warning for ${accountName}: ${error.message}`);
@@ -79,6 +105,8 @@ export class TabManager {
                 const tab = this.tabs.get(tabId);
                 if (tab) {
                     try {
+                        // 确保从主窗口移除BrowserView
+                        this.mainWindow.removeBrowserView(tab.browserView);
                         tab.browserView.webContents.close();
                     } catch (cleanupError) {
                         console.warn('Failed to cleanup browser view:', cleanupError);
@@ -95,10 +123,19 @@ export class TabManager {
         const webContents = tab.browserView.webContents;
         let lastLoggedUrl = '';
 
+        // 防止BrowserView影响主窗口
+        webContents.on('before-input-event', (event, input) => {
+            // 阻止某些可能影响主窗口的快捷键
+            if (input.control || input.meta) {
+                if (['w', 't', 'n', 'shift+t'].includes(input.key.toLowerCase())) {
+                    event.preventDefault();
+                }
+            }
+        });
+
         webContents.on('did-finish-load', async () => {
             const currentUrl = webContents.getURL();
 
-            // 避免重复日志同一个URL
             if (currentUrl !== lastLoggedUrl) {
                 console.log(`📄 Page loaded for ${tab.accountName}: ${currentUrl}`);
                 lastLoggedUrl = currentUrl;
@@ -109,34 +146,28 @@ export class TabManager {
         });
 
         webContents.on('did-fail-load', (event: any, errorCode: number, errorDescription: string, validatedURL: string) => {
-            // 只记录非重定向的真正错误
             if (errorCode !== -3) {
                 console.error(`❌ Page load failed for ${tab.accountName}: ${errorDescription} (${errorCode})`);
                 tab.loginStatus = 'logged_out';
             }
-            // ERR_ABORTED (-3) 不记录，因为通常是正常的重定向
         });
 
         webContents.on('page-title-updated', (event: any, title: string) => {
-            // 只记录有意义的标题变化
             if (title && title !== 'about:blank' && !title.includes('Loading')) {
                 console.log(`📝 Page title: ${title} (${tab.accountName})`);
             }
         });
 
-        // 处理新窗口
+        // 处理新窗口 - 防止弹出窗口影响主界面
         webContents.setWindowOpenHandler(({ url }: { url: string }) => {
             console.log(`🔗 Redirecting popup to current tab for ${tab.accountName}: ${url}`);
-
-            // 在当前标签页中打开链接，不等待完成
             webContents.loadURL(url).catch((error) => {
                 console.warn(`⚠️ Failed to load redirected URL for ${tab.accountName}: ${error.message}`);
             });
-
             return { action: 'deny' };
         });
 
-        // 处理证书错误（开发环境）
+        // 处理证书错误
         webContents.on('certificate-error', (event, url, error, certificate, callback) => {
             if (process.env.NODE_ENV === 'development') {
                 console.log(`🔒 Ignoring certificate error for ${tab.accountName}: ${error}`);
@@ -148,7 +179,6 @@ export class TabManager {
             }
         });
 
-        // 添加网络状态监听
         webContents.on('did-start-loading', () => {
             console.log(`⏳ Loading started for ${tab.accountName}`);
         });
@@ -156,6 +186,19 @@ export class TabManager {
         webContents.on('did-stop-loading', () => {
             console.log(`✅ Loading completed for ${tab.accountName}`);
         });
+
+        // 防止页面劫持焦点
+        webContents.on('focus', () => {
+            // 确保主窗口保持响应
+            if (this.mainWindow && !this.mainWindow.isFocused()) {
+                this.mainWindow.focus();
+            }
+        });
+
+        // 设置用户代理
+        webContents.setUserAgent(
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        );
     }
 
     async loadAccountCookies(tabId: string, cookieFilePath: string): Promise<void> {
@@ -167,7 +210,6 @@ export class TabManager {
             tab.cookieFile = cookieFilePath;
             console.log(`🍪 Loaded cookies for tab: ${tab.accountName}`);
 
-            // 刷新页面以应用新的Cookie
             if (tab.browserView.webContents.getURL()) {
                 await tab.browserView.webContents.reload();
             }
@@ -181,74 +223,126 @@ export class TabManager {
         const tab = this.tabs.get(tabId);
         if (!tab) throw new Error(`Tab ${tabId} not found`);
 
-        // 隐藏当前标签页
-        if (this.activeTabId && this.activeTabId !== tabId) {
-            const currentTab = this.tabs.get(this.activeTabId);
-            if (currentTab) {
-                this.mainWindow.removeBrowserView(currentTab.browserView);
+        try {
+            // 隐藏当前标签页
+            if (this.activeTabId && this.activeTabId !== tabId) {
+                const currentTab = this.tabs.get(this.activeTabId);
+                if (currentTab) {
+                    this.mainWindow.removeBrowserView(currentTab.browserView);
+                    console.log(`🔄 Removed previous tab from view: ${currentTab.accountName}`);
+                }
             }
+
+            // 显示新标签页
+            this.mainWindow.setBrowserView(tab.browserView);
+            this.updateActiveBrowserViewBounds();
+
+            this.activeTabId = tabId;
+            console.log(`🔄 Switched to tab: ${tab.accountName}`);
+
+            // 确保BrowserView获得焦点
+            setTimeout(() => {
+                if (tab.browserView && tab.browserView.webContents) {
+                    tab.browserView.webContents.focus();
+                }
+            }, 100);
+
+        } catch (error) {
+            console.error(`❌ Failed to switch to tab ${tabId}:`, error);
+            throw error;
         }
-
-        // 显示新标签页
-        this.mainWindow.setBrowserView(tab.browserView);
-        this.updateActiveBrowserViewBounds();
-
-        this.activeTabId = tabId;
-        console.log(`🔄 Switched to tab: ${tab.accountName}`);
     }
 
     private updateActiveBrowserViewBounds(): void {
-        if (!this.activeTabId) return;
+        if (!this.activeTabId) {
+            console.log('📐 No active tab to update bounds');
+            return;
+        }
 
         const tab = this.tabs.get(this.activeTabId);
-        if (!tab) return;
+        if (!tab) {
+            console.log('📐 Active tab not found');
+            return;
+        }
 
-        const bounds = this.mainWindow.getBounds();
-        const topOffset = 120; // 为标签栏和工具栏留出空间
+        try {
+            const windowBounds = this.mainWindow.getContentBounds();
 
-        tab.browserView.setBounds({
-            x: 0,
-            y: topOffset,
-            width: bounds.width,
-            height: bounds.height - topOffset
-        });
+            // 计算BrowserView应该占用的区域
+            const browserViewBounds = {
+                x: 0,
+                y: 108, // 固定值：60 + 48
+                width: windowBounds.width,
+                height: Math.max(0, windowBounds.height - 108)
+            };
+
+            console.log(`📐 Setting BrowserView bounds for ${tab.accountName}:`, browserViewBounds);
+            console.log(`📐 Window content bounds:`, windowBounds);
+
+            tab.browserView.setBounds(browserViewBounds);
+
+            // 验证边界设置
+            setTimeout(() => {
+                try {
+                    const actualBounds = tab.browserView.getBounds();
+                    console.log(`📐 Actual BrowserView bounds:`, actualBounds);
+
+                    // 检查是否有重叠问题
+                    if (actualBounds.y < this.TOP_OFFSET) {
+                        console.warn(`⚠️ BrowserView overlapping header! Adjusting...`);
+                        tab.browserView.setBounds({
+                            ...actualBounds,
+                            y: this.TOP_OFFSET,
+                            height: Math.max(0, actualBounds.height - (this.TOP_OFFSET - actualBounds.y))
+                        });
+                    }
+                } catch (error) {
+                    console.warn('Failed to verify bounds:', error);
+                }
+            }, 50);
+
+        } catch (error) {
+            console.error(`❌ Failed to update BrowserView bounds for ${tab.accountName}:`, error);
+        }
     }
 
     async closeTab(tabId: string): Promise<void> {
         const tab = this.tabs.get(tabId);
         if (!tab) return;
 
-        // 如果是当前活动标签页，先切换到其他标签页
-        if (this.activeTabId === tabId) {
-            this.mainWindow.removeBrowserView(tab.browserView);
-            this.activeTabId = null;
-
-            // 自动切换到下一个标签页
-            const remainingTabs = Array.from(this.tabs.keys()).filter(id => id !== tabId);
-            if (remainingTabs.length > 0) {
-                await this.switchToTab(remainingTabs[0]);
-            }
-        }
-
-        // 清理资源 - 修复：使用正确的方法关闭webContents
         try {
-            // 在新版本Electron中，直接关闭BrowserView
-            tab.browserView.webContents.close();
-        } catch (error) {
-            console.warn('Failed to close webContents:', error);
-            // 如果close方法不可用，尝试其他清理方式
-            try {
-                // 导航到空白页面作为清理
-                await tab.browserView.webContents.loadURL('about:blank');
-            } catch (navError) {
-                console.warn('Failed to navigate to blank page:', navError);
+            // 如果是当前活动标签页，先移除显示
+            if (this.activeTabId === tabId) {
+                this.mainWindow.removeBrowserView(tab.browserView);
+                this.activeTabId = null;
+
+                // 自动切换到下一个标签页
+                const remainingTabs = Array.from(this.tabs.keys()).filter(id => id !== tabId);
+                if (remainingTabs.length > 0) {
+                    await this.switchToTab(remainingTabs[0]);
+                }
             }
+
+            // 清理资源
+            try {
+                tab.browserView.webContents.close();
+            } catch (error) {
+                console.warn('Failed to close webContents:', error);
+                try {
+                    await tab.browserView.webContents.loadURL('about:blank');
+                } catch (navError) {
+                    console.warn('Failed to navigate to blank page:', navError);
+                }
+            }
+
+            this.tabs.delete(tabId);
+            this.sessionManager.deleteSession(tabId);
+
+            console.log(`🗑️ Closed tab: ${tab.accountName}`);
+        } catch (error) {
+            console.error(`❌ Failed to close tab ${tabId}:`, error);
+            throw error;
         }
-
-        this.tabs.delete(tabId);
-        this.sessionManager.deleteSession(tabId);
-
-        console.log(`🗑️ Closed tab: ${tab.accountName}`);
     }
 
     async executeScript(tabId: string, script: string): Promise<any> {
@@ -273,16 +367,19 @@ export class TabManager {
             tab.url = url;
             console.log(`🔗 Starting navigation for ${tab.accountName} to: ${url}`);
 
-            // 设置更宽松的导航策略
             const webContents = tab.browserView.webContents;
 
-            // 创建导航Promise，但不强制等待完成
+            // 预加载优化
+            webContents.setZoomFactor(1.0);
+
             const navigationPromise = new Promise<void>((resolve) => {
                 let resolved = false;
+                let loadingTimer: NodeJS.Timeout;
 
                 const cleanup = () => {
                     if (resolved) return;
                     resolved = true;
+                    if (loadingTimer) clearTimeout(loadingTimer);
                     webContents.removeListener('did-finish-load', onLoad);
                     webContents.removeListener('did-fail-load', onFailure);
                     webContents.removeListener('did-navigate', onNavigate);
@@ -296,57 +393,41 @@ export class TabManager {
 
                 const onNavigate = (event: any, navigationUrl: string) => {
                     console.log(`🔄 Navigation redirect for ${tab.accountName}: ${navigationUrl}`);
-                    tab.url = navigationUrl; // 更新URL
-                    // 不调用resolve，等待最终页面加载
+                    tab.url = navigationUrl;
+                    // 重置定时器
+                    if (loadingTimer) clearTimeout(loadingTimer);
+                    loadingTimer = setTimeout(() => {
+                        cleanup();
+                        console.log(`⏱️ Navigation completed after redirect for ${tab.accountName}`);
+                        resolve();
+                    }, 8000); // 重定向后再等8秒
                 };
 
-                const onFailure = (event: any, errorCode: number, errorDescription: string, validatedURL: string) => {
+                const onFailure = (event: any, errorCode: number, errorDescription: string) => {
                     cleanup();
-
-                    // 根据错误类型决定如何处理
-                    switch (errorCode) {
-                        case -3: // ERR_ABORTED - 通常是重定向或用户取消
-                            console.log(`ℹ️ Navigation redirected for ${tab.accountName}: ${validatedURL}`);
-                            resolve(); // 不算错误
-                            break;
-                        case -2: // ERR_FAILED - 一般网络错误
-                            console.warn(`⚠️ Network error for ${tab.accountName}: ${errorDescription}`);
-                            resolve(); // 网络错误也不阻止标签页创建
-                            break;
-                        case -105: // ERR_NAME_NOT_RESOLVED
-                            console.warn(`⚠️ DNS resolution failed for ${tab.accountName}: ${errorDescription}`);
-                            resolve();
-                            break;
-                        default:
-                            console.warn(`⚠️ Navigation failed for ${tab.accountName}: ${errorDescription} (${errorCode})`);
-                            resolve(); // 所有导航错误都不阻止标签页创建
-                    }
+                    console.log(`ℹ️ Navigation handled for ${tab.accountName}: ${errorDescription} (${errorCode})`);
+                    resolve(); // 不抛错，继续执行
                 };
 
                 webContents.once('did-finish-load', onLoad);
                 webContents.once('did-fail-load', onFailure);
                 webContents.on('did-navigate', onNavigate);
 
-                // 较长的超时时间，因为微信登录可能需要较长时间
-                setTimeout(() => {
+                // 减少超时时间，但增加智能判断
+                loadingTimer = setTimeout(() => {
                     cleanup();
-                    console.log(`⏱️ Navigation timeout for ${tab.accountName}, but continuing...`);
+                    console.log(`⏱️ Navigation timeout for ${tab.accountName}, continuing...`);
                     resolve();
-                }, 15000); // 15秒超时
+                }, 10000); // 减少到10秒
             });
 
-            // 开始导航
             await webContents.loadURL(url);
-
-            // 等待导航完成，但任何情况都不抛出错误
             await navigationPromise;
 
         } catch (error) {
-            // 即使 loadURL 失败也只记录警告
             if (error instanceof Error) {
-                // 特殊处理常见的微信相关错误
                 if (error.message.includes('ERR_ABORTED')) {
-                    console.log(`ℹ️ Navigation redirected for ${tab.accountName} (expected for WeChat login)`);
+                    console.log(`ℹ️ Navigation redirected for ${tab.accountName} (expected for login flows)`);
                 } else if (error.message.includes('ERR_NETWORK_CHANGED')) {
                     console.log(`ℹ️ Network changed during navigation for ${tab.accountName}`);
                 } else {
@@ -356,7 +437,6 @@ export class TabManager {
                 console.warn(`⚠️ Unknown navigation issue for ${tab.accountName}:`, error);
             }
 
-            // 保存URL，即使导航失败
             tab.url = url;
         }
     }
@@ -366,11 +446,9 @@ export class TabManager {
         if (!tab) return;
 
         try {
-            // 添加超时保护
             const loginCheckPromise = tab.browserView.webContents.executeJavaScript(`
             (function() {
               try {
-                // 检查是否有用户头像、用户名或登录按钮等元素
                 const indicators = {
                   hasUserAvatar: !!document.querySelector('.avatar, .user-avatar, .profile-avatar'),
                   hasUserName: !!document.querySelector('.username, .user-name, .nickname'),
@@ -394,14 +472,12 @@ export class TabManager {
             })()
           `);
 
-            // 5秒超时
             const timeoutPromise = new Promise((_, reject) => {
                 setTimeout(() => reject(new Error('Login status check timeout')), 5000);
             });
 
             const indicators = await Promise.race([loginCheckPromise, timeoutPromise]) as any;
 
-            // 根据指示器判断登录状态
             if (indicators.hasUserAvatar || indicators.hasUserName || indicators.hasLogoutButton) {
                 tab.loginStatus = 'logged_in';
             } else if (indicators.hasLoginButton) {
@@ -433,5 +509,34 @@ export class TabManager {
 
         await this.cookieManager.saveCookiesFromSession(tab.session, cookieFilePath);
         tab.cookieFile = cookieFilePath;
+    }
+
+    // 添加调试方法
+    debugBrowserViewBounds(): void {
+        console.log('🐛 Debug: Current BrowserView bounds');
+        console.log(`🐛 Window bounds:`, this.mainWindow.getContentBounds());
+        console.log(`🐛 Header height: ${this.HEADER_HEIGHT}px`);
+        console.log(`🐛 Tab bar height: ${this.TAB_BAR_HEIGHT}px`);
+        console.log(`🐛 Top offset: ${this.TOP_OFFSET}px`);
+
+        if (this.activeTabId) {
+            const tab = this.tabs.get(this.activeTabId);
+            if (tab) {
+                try {
+                    const bounds = tab.browserView.getBounds();
+                    console.log(`🐛 Active BrowserView bounds:`, bounds);
+                } catch (error) {
+                    console.log(`🐛 Failed to get BrowserView bounds:`, error);
+                }
+            }
+        }
+    }
+
+    // 强制重新设置所有BrowserView边界
+    forceUpdateAllBounds(): void {
+        console.log('🔧 Force updating all BrowserView bounds');
+        if (this.activeTabId) {
+            this.updateActiveBrowserViewBounds();
+        }
     }
 }

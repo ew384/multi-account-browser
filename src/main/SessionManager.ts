@@ -25,8 +25,6 @@ export class SessionManager {
         const partition = `persist:account-${accountId}`;
         const isolatedSession = session.fromPartition(partition, {
             cache: true
-            // 注意：persist 选项在新版本的Electron中可能不支持
-            // 持久化通过partition名称中的'persist:'前缀来实现
         });
 
         // 配置Session安全选项
@@ -39,6 +37,16 @@ export class SessionManager {
         isolatedSession.setUserAgent(
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         );
+
+        // 移除不必要的预加载脚本
+        isolatedSession.setPreloads([]);
+
+        // 网络优化 - 这个是有效的
+        isolatedSession.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
+            // 移除可能导致慢速的头部
+            delete details.requestHeaders['X-Requested-With'];
+            callback({ requestHeaders: details.requestHeaders });
+        });
 
         this.sessions.set(accountId, isolatedSession);
         console.log(`✅ Created isolated session for account: ${accountId}`);
