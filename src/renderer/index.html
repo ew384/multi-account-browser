@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:*;">
+    <title>多账号浏览器 - Multi-Account Browser</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="app">
+        <!-- 顶部标题栏 -->
+        <header class="header">
+            <div class="header-left">
+                <h1 class="app-title">
+                    <span class="icon">🌐</span>
+                    多账号浏览器
+                </h1>
+                <span class="version">v1.0.0</span>
+            </div>
+            <div class="header-center">
+                <div id="connection-status" class="connection-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">检查连接中...</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <button id="test-isolation-btn" class="btn btn-secondary" title="测试Session隔离">
+                    <span class="icon">🔍</span>
+                    测试隔离
+                </button>
+                <button id="new-tab-btn" class="btn btn-primary" title="创建新的账号标签页">
+                    <span class="icon">➕</span>
+                    新建账号
+                </button>
+            </div>
+        </header>
+
+        <!-- 标签页栏 -->
+        <div class="tab-bar" id="tab-bar">
+            <div class="tab-bar-content">
+                <!-- 动态生成的标签页 -->
+            </div>
+            <div class="tab-bar-actions">
+                <button id="close-all-tabs-btn" class="btn-icon" title="关闭所有标签页">
+                    <span class="icon">🗑️</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 主内容区域 -->
+        <div class="main-content">
+            <!-- 侧边栏 -->
+            <aside class="sidebar">
+                <!-- 当前标签页信息 -->
+                <div class="section">
+                    <h3>
+                        <span class="icon">📱</span>
+                        当前标签页
+                    </h3>
+                    <div id="current-tab-info" class="tab-info">
+                        <div class="info-item">
+                            <span class="label">账号名称:</span>
+                            <span id="current-tab-name" class="value">未选择</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">平台:</span>
+                            <span id="current-tab-platform" class="value">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">登录状态:</span>
+                            <span id="current-tab-status" class="value status-unknown">未知</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">当前URL:</span>
+                            <span id="current-tab-url" class="value url">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 快速操作 -->
+                <div class="section">
+                    <h3>
+                        <span class="icon">⚡</span>
+                        快速操作
+                    </h3>
+                    <div class="action-buttons">
+                        <button id="load-cookies-btn" class="btn btn-outline">
+                            <span class="icon">🍪</span>
+                            加载Cookie
+                        </button>
+                        <button id="save-cookies-btn" class="btn btn-outline">
+                            <span class="icon">💾</span>
+                            保存Cookie
+                        </button>
+                        <button id="clear-cookies-btn" class="btn btn-outline">
+                            <span class="icon">🧹</span>
+                            清除Cookie
+                        </button>
+                        <button id="refresh-tab-btn" class="btn btn-outline">
+                            <span class="icon">🔄</span>
+                            刷新页面
+                        </button>
+                        <button id="screenshot-btn" class="btn btn-outline">
+                            <span class="icon">📸</span>
+                            截图
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 批量操作 -->
+                <div class="section">
+                    <h3>
+                        <span class="icon">📋</span>
+                        批量操作
+                    </h3>
+                    <div class="batch-controls">
+                        <select id="batch-operation" class="select-input">
+                            <option value="">选择操作</option>
+                            <option value="navigate">批量导航</option>
+                            <option value="execute">批量执行脚本</option>
+                            <option value="refresh">批量刷新</option>
+                        </select>
+                        <input type="text" id="batch-input" class="text-input" placeholder="输入URL或脚本">
+                        <button id="execute-batch-btn" class="btn btn-outline">执行</button>
+                    </div>
+                </div>
+
+                <!-- 测试面板 -->
+                <div class="section">
+                    <h3>
+                        <span class="icon">🧪</span>
+                        测试面板
+                    </h3>
+                    <div class="test-controls">
+                        <button id="run-isolation-test-btn" class="btn btn-outline">隔离测试</button>
+                        <button id="run-cookie-test-btn" class="btn btn-outline">Cookie测试</button>
+                        <button id="run-comprehensive-test-btn" class="btn btn-outline">综合测试</button>
+                        <button id="clear-test-results-btn" class="btn btn-outline">清除结果</button>
+                    </div>
+                    <div id="test-results" class="test-results"></div>
+                </div>
+
+                <!-- API状态 -->
+                <div class="section">
+                    <h3>
+                        <span class="icon">🔌</span>
+                        API状态
+                    </h3>
+                    <div id="api-status" class="api-status">
+                        <div class="status-item">
+                            <span class="label">连接状态:</span>
+                            <span id="api-connection-status" class="value status-unknown">检查中</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="label">端口:</span>
+                            <span class="value">3000</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="label">活跃标签页:</span>
+                            <span id="api-active-tabs" class="value">0</span>
+                        </div>
+                    </div>
+                    <button id="check-api-btn" class="btn btn-outline">
+                        <span class="icon">🔄</span>
+                        检查API
+                    </button>
+                </div>
+
+                <!-- 系统信息 -->
+                <div class="section">
+                    <h3>
+                        <span class="icon">💻</span>
+                        系统信息
+                    </h3>
+                    <div id="system-info" class="system-info">
+                        <div class="info-item">
+                            <span class="label">内存使用:</span>
+                            <span id="memory-usage" class="value">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">运行时间:</span>
+                            <span id="uptime" class="value">-</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 浏览器区域 -->
+            <main class="browser-area">
+                <!-- 无标签页时显示的欢迎信息 -->
+                <div id="no-tabs-message" class="no-tabs-message">
+                    <div class="welcome-content">
+                        <div class="welcome-icon">🌐</div>
+                        <h2>欢迎使用多账号浏览器</h2>
+                        <p>这是一个专为社交媒体多账号管理设计的浏览器</p>
+                        <ul class="feature-list">
+                            <li>✅ 真正的Session隔离，支持同平台多账号</li>
+                            <li>✅ Cookie完全独立，账号间互不干扰</li>
+                            <li>✅ 持久化存储，重启后状态保持</li>
+                            <li>✅ HTTP API接口，支持自动化控制</li>
+                        </ul>
+                        <div class="welcome-actions">
+                            <button class="btn btn-primary btn-large" onclick="showNewTabDialog()">
+                                <span class="icon">➕</span>
+                                创建第一个账号标签页
+                            </button>
+                            <button class="btn btn-secondary" onclick="runQuickTest()">
+                                <span class="icon">🧪</span>
+                                运行快速测试
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 标签页内容区域（BrowserView会显示在这里） -->
+                <div id="browser-view-container" class="browser-view-container"></div>
+            </main>
+        </div>
+
+        <!-- 新建标签页模态框 -->
+        <div id="new-tab-modal" class="modal" style="display: none;">
+            <div class="modal-overlay" onclick="hideNewTabDialog()"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>
+                        <span class="icon">➕</span>
+                        新建账号标签页
+                    </h3>
+                    <button class="close-btn" onclick="hideNewTabDialog()" title="关闭">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="new-tab-form">
+                        <div class="form-group">
+                            <label for="account-name">
+                                <span class="icon">👤</span>
+                                账号名称 *
+                            </label>
+                            <input type="text" id="account-name" class="form-input" placeholder="例如：微信视频号-账号A" required>
+                            <small class="form-hint">建议使用描述性的名称便于识别</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="platform">
+                                <span class="icon">🌐</span>
+                                平台类型 *
+                            </label>
+                            <select id="platform" class="form-select" required>
+                                <option value="">请选择平台</option>
+                                <option value="weixin">微信视频号</option>
+                                <option value="douyin">抖音</option>
+                                <option value="xiaohongshu">小红书</option>
+                                <option value="kuaishou">快手</option>
+                                <option value="bilibili">B站</option>
+                                <option value="other">其他</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="initial-url">
+                                <span class="icon">🔗</span>
+                                初始URL (可选)
+                            </label>
+                            <input type="url" id="initial-url" class="form-input"
+                                placeholder="https://channels.weixin.qq.com">
+                            <small class="form-hint">创建后自动导航到此URL</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cookie-file">
+                                <span class="icon">🍪</span>
+                                Cookie文件 (可选)
+                            </label>
+                            <div class="file-input-wrapper">
+                                <input type="file" id="cookie-file" class="file-input" accept=".json">
+                                <button type="button" class="btn btn-outline" onclick="selectCookieFile()">
+                                    选择文件
+                                </button>
+                                <span id="cookie-file-name" class="file-name">未选择文件</span>
+                            </div>
+                            <small class="form-hint">支持JSON格式的Cookie文件</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="hideNewTabDialog()">
+                        取消
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="createNewTab()">
+                        <span class="icon">✨</span>
+                        创建标签页
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 截图预览模态框 -->
+        <div id="screenshot-modal" class="modal" style="display: none;">
+            <div class="modal-overlay" onclick="hideScreenshotModal()"></div>
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h3>
+                        <span class="icon">📸</span>
+                        页面截图
+                    </h3>
+                    <button class="close-btn" onclick="hideScreenshotModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="screenshot-container">
+                        <img id="screenshot-image" class="screenshot-image" alt="页面截图">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="hideScreenshotModal()">关闭</button>
+                    <button class="btn btn-primary" onclick="downloadScreenshot()">
+                        <span class="icon">💾</span>
+                        下载截图
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 加载提示 -->
+        <div id="loading" class="loading-overlay" style="display: none;">
+            <div class="loading-content">
+                <div class="spinner"></div>
+                <p id="loading-text">处理中...</p>
+            </div>
+        </div>
+
+        <!-- 通知容器 -->
+        <div id="notification-container" class="notification-container"></div>
+
+        <!-- 右键菜单 -->
+        <div id="context-menu" class="context-menu" style="display: none;">
+            <div class="menu-item" onclick="refreshCurrentTab()">
+                <span class="icon">🔄</span>
+                刷新页面
+            </div>
+            <div class="menu-item" onclick="duplicateCurrentTab()">
+                <span class="icon">📋</span>
+                复制标签页
+            </div>
+            <div class="menu-separator"></div>
+            <div class="menu-item" onclick="closeCurrentTab()">
+                <span class="icon">🗑️</span>
+                关闭标签页
+            </div>
+        </div>
+    </div>
+
+    <!-- 脚本文件 -->
+    <script src="components/TabBar.js"></script>
+    <script src="components/TestPanel.js"></script>
+    <script src="renderer.js"></script>
+</body>
+
+</html>
