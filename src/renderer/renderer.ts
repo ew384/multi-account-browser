@@ -154,21 +154,19 @@ function setupEventListeners(): void {
 
         // 工具栏按钮
         addEventListenerSafely('cookie-btn', 'click', () => showCookieDialog());
-        addEventListenerSafely('test-isolation-btn', 'click', () => testIsolation());
+        //addEventListenerSafely('test-isolation-btn', 'click', () => testIsolation());
 
         // 侧边栏快速操作
-        addEventListenerSafely('load-cookies-btn', 'click', () => loadCookies());
-        addEventListenerSafely('save-cookies-btn', 'click', () => saveCookies());
-        addEventListenerSafely('clear-cookies-btn', 'click', () => clearCookies());
-        addEventListenerSafely('refresh-tab-btn', 'click', () => refreshCurrentTab());
-        addEventListenerSafely('screenshot-btn', 'click', () => takeScreenshot());
-
+        //addEventListenerSafely('load-cookies-btn', 'click', () => loadCookies());
+        //addEventListenerSafely('save-cookies-btn', 'click', () => saveCookies());
+        //addEventListenerSafely('clear-cookies-btn', 'click', () => clearCookies());
+        //addEventListenerSafely('refresh-tab-btn', 'click', () => refreshCurrentTab());
+        //addEventListenerSafely('screenshot-btn', 'click', () => takeScreenshot());
         // 批量操作
-        addEventListenerSafely('execute-batch-btn', 'click', () => executeBatchOperation());
-
+        //addEventListenerSafely('execute-batch-btn', 'click', () => executeBatchOperation());
         // API检查
-        addEventListenerSafely('check-api-btn', 'click', () => checkAPIStatus());
-
+        //addEventListenerSafely('check-api-btn', 'click', () => checkAPIStatus());
+        
         // 模态框相关
         setupModalEvents();
 
@@ -179,7 +177,7 @@ function setupEventListeners(): void {
         setupKeyboardShortcuts();
 
         // 文件选择 - 修复事件处理器类型
-        addEventListenerSafely('cookie-file', 'change', (e: Event) => handleCookieFileSelect(e));
+        //addEventListenerSafely('cookie-file', 'change', (e: Event) => handleCookieFileSelect(e));
 
         console.log('✅ 事件监听器设置完成');
 
@@ -290,6 +288,10 @@ function showCookieDialog(): void {
     const modal = document.getElementById('cookie-modal');
     if (modal) {
         modal.style.display = 'flex';
+        setTimeout(() => {
+            // 这些按钮在模态框HTML中，通过onclick属性调用函数
+            // 确保这些函数在全局可用
+        }, 0);
     }
 }
 
