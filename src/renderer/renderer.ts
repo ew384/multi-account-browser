@@ -630,7 +630,7 @@ async function switchTab(tabId: string): Promise<void> {
             updateCurrentTabInfo();
             updateNoTabsMessage();
             updateTabBar();
-            console.log('✅ 切换到标签页:', tabId);
+            console.log('✅ Switched to tab:', tabId);
         } else {
             throw new Error(result.error || '切换失败');
         }
@@ -1722,7 +1722,36 @@ function getAppState(): object {
 (window as any).getAppState = getAppState;
 (window as any).getCurrentTabs = () => currentTabs;
 (window as any).getActiveTabId = () => activeTabId;
-
+// 添加调试函数
+(window as any).debugBrowserView = async () => {
+    if (!activeTabId) {
+        console.log('No active tab');
+        return;
+    }
+    
+    const response = await fetch('http://localhost:3000/api/account/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            tabId: activeTabId,
+            script: `
+                console.log('BrowserView info:', {
+                    url: window.location.href,
+                    title: document.title,
+                    visible: document.visibilityState,
+                    dimensions: {
+                        width: window.innerWidth,
+                        height: window.innerHeight
+                    }
+                });
+                'Debug info logged';
+            `
+        })
+    });
+    
+    const result = await response.json();
+    console.log('Debug result:', result);
+};
 console.log('🎨 渲染进程脚本加载完成');
 
 // 暴露调试接口

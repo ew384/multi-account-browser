@@ -169,14 +169,9 @@ export class TabManager {
 
         // 处理证书错误
         webContents.on('certificate-error', (event, url, error, certificate, callback) => {
-            if (process.env.NODE_ENV === 'development') {
-                console.log(`🔒 Ignoring certificate error for ${tab.accountName}: ${error}`);
-                event.preventDefault();
-                callback(true);
-            } else {
-                console.warn(`🔒 Certificate error for ${tab.accountName}: ${error}`);
-                callback(false);
-            }
+            console.log(`🔒 Certificate error for ${tab.accountName}: ${error} on ${url}`);
+            event.preventDefault();
+            callback(true); // macOS 上忽略所有证书错误
         });
 
         webContents.on('did-start-loading', () => {
@@ -218,34 +213,182 @@ export class TabManager {
             throw error;
         }
     }
+    
+    private async verifyAndRestoreTabContent(tabId: string): Promise<void> {
+        const tab = this.tabs.get(tabId);
+        if (!tab || !tab.browserView) return;
 
+        try {
+            // 检查内容是否可见
+            const isContentVisible = await tab.browserView.webContents.executeJavaScript(`
+                document.body && document.body.innerHTML.length > 0
+            `).catch(() => false);
+
+            if (!isContentVisible) {
+                console.log(`⚠️ Content lost for ${tab.accountName}, restoring...`);
+                
+                // 恢复内容
+                const currentUrl = tab.browserView.webContents.getURL();
+                if (currentUrl && currentUrl !== 'about:blank') {
+                    await tab.browserView.webContents.reload();
+                    console.log(`🔄 Restored content for ${tab.accountName}`);
+                }
+            }
+        } catch (error) {
+            console.warn(`Failed to verify content for ${tab.accountName}:`, error);
+        }
+    }
+    async emergencyReset(): Promise<void> {
+        console.log('🚨 Emergency reset triggered');
+        
+        try {
+            // 移除所有 BrowserView
+            const allTabs = Array.from(this.tabs.values());
+            for (const tab of allTabs) {
+                try {
+                    this.mainWindow.removeBrowserView(tab.browserView);
+                } catch (error) {
+                    console.warn('Failed to remove BrowserView:', error);
+                }
+            }
+
+            // 等待一下
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // 如果有活动标签页，重新设置
+            if (this.activeTabId) {
+                const activeTab = this.tabs.get(this.activeTabId);
+                if (activeTab) {
+                    console.log(`🔄 Restoring active tab: ${activeTab.accountName}`);
+                    
+                    this.mainWindow.setBrowserView(activeTab.browserView);
+                    
+                    const windowBounds = this.mainWindow.getContentBounds();
+                    const bounds = {
+                        x: 0,
+                        y: 80,
+                        width: windowBounds.width,
+                        height: windowBounds.height - 104
+                    };
+                    
+                    activeTab.browserView.setBounds(bounds);
+                    
+                    // 强制聚焦
+                    setTimeout(() => {
+                        activeTab.browserView.webContents.focus();
+                        activeTab.browserView.webContents.invalidate();
+                    }, 100);
+                }
+            }
+
+            console.log('✅ Emergency reset completed');
+            
+        } catch (error) {
+            console.error('❌ Emergency reset failed:', error);
+        }
+    }
+    private async checkAndRestoreContent(tabId: string): Promise<void> {
+        const tab = this.tabs.get(tabId);
+        if (!tab || !tab.browserView) return;
+
+        try {
+            // 检查当前 URL
+            const currentUrl = tab.browserView.webContents.getURL();
+            console.log(`🔍 Checking content for ${tab.accountName}: ${currentUrl}`);
+            
+            if (currentUrl && currentUrl !== 'about:blank') {
+                // 检查页面是否有内容
+                const hasContent = await tab.browserView.webContents.executeJavaScript(`
+                    (function() {
+                        try {
+                            return document.body && document.body.innerHTML.length > 100;
+                        } catch(e) {
+                            return false;
+                        }
+                    })()
+                `).catch(() => false);
+
+                if (!hasContent) {
+                    console.log(`⚠️ Content appears empty for ${tab.accountName}, reloading...`);
+                    await tab.browserView.webContents.reload();
+                } else {
+                    console.log(`✅ Content verified for ${tab.accountName}`);
+                }
+            }
+        } catch (error) {
+            console.warn(`Content check failed for ${tab.accountName}:`, error);
+            
+            // 如果检查失败，尝试简单的重新加载
+            try {
+                const currentUrl = tab.browserView.webContents.getURL();
+                if (currentUrl && currentUrl !== 'about:blank') {
+                    await tab.browserView.webContents.reload();
+                }
+            } catch (reloadError) {
+                console.warn(`Reload also failed:`, reloadError);
+            }
+        }
+    }    
+    
     async switchToTab(tabId: string): Promise<void> {
+        if (this.activeTabId === tabId) return;
+
         const tab = this.tabs.get(tabId);
         if (!tab) throw new Error(`Tab ${tabId} not found`);
 
         try {
-            // 隐藏当前标签页
-            if (this.activeTabId && this.activeTabId !== tabId) {
-                const currentTab = this.tabs.get(this.activeTabId);
-                if (currentTab) {
-                    this.mainWindow.removeBrowserView(currentTab.browserView);
-                    console.log(`🔄 Removed previous tab from view: ${currentTab.accountName}`);
-                }
+            console.log(`🔄 Starting switch to: ${tab.accountName}`);
+
+            // 清除之前的定时器
+            if ((global as any).macOSFixTimer) {
+                clearTimeout((global as any).macOSFixTimer);
             }
 
-            // 显示新标签页
-            this.mainWindow.setBrowserView(tab.browserView);
-            this.updateActiveBrowserViewBounds();
+            // macOS 特殊处理 - 不使用 removeBrowserView
+            if (process.platform === 'darwin') {
+                console.log(`🍎 macOS switch mode for ${tab.accountName}`);
+                
+                // 直接设置新的 BrowserView
+                this.mainWindow.setBrowserView(tab.browserView);
+                this.updateActiveBrowserViewBounds();
+                
+                // 强制刷新内容
+                (global as any).macOSFixTimer = setTimeout(() => {
+                    if (this.activeTabId === tabId && tab.browserView && tab.browserView.webContents) {
+                        try {
+                            // 强制重绘和聚焦
+                            tab.browserView.webContents.invalidate();
+                            tab.browserView.webContents.focus();
+                            console.log(`🍎 Applied content refresh for ${tab.accountName}`);
+                        } catch (error) {
+                            console.warn('Content refresh failed:', error);
+                        }
+                    }
+                }, 50);
+
+                // 内容恢复检查
+                setTimeout(() => {
+                    if (this.activeTabId === tabId) {
+                        this.checkAndRestoreContent(tabId);
+                    }
+                }, 300);
+
+            } else {
+                // 非 macOS 的正常流程
+                if (this.activeTabId && this.activeTabId !== tabId) {
+                    const currentTab = this.tabs.get(this.activeTabId);
+                    if (currentTab) {
+                        this.mainWindow.removeBrowserView(currentTab.browserView);
+                        console.log(`🔄 Removed previous tab from view: ${currentTab.accountName}`);
+                    }
+                }
+
+                this.mainWindow.setBrowserView(tab.browserView);
+                this.updateActiveBrowserViewBounds();
+            }
 
             this.activeTabId = tabId;
             console.log(`🔄 Switched to tab: ${tab.accountName}`);
-
-            // 确保BrowserView获得焦点
-            setTimeout(() => {
-                if (tab.browserView && tab.browserView.webContents) {
-                    tab.browserView.webContents.focus();
-                }
-            }, 100);
 
         } catch (error) {
             console.error(`❌ Failed to switch to tab ${tabId}:`, error);
@@ -254,55 +397,33 @@ export class TabManager {
     }
 
     private updateActiveBrowserViewBounds(): void {
-        if (!this.activeTabId) {
-            console.log('📐 No active tab to update bounds');
-            return;
-        }
-
+        if (!this.activeTabId) return;
+        
         const tab = this.tabs.get(this.activeTabId);
-        if (!tab) {
-            console.log('📐 Active tab not found');
-            return;
-        }
+        if (!tab) return;
 
         try {
             const windowBounds = this.mainWindow.getContentBounds();
-
-            // 计算BrowserView应该占用的区域
-            const browserViewBounds = {
+            
+            const bounds = {
                 x: 0,
-                y: 108, // 固定值：60 + 48
+                y: 80,
                 width: windowBounds.width,
-                height: Math.max(0, windowBounds.height - 108)
+                height: windowBounds.height - 104
             };
 
-            console.log(`📐 Setting BrowserView bounds for ${tab.accountName}:`, browserViewBounds);
-            console.log(`📐 Window content bounds:`, windowBounds);
-
-            tab.browserView.setBounds(browserViewBounds);
-
-            // 验证边界设置
-            setTimeout(() => {
-                try {
-                    const actualBounds = tab.browserView.getBounds();
-                    console.log(`📐 Actual BrowserView bounds:`, actualBounds);
-
-                    // 检查是否有重叠问题
-                    if (actualBounds.y < this.TOP_OFFSET) {
-                        console.warn(`⚠️ BrowserView overlapping header! Adjusting...`);
-                        tab.browserView.setBounds({
-                            ...actualBounds,
-                            y: this.TOP_OFFSET,
-                            height: Math.max(0, actualBounds.height - (this.TOP_OFFSET - actualBounds.y))
-                        });
-                    }
-                } catch (error) {
-                    console.warn('Failed to verify bounds:', error);
-                }
-            }, 50);
-
+            console.log(`📐 Setting bounds for ${tab.accountName}:`, bounds);
+            
+            // 确保 BrowserView 不会覆盖开发者工具
+            tab.browserView.setBounds(bounds);
+            
+            // 设置正确的 z-index（通过重新设置到窗口）
+            this.mainWindow.removeBrowserView(tab.browserView);
+            this.mainWindow.setBrowserView(tab.browserView);
+            tab.browserView.setBounds(bounds);
+            
         } catch (error) {
-            console.error(`❌ Failed to update BrowserView bounds for ${tab.accountName}:`, error);
+            console.error(`❌ Failed to update bounds:`, error);
         }
     }
 

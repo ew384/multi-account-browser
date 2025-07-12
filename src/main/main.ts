@@ -3,7 +3,10 @@ import * as path from 'path';
 import { SessionManager } from './SessionManager';
 import { TabManager } from './TabManager';
 import { APIServer } from './APIServer';
-
+declare global {
+    var macOSFixTimer: NodeJS.Timeout | undefined;
+    var macOSRefreshTimer: NodeJS.Timeout | undefined;
+}
 class MultiAccountBrowser {
     private mainWindow: BrowserWindow | null = null;
     private sessionManager: SessionManager;
@@ -11,6 +14,7 @@ class MultiAccountBrowser {
     private apiServer!: APIServer;    // 使用断言赋值
 
     constructor() {
+
         app.commandLine.appendSwitch('--enable-features', 'VaapiVideoDecoder');
         app.commandLine.appendSwitch('--disable-features', 'VizDisplayCompositor');
         app.commandLine.appendSwitch('--enable-gpu-rasterization');
@@ -19,7 +23,11 @@ class MultiAccountBrowser {
         app.commandLine.appendSwitch('--disable-background-timer-throttling');
         app.commandLine.appendSwitch('--disable-backgrounding-occluded-windows');
         app.commandLine.appendSwitch('--disable-renderer-backgrounding');
-
+        if (process.platform === 'darwin') {
+            app.commandLine.appendSwitch('--disable-web-security');
+            app.commandLine.appendSwitch('--ignore-certificate-errors');
+            app.commandLine.appendSwitch('--disable-features', 'VizDisplayCompositor');
+        }
         this.sessionManager = new SessionManager(
             path.join(app.getPath('userData'), 'sessions')
         );
@@ -36,7 +44,10 @@ class MultiAccountBrowser {
             },
             title: 'Multi-Account Browser'
         });
-
+        // 开发模式下打开开发者工具
+        if (process.env.NODE_ENV === 'development') {
+            this.mainWindow.webContents.openDevTools();
+        }
         // 修复：使用正确的HTML文件路径
         const htmlPath = path.join(__dirname, '../renderer/index.html');
         console.log('Loading HTML from:', htmlPath);
@@ -58,10 +69,7 @@ class MultiAccountBrowser {
             }
         }
 
-        // 开发模式下打开开发者工具
-        if (process.env.NODE_ENV === 'development') {
-            this.mainWindow.webContents.openDevTools();
-        }
+
 
         // 设置菜单
         this.createMenu();
@@ -74,6 +82,28 @@ class MultiAccountBrowser {
 
     private createMenu(): void {
         const template: any[] = [
+            ...(process.platform === 'darwin' ? [{
+                label: 'Edit',
+                submenu: [
+                    { label: 'Undo', accelerator: 'CmdOrCtrl+Z', role: 'undo' },
+                    { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', role: 'redo' },
+                    { type: 'separator' },
+                    { label: 'Cut', accelerator: 'CmdOrCtrl+X', role: 'cut' },
+                    { label: 'Copy', accelerator: 'CmdOrCtrl+C', role: 'copy' },
+                    { label: 'Paste', accelerator: 'CmdOrCtrl+V', role: 'paste' },
+                    { label: 'Select All', accelerator: 'CmdOrCtrl+A', role: 'selectall' }
+                ]
+            }] : []),
+            {
+                label: '紧急重置显示',
+                accelerator: 'CmdOrCtrl+Shift+X',
+                click: () => {
+                    const tabManager = (global as any).tabManager;
+                    if (tabManager) {
+                        tabManager.emergencyReset();
+                    }
+                }
+            },
             {
                 label: '文件',
                 submenu: [
@@ -116,6 +146,28 @@ class MultiAccountBrowser {
                         accelerator: 'F12',
                         click: () => {
                             this.mainWindow?.webContents.openDevTools();
+                        }
+                    },
+                    { type: 'separator' },
+                    {
+                        label: '强制显示当前标签页',
+                        accelerator: 'CmdOrCtrl+Shift+R',
+                        click: () => {
+                            // 直接调用 TabManager 的方法
+                            const tabManager = (global as any).tabManager;  // 你需要在 main.ts 中设置这个
+                            if (tabManager) {
+                                tabManager.forceUpdateAllBounds();
+                            }
+                        }
+                    },
+                    {
+                        label: '调试 BrowserView',
+                        click: () => {
+                            console.log('=== BrowserView Debug Info ===');
+                            const tabManager = (global as any).tabManager;
+                            if (tabManager) {
+                                tabManager.debugBrowserViewBounds();
+                            }
                         }
                     }
                 ]
@@ -294,6 +346,7 @@ class MultiAccountBrowser {
 
         if (this.mainWindow) {
             this.tabManager = new TabManager(this.mainWindow, this.sessionManager);
+            (global as any).tabManager = this.tabManager;
             this.apiServer = new APIServer(this.tabManager, 3000);
 
             // 设置IPC通信
@@ -338,6 +391,14 @@ class MultiAccountBrowser {
         });
 
         app.on('before-quit', async () => {
+            // 清理定时器
+            if ((global as any).macOSFixTimer) {
+                clearTimeout((global as any).macOSFixTimer);
+            }
+            if ((global as any).macOSRefreshTimer) {
+                clearTimeout((global as any).macOSRefreshTimer);
+            }
+            
             if (this.apiServer) {
                 await this.apiServer.stop();
             }
