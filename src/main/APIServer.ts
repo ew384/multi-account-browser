@@ -678,7 +678,7 @@ export class APIServer {
 
                 console.log(`📁 Setting file for tab ${tabId}: ${filePath}`);
                 
-                // 调用 TabManager 的新方法
+                // 调用 TabManager 的修复后方法
                 const result = await this.tabManager.setFileInput(tabId, selector, filePath);
 
                 res.json({
@@ -687,6 +687,36 @@ export class APIServer {
                 });
             } catch (error) {
                 console.error('Error setting file:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
+
+        // Playwright 兼容的端点 - 返回简单的 boolean
+        this.app.post('/api/account/set-input-files', async (req, res) => {
+            try {
+                const { tabId, selector, filePath } = req.body;
+
+                if (!tabId || !selector || !filePath) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'tabId, selector and filePath are required'
+                    });
+                }
+
+                console.log(`📁 Setting input files for tab ${tabId}: ${filePath}`);
+                
+                // 使用 Playwright 兼容的方法
+                const result = await this.tabManager.setInputFiles(tabId, selector, filePath);
+
+                res.json({
+                    success: result,
+                    data: { tabId, selector, filePath, method: 'setInputFiles' }
+                });
+            } catch (error) {
+                console.error('Error setting input files:', error);
                 res.status(500).json({
                     success: false,
                     error: error instanceof Error ? error.message : 'Unknown error'
