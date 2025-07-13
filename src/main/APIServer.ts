@@ -664,6 +664,36 @@ export class APIServer {
             }
         });
 
+        // 在现有路由后添加文件上传端点
+        this.app.post('/api/account/set-file', async (req, res) => {
+            try {
+                const { tabId, selector, filePath } = req.body;
+
+                if (!tabId || !selector || !filePath) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'tabId, selector and filePath are required'
+                    });
+                }
+
+                console.log(`📁 Setting file for tab ${tabId}: ${filePath}`);
+                
+                // 调用 TabManager 的新方法
+                const result = await this.tabManager.setFileInput(tabId, selector, filePath);
+
+                res.json({
+                    success: true,
+                    data: result
+                });
+            } catch (error) {
+                console.error('Error setting file:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
+
         // 调试接口 - 强制更新边界
         this.app.post('/api/debug/update-bounds', (req, res) => {
             try {
@@ -714,6 +744,7 @@ export class APIServer {
                     console.log(`   POST /api/account/save-cookies - Save cookies`);
                     console.log(`   POST /api/account/close - Close tab`);
                     console.log(`   POST /api/accounts/close-all - Close all tabs`);
+                    console.log(`   POST /api/account/set-file - Set file to input`);
                     console.log(`   POST /api/accounts/batch - Batch operations`);
                     console.log(`   GET  /api/account/:tabId/status - Check tab status`);
                     console.log(`   GET  /api/debug/bounds - Debug bounds info`);

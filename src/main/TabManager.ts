@@ -2,7 +2,8 @@ import { WebContentsView, BrowserWindow, Session } from 'electron';
 import { SessionManager } from './SessionManager';
 import { CookieManager } from './CookieManager';
 import { AccountTab } from '../types';
-
+import * as fs from 'fs';
+import * as path from 'path';
 export class TabManager {
     private tabs: Map<string, AccountTab> = new Map();
     private activeTabId: string | null = null;
@@ -21,7 +22,12 @@ export class TabManager {
         this.cookieManager = new CookieManager();
         this.setupWindowEvents();
     }
-
+    private getErrorMessage(error: unknown): string {
+        if (error instanceof Error) {
+            return error.message;
+        }
+        return String(error);
+    }
     private setupWindowEvents(): void {
         this.mainWindow.on('resize', () => {
             this.updateActiveWebContentsViewBounds();
@@ -533,6 +539,164 @@ export class TabManager {
         tab.cookieFile = cookieFilePath;
     }
 
+    async setFileInput(tabId: string, selector: string, filePath: string): Promise<any> {
+        const tab = this.tabs.get(tabId);
+        if (!tab) throw new Error(`Tab ${tabId} not found`);
+
+        try {
+            // 验证文件是否存在
+            if (!fs.existsSync(filePath)) {
+                throw new Error(`File not found: ${filePath}`);
+            }
+
+            const fileName = path.basename(filePath);
+            const fileSize = fs.statSync(filePath).size;
+            
+            console.log(`📁 Setting file "${fileName}" (${fileSize} bytes) to ${tab.accountName}`);
+
+            // 方法1: 尝试直接通过 DataTransfer 设置文件
+            const result = await this.setFileViaDataTransfer(tab, selector, filePath, fileName);
+            
+            if (result.success) {
+                return result;
+            }
+
+            // 方法2: 备用方案 - 通过模拟用户操作
+            console.log('📁 Trying alternative file setting method...');
+            return await this.setFileViaSimulation(tab, selector, filePath, fileName);
+
+        } catch (error) {
+            console.error(`❌ Failed to set file for tab ${tab.accountName}:`, error);
+            throw new Error(`Failed to set file: ${this.getErrorMessage(error)}`);
+        }
+    }
+
+    private async setFileViaDataTransfer(tab: any, selector: string, filePath: string, fileName: string): Promise<any> {
+        try {
+            // 读取文件内容
+            const fileBuffer = fs.readFileSync(filePath);
+            const fileArray = Array.from(fileBuffer);
+            
+            // 在页面中设置文件
+            const result = await tab.webContentsView.webContents.executeJavaScript(`
+                (async function() {
+                    try {
+                        const fileInput = document.querySelector('${selector}');
+                        if (!fileInput) {
+                            return { success: false, error: 'File input not found with selector: ${selector}' };
+                        }
+                        
+                        // 创建 File 对象
+                        const uint8Array = new Uint8Array([${fileArray.join(',')}]);
+                        const blob = new Blob([uint8Array]);
+                        const file = new File([blob], '${fileName}', {
+                            type: '${this.getMimeType(filePath)}',
+                            lastModified: Date.now()
+                        });
+                        
+                        // 使用 DataTransfer 设置文件
+                        const dt = new DataTransfer();
+                        dt.items.add(file);
+                        fileInput.files = dt.files;
+                        
+                        // 触发相关事件
+                        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        
+                        // 验证文件是否设置成功
+                        const hasFiles = fileInput.files && fileInput.files.length > 0;
+                        
+                        return { 
+                            success: hasFiles,
+                            fileName: hasFiles ? fileInput.files[0].name : null,
+                            fileCount: fileInput.files ? fileInput.files.length : 0,
+                            method: 'DataTransfer'
+                        };
+                    } catch (e) {
+                        return { success: false, error: e.message, method: 'DataTransfer' };
+                    }
+                })()
+            `);
+
+            console.log(`📁 DataTransfer result for ${tab.accountName}:`, result);
+            return result;
+
+        } catch (error) {
+            return { success: false, error: this.getErrorMessage(error), method: 'DataTransfer' };
+        }
+    }
+
+    private async setFileViaSimulation(tab: any, selector: string, filePath: string, fileName: string): Promise<any> {
+        try {
+            // 设置全局变量供页面使用
+            await tab.webContentsView.webContents.executeJavaScript(`
+                window.__electronFileUpload = {
+                    filePath: '${filePath}',
+                    fileName: '${fileName}',
+                    selector: '${selector}',
+                    ready: true
+                };
+            `);
+
+            // 等待一下让变量设置生效
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // 尝试模拟文件选择
+            const result = await tab.webContentsView.webContents.executeJavaScript(`
+                (async function() {
+                    try {
+                        const fileInput = document.querySelector('${selector}');
+                        if (!fileInput) {
+                            return { success: false, error: 'File input not found with selector: ${selector}' };
+                        }
+                        
+                        // 创建自定义事件标记
+                        fileInput.setAttribute('data-electron-file', '${filePath}');
+                        fileInput.setAttribute('data-file-name', '${fileName}');
+                        
+                        // 触发点击事件
+                        fileInput.click();
+                        
+                        return { 
+                            success: true,
+                            fileName: '${fileName}',
+                            method: 'Simulation',
+                            note: 'File path set as attribute, click triggered'
+                        };
+                    } catch (e) {
+                        return { success: false, error: e.message, method: 'Simulation' };
+                    }
+                })()
+            `);
+
+            console.log(`📁 Simulation result for ${tab.accountName}:`, result);
+            return result;
+
+        } catch (error) {
+            return { success: false, error: this.getErrorMessage(error), method: 'Simulation' };
+        }
+    }
+
+    private getMimeType(filePath: string): string {
+        const ext = path.extname(filePath).toLowerCase();
+        const mimeTypes: { [key: string]: string } = {
+            '.mp4': 'video/mp4',
+            '.avi': 'video/x-msvideo',
+            '.mov': 'video/quicktime',
+            '.wmv': 'video/x-ms-wmv',
+            '.flv': 'video/x-flv',
+            '.webm': 'video/webm',
+            '.mkv': 'video/x-matroska',
+            '.m4v': 'video/x-m4v',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.pdf': 'application/pdf'
+        };
+        
+        return mimeTypes[ext] || 'application/octet-stream';
+    }    
     // 添加调试方法
     debugWebContentsViewBounds(): void {
         console.log('🐛 Debug: Current WebContentsView bounds');
