@@ -8,7 +8,9 @@
 // ========================================
 interface TabData {
     id: string;
-    accountName: string;
+    accountName: string;        // 内部标识符
+    displayTitle?: string;      // 页面标题（Chrome风格）
+    displayFavicon?: string;    // 页面图标
     platform: string;
     loginStatus: 'logged_in' | 'logged_out' | 'unknown';
     url?: string;
@@ -50,8 +52,150 @@ function handleError(error: unknown): string {
     }
     return typeof error === 'string' ? error : 'Unknown error';
 }
+
 /**
- * 初始化应用
+ * 初始化标签页标题监听
+ */
+function setupTabTitleListeners(): void {
+    // 监听标题更新
+    window.electronAPI.onTabTitleUpdated(({ tabId, title }) => {
+        console.log(`📝 收到标题更新: ${title} (${tabId})`);
+        updateTabTitle(tabId, title);
+    });
+
+    // 监听图标更新
+    window.electronAPI.onTabFaviconUpdated(({ tabId, favicon }) => {
+        console.log(`🎭 收到图标更新: ${favicon} (${tabId})`);
+        updateTabFavicon(tabId, favicon);
+    });
+}
+
+/**
+ * 更新标签页标题
+ */
+function updateTabTitle(tabId: string, title: string): void {
+    // 更新内存中的数据
+    const tab = currentTabs.find(t => t.id === tabId);
+    if (tab) {
+        tab.displayTitle = title;
+    }
+
+    // 更新DOM中的标签页标题
+    const tabElement = document.querySelector(`[data-tab-id="${tabId}"]`);
+    if (tabElement) {
+        const titleElement = tabElement.querySelector('.chrome-tab-title');
+        if (titleElement) {
+            titleElement.textContent = title;
+            titleElement.setAttribute('title', title);
+        }
+    }
+
+    // 如果是当前活动标签页，更新窗口标题
+    if (tabId === activeTabId) {
+        document.title = title + ' - Multi-Account Browser';
+    }
+}
+
+/**
+ * 更新标签页图标
+ */
+function updateTabFavicon(tabId: string, favicon: string): void {
+    // 更新内存中的数据
+    const tab = currentTabs.find(t => t.id === tabId);
+    if (tab) {
+        tab.displayFavicon = favicon;
+    }
+
+    // 更新DOM中的标签页图标
+    const tabElement = document.querySelector(`[data-tab-id="${tabId}"]`);
+    if (tabElement) {
+        const iconElement = tabElement.querySelector('.chrome-tab-icon');
+        if (iconElement) {
+            // 使用网站的 favicon，失败时显示默认图标
+            iconElement.innerHTML = `<img src="${favicon}" alt="icon" style="width: 16px; height: 16px; border-radius: 2px;" 
+                                     onerror="this.style.display='none'; this.parentElement.textContent='🌐';">`;
+        }
+    }
+}
+
+/**
+ * 创建Chrome风格标签页 - 显示页面标题
+ */
+function createChromeTab(tab: TabData): HTMLElement {
+    const tabElement = document.createElement('div');
+    tabElement.className = `chrome-tab ${tab.id === activeTabId ? 'active' : ''}`;
+    tabElement.setAttribute('data-tab-id', tab.id);
+
+    // 优先使用页面标题，备选使用账号名
+    const displayTitle = tab.displayTitle || tab.accountName || 'New Tab';
+
+    // 图标：优先使用 favicon，备选使用默认图标
+    let iconContent = '';
+    if (tab.displayFavicon) {
+        iconContent = `<img src="${tab.displayFavicon}" alt="icon" style="width: 16px; height: 16px; border-radius: 2px;" 
+                       onerror="this.style.display='none'; this.parentElement.textContent='🌐';">`;
+    } else {
+        iconContent = '🌐'; // 默认图标
+    }
+
+    tabElement.innerHTML = `
+        <div class="chrome-tab-icon">${iconContent}</div>
+        <div class="chrome-tab-title" title="${displayTitle}">${displayTitle}</div>
+        <button class="chrome-tab-close" title="关闭标签页">×</button>
+    `;
+
+    // 事件监听器
+    tabElement.addEventListener('click', (e) => {
+        if (!(e.target as HTMLElement).classList.contains('chrome-tab-close')) {
+            switchTab(tab.id);
+        }
+    });
+
+    const closeBtn = tabElement.querySelector('.chrome-tab-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeTab(tab.id);
+        });
+    }
+
+    return tabElement;
+}
+/**
+ * 刷新标签页列表 - 获取包含显示信息的数据
+ */
+async function refreshTabList(): Promise<void> {
+    try {
+        // 使用新的API获取包含显示信息的标签页数据
+        const response = await fetch('http://localhost:3000/api/accounts-with-display');
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+                currentTabs = result.data || [];
+                updateTabBar();
+                updateCurrentTabInfo();
+                updateNoTabsMessage();
+                console.log(`📑 刷新了 ${currentTabs.length} 个标签页（Chrome风格显示）`);
+                return;
+            }
+        }
+
+        // 备选：使用原始API
+        console.warn('显示信息API不可用，使用原始API');
+        const fallbackResult = await window.electronAPI.getAllTabs();
+        if (fallbackResult.success) {
+            currentTabs = fallbackResult.tabs || [];
+            updateTabBar();
+            updateCurrentTabInfo();
+            updateNoTabsMessage();
+        }
+    } catch (error) {
+        console.error('刷新标签页列表异常:', error);
+    }
+}
+
+/**
+ * 应用初始化时设置标题监听
  */
 async function initializeApplication(): Promise<void> {
     if (appInitialized) return;
@@ -60,6 +204,7 @@ async function initializeApplication(): Promise<void> {
         showLoading('正在初始化应用...');
         await initializeComponents();
         setupEventListeners();
+        setupTabTitleListeners(); // 新增：设置标题监听
         await checkAPIStatus();
         await refreshTabList();
         setupMenuListeners();
@@ -69,7 +214,7 @@ async function initializeApplication(): Promise<void> {
         appInitialized = true;
         hideLoading();
 
-        console.log('✅ 应用初始化完成');
+        console.log('✅ 应用初始化完成（Chrome风格标签页）');
         showNotification('应用初始化完成', 'success');
 
     } catch (error) {
@@ -79,7 +224,6 @@ async function initializeApplication(): Promise<void> {
         throw error;
     }
 }
-
 /**
  * 初始化组件
  */
@@ -210,7 +354,7 @@ function setupUrlInputEvents(): void {
         // ❌ 移除：添加焦点样式
         // urlInput.style.outline = '2px solid #1a73e8';
         // urlInput.style.outlineOffset = '-2px';
-        
+
         // ✅ 让 CSS 处理焦点样式
     });
 
@@ -219,7 +363,7 @@ function setupUrlInputEvents(): void {
         // ❌ 移除：移除焦点样式
         // urlInput.style.outline = '';
         // urlInput.style.outlineOffset = '';
-        
+
         // ✅ 让 CSS 处理焦点样式
     });
 
@@ -228,7 +372,7 @@ function setupUrlInputEvents(): void {
         const target = e.target as HTMLInputElement;
         console.log('🔍 URL input changed:', target.value);
         e.stopPropagation();
-        
+
         // 更新 Go 按钮显示状态
         updateGoButtonVisibility();
     });
@@ -243,7 +387,7 @@ function setupUrlInputEvents(): void {
     urlInput.addEventListener('paste', (e) => {
         e.stopPropagation();
         console.log('📋 Paste event in URL input');
-        
+
         // 延迟更新 Go 按钮状态
         setTimeout(() => updateGoButtonVisibility(), 10);
     });
@@ -263,9 +407,9 @@ function setupUrlInputEvents(): void {
 function updateGoButtonVisibility(): void {
     const urlInput = document.getElementById('url-input') as HTMLInputElement;
     const goBtn = document.getElementById('go-btn');
-    
+
     if (!urlInput || !goBtn) return;
-    
+
     // CSS 会自动处理显示隐藏，这里只是为了调试
     const hasContent = urlInput.value.trim().length > 0;
     console.log(`🔍 Go button should be ${hasContent ? 'visible' : 'hidden'}`);
@@ -395,7 +539,7 @@ async function navigateToUrl(): Promise<void> {
             // 更新 URL 输入框为实际的 URL
             urlInput.value = url;
             showNotification(`正在加载: ${url}`, 'info');
-            
+
             // 模拟 Chrome 的行为：导航后选中整个 URL
             setTimeout(() => {
                 urlInput.select();
@@ -453,68 +597,6 @@ function updateTabBar(): void {
     });
 
     console.log(`📑 更新了 ${currentTabs.length} 个标签页`);
-}
-function createChromeTab(tab: TabData): HTMLElement {
-    const tabElement = document.createElement('div');
-    tabElement.className = `chrome-tab ${tab.id === activeTabId ? 'active' : ''}`;
-    tabElement.setAttribute('data-tab-id', tab.id);
-
-    // 获取平台图标
-    const platformIcon = getPlatformIcon(tab.platform);
-
-    tabElement.innerHTML = `
-        <div class="chrome-tab-icon" style="background: ${getPlatformColor(tab.platform)};">${platformIcon}</div>
-        <div class="chrome-tab-title" title="${tab.accountName}">${tab.accountName}</div>
-        <button class="chrome-tab-close" title="关闭标签页"></button>
-    `;
-
-    // 点击切换标签页
-    tabElement.addEventListener('click', (e) => {
-        if (!(e.target as HTMLElement).classList.contains('chrome-tab-close')) {
-            switchTab(tab.id);
-        }
-    });
-
-    // 关闭按钮事件
-    const closeBtn = tabElement.querySelector('.chrome-tab-close');
-    if (closeBtn) {
-        closeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            closeTab(tab.id);
-        });
-    }
-
-    return tabElement;
-}
-
-/**
- * 获取平台图标
- */
-function getPlatformIcon(platform: string): string {
-    const icons: Record<string, string> = {
-        'xiaohongshu': '📱',
-        'weixin': '💬',
-        'douyin': '🎵',
-        'kuaishou': '⚡',
-        'bilibili': '📺',
-        'other': '🌐'
-    };
-    return icons[platform] || '🌐';
-}
-
-/**
- * 获取平台颜色
- */
-function getPlatformColor(platform: string): string {
-    const colors: Record<string, string> = {
-        'xiaohongshu': '#fe2c55',
-        'weixin': '#07c160',
-        'douyin': '#000000',
-        'kuaishou': '#ff6600',
-        'bilibili': '#00a1d6',
-        'other': '#1a73e8'
-    };
-    return colors[platform] || '#1a73e8';
 }
 
 
@@ -805,28 +887,6 @@ async function closeTab(tabId: string): Promise<void> {
 }
 
 /**
- * 刷新标签页列表
- */
-async function refreshTabList(): Promise<void> {
-    try {
-        const result = await window.electronAPI.getAllTabs();
-        if (result.success) {
-            currentTabs = result.tabs || [];
-
-            // 使用新的Chrome风格标签页更新逻辑
-            updateTabBar();
-            updateCurrentTabInfo();
-            updateNoTabsMessage();
-
-        } else {
-            console.error('获取标签页列表失败:', result.error);
-        }
-    } catch (error) {
-        console.error('刷新标签页列表异常:', error);
-    }
-}
-
-/**
  * 更新当前标签页信息显示
  */
 function updateCurrentTabInfo(): void {
@@ -1103,7 +1163,7 @@ async function batchLoadCookies(): Promise<void> {
         const cookieFilePath = result.filePaths[0];
 
         // 选择要操作的标签页
-        const selectedTabs = currentTabs.filter(tab => 
+        const selectedTabs = currentTabs.filter(tab =>
             confirm(`是否为标签页 "${tab.accountName}" 加载 Cookie？`)
         );
 
@@ -1176,7 +1236,7 @@ async function batchLoadCookies(): Promise<void> {
         default:
             console.warn('Unknown cookie action:', action);
     }
-    
+
     // 关闭模态框
     hideCookieDialog();
 };
@@ -1651,8 +1711,8 @@ function setupKeyboardShortcuts(): void {
         // 检查当前焦点元素 - 修复类型错误
         const activeElement = document.activeElement;
         const isInputFocused = activeElement && (
-            activeElement.tagName === 'INPUT' || 
-            activeElement.tagName === 'TEXTAREA' || 
+            activeElement.tagName === 'INPUT' ||
+            activeElement.tagName === 'TEXTAREA' ||
             (activeElement as HTMLElement).contentEditable === 'true' // ✅ 类型断言修复
         );
 
@@ -1661,7 +1721,7 @@ function setupKeyboardShortcuts(): void {
             // 只允许这些全局快捷键在输入框焦点时工作
             const allowedGlobalShortcuts = ['t', 'w', 'F5'];
             const key = e.key.toLowerCase();
-            
+
             if (!allowedGlobalShortcuts.includes(key) && !allowedGlobalShortcuts.includes(e.key)) {
                 return; // 让输入框处理其他快捷键
             }
@@ -1673,7 +1733,7 @@ function setupKeyboardShortcuts(): void {
             e.stopPropagation();
             createNewTab();
         }
-        
+
         // Ctrl/Cmd + L: 聚焦到地址栏
         if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
             e.preventDefault();
@@ -1684,7 +1744,7 @@ function setupKeyboardShortcuts(): void {
                 urlInput.select();
             }
         }
-        
+
         // Ctrl/Cmd + W: 关闭当前标签页
         if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
             e.preventDefault();
@@ -2000,7 +2060,7 @@ function getAppState(): object {
         console.log('No active tab');
         return;
     }
-    
+
     const response = await fetch('http://localhost:3000/api/account/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2020,7 +2080,7 @@ function getAppState(): object {
             `
         })
     });
-    
+
     const result = await response.json();
     console.log('Debug result:', result);
 };

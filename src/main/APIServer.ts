@@ -624,7 +624,7 @@ export class APIServer {
             try {
                 const tabs = this.tabManager.getAllTabs();
                 const activeTab = this.tabManager.getActiveTab();
-                
+
                 const boundsInfo = tabs.map(tab => {
                     try {
                         const bounds = tab.webContentsView.getBounds();
@@ -677,7 +677,7 @@ export class APIServer {
                 }
 
                 console.log(`📁 Setting file for tab ${tabId}: ${filePath}`);
-                
+
                 // 调用 TabManager 的修复后方法
                 const result = await this.tabManager.setFileInput(tabId, selector, filePath);
 
@@ -707,7 +707,7 @@ export class APIServer {
                 }
 
                 console.log(`📁 Setting input files for tab ${tabId}: ${filePath}`);
-                
+
                 // 使用 Playwright 兼容的方法
                 const result = await this.tabManager.setInputFiles(tabId, selector, filePath);
 
@@ -724,11 +724,69 @@ export class APIServer {
             }
         });
 
+        this.app.get('/api/accounts-with-display', (req, res) => {
+            try {
+                const accounts = this.tabManager.getAllTabsWithDisplayInfo().map(tab => ({
+                    id: tab.id,
+                    accountName: tab.accountName,
+                    displayTitle: tab.displayTitle,
+                    displayFavicon: tab.displayFavicon,
+                    platform: tab.platform,
+                    loginStatus: tab.loginStatus,
+                    url: tab.url,
+                    cookieFile: tab.cookieFile,
+                    renderer: 'WebContentsView'
+                }));
+
+                res.json({
+                    success: true,
+                    data: accounts
+                });
+            } catch (error) {
+                console.error('Error getting accounts with display info:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
+
+        // 获取单个标签页的显示信息
+        this.app.get('/api/account/:tabId/display', (req, res) => {
+            try {
+                const { tabId } = req.params;
+                const displayInfo = this.tabManager.getTabDisplayInfo(tabId);
+
+                if (displayInfo) {
+                    res.json({
+                        success: true,
+                        data: {
+                            tabId: tabId,
+                            title: displayInfo.title,
+                            favicon: displayInfo.favicon,
+                            timestamp: new Date().toISOString()
+                        }
+                    });
+                } else {
+                    res.status(404).json({
+                        success: false,
+                        error: 'Tab not found'
+                    });
+                }
+            } catch (error) {
+                console.error('Error getting tab display info:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
+
         // 调试接口 - 强制更新边界
         this.app.post('/api/debug/update-bounds', (req, res) => {
             try {
                 this.tabManager.forceUpdateAllBounds();
-                
+
                 res.json({
                     success: true,
                     message: 'Bounds updated for all tabs',

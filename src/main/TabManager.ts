@@ -10,7 +10,9 @@ export class TabManager {
     private mainWindow: BrowserWindow;
     private sessionManager: SessionManager;
     private cookieManager: CookieManager;
-
+    // 标签页标题缓存
+    private tabTitles: Map<string, string> = new Map();
+    private tabFavicons: Map<string, string> = new Map();
     // 添加窗口布局常量
     private readonly HEADER_HEIGHT = 60;
     private readonly TAB_BAR_HEIGHT = 48;
@@ -133,7 +135,6 @@ export class TabManager {
     private setupWebContentsViewEvents(tab: AccountTab): void {
         const webContents = tab.webContentsView.webContents;
         let lastLoggedUrl = '';
-
         // 防止 WebContentsView 影响主窗口
         webContents.on('before-input-event', (event, input) => {
             // 阻止某些可能影响主窗口的快捷键
@@ -158,15 +159,95 @@ export class TabManager {
 
         webContents.on('did-fail-load', (event: any, errorCode: number, errorDescription: string, validatedURL: string) => {
             if (errorCode !== -3) {
-                console.error(`❌ Page load failed for ${tab.accountName}: ${errorDescription} (${errorCode})`);
+                console.error(`❌ 页面加载失败: ${errorDescription} (${errorCode}) - ${tab.accountName}`);
                 tab.loginStatus = 'logged_out';
+
+                // 设置错误标题
+                this.tabTitles.set(tab.id, `加载失败 - ${tab.accountName}`);
+                this.notifyTabTitleUpdate(tab.id, `加载失败 - ${tab.accountName}`);
             }
         });
 
-        webContents.on('page-title-updated', (event: any, title: string) => {
+        webContents.on('page-title-updated', (event: any, title: string, explicitSet: boolean) => {
             if (title && title !== 'about:blank' && !title.includes('Loading')) {
-                console.log(`📝 Page title: ${title} (${tab.accountName})`);
+                console.log(`📝 页面标题更新: ${title} (${tab.accountName})`);
+
+                // 更新标题缓存
+                this.tabTitles.set(tab.id, title);
+
+                // 通知前端更新标签页显示
+                this.notifyTabTitleUpdate(tab.id, title);
             }
+        });
+
+        // 监听页面图标更新（favicon）
+        webContents.on('page-favicon-updated', (event: any, favicons: string[]) => {
+            if (favicons && favicons.length > 0) {
+                const favicon = favicons[0]; // 使用第一个图标
+                console.log(`🎭 页面图标更新: ${favicon} (${tab.accountName})`);
+
+                // 更新图标缓存
+                this.tabFavicons.set(tab.id, favicon);
+
+                // 通知前端更新标签页图标
+                this.notifyTabFaviconUpdate(tab.id, favicon);
+            }
+        });
+
+        // 页面加载完成后获取标题和图标
+        webContents.on('did-finish-load', async () => {
+            const currentUrl = webContents.getURL();
+
+            if (currentUrl !== lastLoggedUrl) {
+                console.log(`📄 页面加载完成: ${currentUrl} (${tab.accountName})`);
+                lastLoggedUrl = currentUrl;
+            }
+
+            tab.url = currentUrl;
+
+            // 获取页面标题
+            try {
+                const title = await webContents.executeJavaScript('document.title');
+                if (title && title.trim()) {
+                    this.tabTitles.set(tab.id, title);
+                    this.notifyTabTitleUpdate(tab.id, title);
+                }
+            } catch (error) {
+                console.warn(`获取页面标题失败: ${error}`);
+            }
+
+            // 获取页面图标
+            try {
+                const favicon = await webContents.executeJavaScript(`
+                    (function() {
+                        // 查找各种可能的图标
+                        let iconUrl = '';
+                        
+                        // 方法1: 查找 link[rel*="icon"]
+                        let iconLink = document.querySelector('link[rel*="icon"]');
+                        if (iconLink && iconLink.href) {
+                            iconUrl = iconLink.href;
+                        }
+                        
+                        // 方法2: 查找默认的 favicon.ico
+                        if (!iconUrl) {
+                            const baseUrl = window.location.origin;
+                            iconUrl = baseUrl + '/favicon.ico';
+                        }
+                        
+                        return iconUrl;
+                    })()
+                `);
+
+                if (favicon && favicon !== 'about:blank') {
+                    this.tabFavicons.set(tab.id, favicon);
+                    this.notifyTabFaviconUpdate(tab.id, favicon);
+                }
+            } catch (error) {
+                console.warn(`获取页面图标失败: ${error}`);
+            }
+
+            await this.updateLoginStatus(tab.id);
         });
 
         // 处理新窗口 - 防止弹出窗口影响主界面
@@ -211,7 +292,59 @@ export class TabManager {
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         );
     }
+    /**
+     * 通知前端标题更新
+     */
+    private notifyTabTitleUpdate(tabId: string, title: string): void {
+        // 发送到主窗口的渲染进程
+        this.mainWindow.webContents.send('tab-title-updated', {
+            tabId: tabId,
+            title: title,
+            timestamp: new Date().toISOString()
+        });
+    }
 
+    /**
+     * 通知前端图标更新
+     */
+    private notifyTabFaviconUpdate(tabId: string, favicon: string): void {
+        // 发送到主窗口的渲染进程
+        this.mainWindow.webContents.send('tab-favicon-updated', {
+            tabId: tabId,
+            favicon: favicon,
+            timestamp: new Date().toISOString()
+        });
+    }
+
+    /**
+     * 获取标签页的显示信息
+     */
+    getTabDisplayInfo(tabId: string): { title: string; favicon?: string } {
+        const tab = this.tabs.get(tabId);
+        if (!tab) {
+            return { title: 'Unknown Tab' };
+        }
+
+        // 优先使用页面标题，备选使用账号名
+        const title = this.tabTitles.get(tabId) || tab.accountName || 'New Tab';
+        const favicon = this.tabFavicons.get(tabId);
+
+        return { title, favicon };
+    }
+
+    /**
+     * 获取所有标签页（包含显示信息）
+     */
+    getAllTabsWithDisplayInfo(): Array<AccountTab & { displayTitle: string; displayFavicon?: string }> {
+        return Array.from(this.tabs.values()).map(tab => {
+            const displayInfo = this.getTabDisplayInfo(tab.id);
+            return {
+                ...tab,
+                displayTitle: displayInfo.title,
+                displayFavicon: displayInfo.favicon
+            };
+        });
+    }
     async loadAccountCookies(tabId: string, cookieFilePath: string): Promise<void> {
         const tab = this.tabs.get(tabId);
         if (!tab) throw new Error(`Tab ${tabId} not found`);
@@ -281,7 +414,7 @@ export class TabManager {
 
     private updateActiveWebContentsViewBounds(specificView?: WebContentsView): void {
         const targetView = specificView || (this.activeTabId ? this.tabs.get(this.activeTabId)?.webContentsView : null);
-        
+
         if (!targetView) {
             console.log('📐 No active tab to update bounds');
             return;
@@ -551,12 +684,12 @@ export class TabManager {
 
             const fileName = path.basename(filePath);
             const fileSize = fs.statSync(filePath).size;
-            
+
             console.log(`📁 Setting file "${fileName}" (${fileSize} bytes) to ${tab.accountName}`);
 
             // 方法1: 通用的文件路径设置 - 不读取文件内容
             const result = await this.setFileViaPathReference(tab, selector, filePath, fileName);
-            
+
             if (result.success) {
                 return result;
             }
@@ -674,7 +807,7 @@ export class TabManager {
         try {
             // 关键：不读取文件内容，使用类似 Playwright 的机制
             // 让 Electron 的 WebContents 直接处理文件路径
-            
+
             // 首先，我们需要在页面中准备文件输入框
             const prepareScript = `
                 (function() {
@@ -694,13 +827,13 @@ export class TabManager {
                     }
                 })()
             `;
-            
+
             const prepareResult = await tab.webContentsView.webContents.executeJavaScript(prepareScript);
-            
+
             if (!prepareResult.success) {
                 throw new Error(`Prepare failed: ${prepareResult.error}`);
             }
-            
+
             // 关键：使用 WebContents 的文件处理能力，而不是手动读取文件
             // 这模拟了 Playwright 的 setInputFiles 行为
             const setFileScript = `
@@ -755,9 +888,9 @@ export class TabManager {
         try {
             // 使用 Electron 的原生能力来处理文件选择
             // 这避免了在 JavaScript 中处理大文件
-            
+
             console.log('📁 Using Electron native file handling...');
-            
+
             // 方法：通过 WebContents 的 IPC 机制设置文件
             const result = await tab.webContentsView.webContents.executeJavaScript(`
                 (function() {
@@ -830,7 +963,7 @@ export class TabManager {
             '.gif': 'image/gif',
             '.pdf': 'application/pdf'
         };
-        
+
         return mimeTypes[ext] || 'application/octet-stream';
     }
 

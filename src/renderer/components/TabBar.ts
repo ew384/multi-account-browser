@@ -5,7 +5,9 @@
 
 interface TabData {
     id: string;
-    accountName: string;
+    accountName: string;        // 内部标识符：wx_a7342fe8-5ff6-11f0-b1ab-a45e60e0141b
+    displayTitle?: string;      // 页面标题（Chrome风格）
+    displayFavicon?: string;    // 页面图标
     platform: string;
     loginStatus: 'logged_in' | 'logged_out' | 'unknown';
     url?: string;
@@ -241,17 +243,26 @@ class TabBar {
         tabElement.draggable = true;
         tabElement.setAttribute('data-tab-id', tab.id);
 
+        // 优先使用页面标题，备选使用账号名
+        const displayTitle = tab.displayTitle || tab.accountName || 'New Tab';
+
         // 状态指示器颜色
         const statusClass = `status-${tab.loginStatus}`;
 
-        // 平台图标
-        const platformIcon = this.getPlatformIcon(tab.platform);
+        // 图标：优先使用 favicon，备选使用默认图标
+        let iconContent = '';
+        if (tab.displayFavicon) {
+            iconContent = `<img src="${tab.displayFavicon}" alt="icon" style="width: 14px; height: 14px; border-radius: 2px; object-fit: cover;" 
+                           onerror="this.style.display='none'; this.parentElement.textContent='🌐';">`;
+        } else {
+            iconContent = '🌐'; // 默认图标
+        }
 
         tabElement.innerHTML = `
-            <span class="tab-icon">${platformIcon}</span>
-            <span class="tab-name" title="${tab.accountName}">${tab.accountName}</span>
-            <span class="tab-status ${statusClass}" title="登录状态: ${this.getStatusText(tab.loginStatus)}"></span>
-            <button class="tab-close" title="关闭标签页" onclick="event.stopPropagation()">&times;</button>
+        <span class="tab-icon">${iconContent}</span>
+        <span class="tab-name" title="${displayTitle}">${displayTitle}</span>
+        <span class="tab-status ${statusClass}" title="登录状态: ${this.getStatusText(tab.loginStatus)}"></span>
+        <button class="tab-close" title="关闭标签页">×</button>
         `;
 
         // 添加事件监听器
@@ -341,18 +352,6 @@ class TabBar {
         }
     }
 
-    private getPlatformIcon(platform: string): string {
-        const icons: Record<string, string> = {
-            'weixin': '💬',
-            'douyin': '🎵',
-            'xiaohongshu': '📱',
-            'kuaishou': '⚡',
-            'bilibili': '📺',
-            'other': '🌐'
-        };
-        return icons[platform] || '🌐';
-    }
-
     private getStatusText(status: string): string {
         const statusTexts: Record<string, string> = {
             'logged_in': '已登录',
@@ -361,7 +360,45 @@ class TabBar {
         };
         return statusTexts[status] || '未知';
     }
+    /**
+     * 更新标签页标题（从外部调用）
+     */
+    updateTabTitle(tabId: string, title: string): void {
+        const tab = this.tabs.get(tabId);
+        if (tab) {
+            tab.displayTitle = title;
 
+            // 更新DOM中的显示
+            const tabElement = document.querySelector(`[data-tab-id="${tabId}"]`);
+            if (tabElement) {
+                const nameElement = tabElement.querySelector('.tab-name');
+                if (nameElement) {
+                    nameElement.textContent = title;
+                    nameElement.setAttribute('title', title);
+                }
+            }
+        }
+    }
+
+    /**
+     * 更新标签页图标（从外部调用）
+     */
+    updateTabFavicon(tabId: string, favicon: string): void {
+        const tab = this.tabs.get(tabId);
+        if (tab) {
+            tab.displayFavicon = favicon;
+
+            // 更新DOM中的显示
+            const tabElement = document.querySelector(`[data-tab-id="${tabId}"]`);
+            if (tabElement) {
+                const iconElement = tabElement.querySelector('.tab-icon');
+                if (iconElement) {
+                    iconElement.innerHTML = `<img src="${favicon}" alt="icon" style="width: 14px; height: 14px; border-radius: 2px; object-fit: cover;" 
+                                            onerror="this.style.display='none'; this.parentElement.textContent='🌐';">`;
+                }
+            }
+        }
+    }
     private updateTabCount(): void {
         const countElement = document.getElementById('api-active-tabs');
         if (countElement) {
