@@ -141,7 +141,7 @@ function createChromeTab(tab: TabData): HTMLElement {
     tabElement.innerHTML = `
         <div class="chrome-tab-icon">${iconContent}</div>
         <div class="chrome-tab-title" title="${displayTitle}">${displayTitle}</div>
-        <button class="chrome-tab-close" title="关闭标签页">×</button>
+        <button class="chrome-tab-close" title="关闭标签页"></button>
     `;
 
     // 事件监听器
@@ -150,6 +150,7 @@ function createChromeTab(tab: TabData): HTMLElement {
             switchTab(tab.id);
         }
     });
+
 
     const closeBtn = tabElement.querySelector('.chrome-tab-close');
     if (closeBtn) {

@@ -17,12 +17,23 @@ export class TabManager {
     private readonly HEADER_HEIGHT = 60;
     private readonly TAB_BAR_HEIGHT = 48;
     private readonly TOP_OFFSET = 108; // 60px header + 48px tab-bar
-
+    private initScripts: Map<string, string[]> = new Map();
     constructor(mainWindow: BrowserWindow, sessionManager: SessionManager) {
         this.mainWindow = mainWindow;
         this.sessionManager = sessionManager;
         this.cookieManager = new CookieManager();
         this.setupWindowEvents();
+    }
+    async addInitScript(tabId: string, script: string): Promise<void> {
+        const tab = this.tabs.get(tabId);
+        if (!tab) throw new Error(`Tab ${tabId} not found`);
+
+        if (!this.initScripts.has(tabId)) {
+            this.initScripts.set(tabId, []);
+        }
+
+        this.initScripts.get(tabId)!.push(script);
+        console.log(`📜 Added init script to tab ${tab.accountName}`);
     }
     private getErrorMessage(error: unknown): string {
         if (error instanceof Error) {
@@ -64,22 +75,27 @@ export class TabManager {
 
             const session = this.sessionManager.createIsolatedSession(tabId);
 
-            // 使用 WebContentsView 替代 BrowserView
+            // 使用 WebContentsView
             const webContentsView = new WebContentsView({
                 webPreferences: {
                     session: session,
                     nodeIntegration: false,
                     contextIsolation: true,
                     sandbox: false,
-                    webSecurity: true,
-                    allowRunningInsecureContent: false,
+                    webSecurity: false, // 🔥 关键：禁用以提升加载速度
+                    allowRunningInsecureContent: true, // 🔥 允许混合内容
                     backgroundThrottling: false,
                     v8CacheOptions: 'bypassHeatCheck',
                     plugins: false,
-                    // 禁用开发者工具检测提示
-                    devTools: process.env.NODE_ENV === 'development'
+                    devTools: process.env.NODE_ENV === 'development',
+                    // 🔥 新增性能优化选项
+                    experimentalFeatures: true,
+                    enableBlinkFeatures: 'CSSContainerQueries',
+                    disableBlinkFeatures: 'AutomationControlled', // 隐藏自动化标识
+                    preload: undefined // 不加载预加载脚本
                 }
             });
+
 
             const tab: AccountTab = {
                 id: tabId,
@@ -98,12 +114,9 @@ export class TabManager {
 
             // 如果有初始URL，开始导航（非阻塞）
             if (initialUrl) {
-                console.log(`🔗 Starting initial navigation for ${accountName}...`);
-                setImmediate(() => {
-                    this.navigateTab(tabId, initialUrl).catch((error) => {
-                        console.warn(`⚠️ Initial navigation warning for ${accountName}: ${error.message}`);
-                    });
-                });
+                console.log(`🔗 Starting immediate navigation for ${accountName}...`);
+                // 不使用 setImmediate，直接开始导航
+                await this.navigateTab(tabId, initialUrl);
             }
 
             return tabId;
@@ -132,6 +145,190 @@ export class TabManager {
         }
     }
 
+    private async injectInitScripts(tabId: string): Promise<void> {
+        const scripts = this.initScripts.get(tabId);
+        if (!scripts || scripts.length === 0) return;
+
+        const tab = this.tabs.get(tabId);
+        if (!tab) return;
+
+        console.log(`📜 Injecting ${scripts.length} init scripts for ${tab.accountName}`);
+
+        // 🔥 步骤1：先注入 API 兼容层，解决缺失的 Web API
+        try {
+            await tab.webContentsView.webContents.executeJavaScript(`
+                (function() {
+                    console.log('🛡️ 开始注入 API 兼容层...');
+                    
+                    // Notification API 兼容
+                    if (typeof Notification === 'undefined') {
+                        window.Notification = class MockNotification {
+                            constructor(title, options = {}) {
+                                this.title = title;
+                                this.options = options;
+                                this.onclick = null;
+                                this.onshow = null;
+                                this.onerror = null;
+                                this.onclose = null;
+                                console.log('Mock Notification created:', title);
+                            }
+                            
+                            static get permission() { 
+                                return 'granted'; 
+                            }
+                            
+                            static requestPermission(callback) {
+                                const result = 'granted';
+                                if (callback) callback(result);
+                                return Promise.resolve(result);
+                            }
+                            
+                            close() {
+                                console.log('Mock Notification closed');
+                            }
+                            
+                            addEventListener(type, listener) {
+                                this['on' + type] = listener;
+                            }
+                            
+                            removeEventListener(type, listener) {
+                                this['on' + type] = null;
+                            }
+                        };
+                        console.log('✅ Notification API mock 已注入');
+                    }
+                    
+                    // webkitNotifications 兼容 (旧版 Chrome)
+                    if (typeof webkitNotifications === 'undefined') {
+                        window.webkitNotifications = {
+                            checkPermission: () => 0, // 0 = PERMISSION_ALLOWED
+                            requestPermission: (callback) => {
+                                if (callback) callback();
+                                return Promise.resolve();
+                            },
+                            createNotification: (icon, title, body) => {
+                                return new window.Notification(title, { icon, body });
+                            }
+                        };
+                        console.log('✅ webkitNotifications API mock 已注入');
+                    }
+                    
+                    // 其他可能缺失的 API
+                    if (typeof ServiceWorker === 'undefined') {
+                        window.ServiceWorker = class MockServiceWorker {};
+                        console.log('✅ ServiceWorker API mock 已注入');
+                    }
+                    
+                    if (typeof PushManager === 'undefined') {
+                        window.PushManager = class MockPushManager {
+                            static get supportedContentEncodings() { return []; }
+                        };
+                        console.log('✅ PushManager API mock 已注入');
+                    }
+                    
+                    // 确保基础的 console 方法存在
+                    if (!window.console) {
+                        window.console = {
+                            log: () => {},
+                            warn: () => {},
+                            error: () => {},
+                            info: () => {},
+                            debug: () => {}
+                        };
+                    }
+                    
+                    console.log('🛡️ API 兼容层注入完成');
+                    return { success: true };
+                })();
+            `);
+
+            console.log(`✅ API 兼容层注入成功 for ${tab.accountName}`);
+
+        } catch (error) {
+            console.warn(`⚠️ API 兼容层注入失败 for ${tab.accountName}:`, error);
+            // 继续执行，不因为兼容层失败而中断
+        }
+
+        // 🔥 步骤2：注入所有初始化脚本
+        for (let i = 0; i < scripts.length; i++) {
+            const script = scripts[i];
+
+            try {
+                console.log(`📜 Injecting script ${i + 1}/${scripts.length} for ${tab.accountName}...`);
+
+                // 包装脚本，提供错误处理和隔离
+                const wrappedScript = `
+                    (function() {
+                        try {
+                            console.log('🚀 开始执行 init script ${i + 1}');
+                            
+                            // 🔥 执行实际的脚本内容
+                            ${script}
+                            
+                            console.log('✅ Init script ${i + 1} 执行成功');
+                            return { 
+                                success: true, 
+                                scriptIndex: ${i + 1},
+                                message: 'Script executed successfully'
+                            };
+                            
+                        } catch (e) {
+                            console.error('❌ Init script ${i + 1} 执行失败:', e);
+                            return { 
+                                success: false, 
+                                scriptIndex: ${i + 1},
+                                error: e.message, 
+                                stack: e.stack,
+                                name: e.name,
+                                line: e.lineNumber || 'unknown',
+                                column: e.columnNumber || 'unknown'
+                            };
+                        }
+                    })();
+                `;
+
+                const result = await tab.webContentsView.webContents.executeJavaScript(wrappedScript);
+
+                if (result && result.success) {
+                    console.log(`✅ Init script ${i + 1} executed successfully for ${tab.accountName}`);
+                } else if (result && !result.success) {
+                    console.error(`❌ Init script ${i + 1} failed for ${tab.accountName}:`);
+                    console.error(`   Error: ${result.error}`);
+                    console.error(`   Name: ${result.name}`);
+                    console.error(`   Line: ${result.line}, Column: ${result.column}`);
+                    console.error(`   Stack: ${result.stack}`);
+
+                    // 可以选择是否继续执行后续脚本
+                    // 这里选择继续执行，但记录错误
+                } else {
+                    console.warn(`⚠️ Init script ${i + 1} returned unexpected result for ${tab.accountName}:`, result);
+                }
+
+            } catch (error) {
+                console.error(`❌ Failed to inject script ${i + 1} for ${tab.accountName}:`, error);
+
+                // 如果是执行错误，尝试获取更多信息
+                if (error instanceof Error) {
+                    console.error(`   Error name: ${error.name}`);
+                    console.error(`   Error message: ${error.message}`);
+                    if (error.stack) {
+                        console.error(`   Stack trace: ${error.stack}`);
+                    }
+                }
+
+                // 继续执行下一个脚本
+                continue;
+            }
+
+            // 每个脚本之间稍微等待一下，避免执行过快导致问题
+            if (i < scripts.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        console.log(`🎉 All init scripts processing completed for ${tab.accountName}`);
+    }
+
     private setupWebContentsViewEvents(tab: AccountTab): void {
         const webContents = tab.webContentsView.webContents;
         let lastLoggedUrl = '';
@@ -145,18 +342,12 @@ export class TabManager {
             }
         });
 
-        webContents.on('did-finish-load', async () => {
-            const currentUrl = webContents.getURL();
-
-            if (currentUrl !== lastLoggedUrl) {
-                console.log(`📄 Page loaded for ${tab.accountName}: ${currentUrl}`);
-                lastLoggedUrl = currentUrl;
+        webContents.on('did-navigate', async (event, url, isInPlace, isMainFrame) => {
+            if (isMainFrame) {
+                console.log(`🔄 Navigation started for ${tab.accountName}: ${url}`);
+                await this.injectInitScripts(tab.id);
             }
-
-            tab.url = currentUrl;
-            await this.updateLoginStatus(tab.id);
         });
-
         webContents.on('did-fail-load', (event: any, errorCode: number, errorDescription: string, validatedURL: string) => {
             if (errorCode !== -3) {
                 console.error(`❌ 页面加载失败: ${errorDescription} (${errorCode}) - ${tab.accountName}`);
@@ -532,8 +723,10 @@ export class TabManager {
 
             // 预加载优化
             webContents.setZoomFactor(1.0);
-
-            const navigationPromise = new Promise<void>((resolve) => {
+            webContents.setUserAgent(
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            );
+            const navigationPromise = new Promise<void>((resolve, reject) => {
                 let resolved = false;
                 let loadingTimer: NodeJS.Timeout;
 
@@ -548,28 +741,26 @@ export class TabManager {
 
                 const onLoad = () => {
                     cleanup();
-                    console.log(`✅ Navigation completed for ${tab.accountName}: ${webContents.getURL()}`);
+                    console.log(`✅ Fast navigation completed for ${tab.accountName}`);
                     resolve();
                 };
 
                 const onNavigate = (event: any, navigationUrl: string) => {
-                    console.log(`🔄 Navigation redirect for ${tab.accountName}: ${navigationUrl}`);
+                    console.log(`🔄 Fast redirect for ${tab.accountName}: ${navigationUrl}`);
                     tab.url = navigationUrl;
-                    // 重置定时器
+                    // 🔥 减少重定向等待时间
                     if (loadingTimer) clearTimeout(loadingTimer);
                     loadingTimer = setTimeout(() => {
                         cleanup();
-                        console.log(`⏱️ Navigation completed after redirect for ${tab.accountName}`);
                         resolve();
-                    }, 8000); // 重定向后再等8秒
+                    }, 3000); // 减少到3秒
                 };
 
                 const onFailure = (event: any, errorCode: number, errorDescription: string) => {
                     cleanup();
-                    console.log(`ℹ️ Navigation handled for ${tab.accountName}: ${errorDescription} (${errorCode})`);
+                    console.log(`ℹ️ Navigation handled for ${tab.accountName}: ${errorDescription}`);
                     resolve(); // 不抛错，继续执行
                 };
-
                 webContents.once('did-finish-load', onLoad);
                 webContents.once('did-fail-load', onFailure);
                 webContents.on('did-navigate', onNavigate);
@@ -579,25 +770,14 @@ export class TabManager {
                     cleanup();
                     console.log(`⏱️ Navigation timeout for ${tab.accountName}, continuing...`);
                     resolve();
-                }, 10000); // 减少到10秒
+                }, 5000); // 减少到10秒
             });
 
             await webContents.loadURL(url);
             await navigationPromise;
 
         } catch (error) {
-            if (error instanceof Error) {
-                if (error.message.includes('ERR_ABORTED')) {
-                    console.log(`ℹ️ Navigation redirected for ${tab.accountName} (expected for login flows)`);
-                } else if (error.message.includes('ERR_NETWORK_CHANGED')) {
-                    console.log(`ℹ️ Network changed during navigation for ${tab.accountName}`);
-                } else {
-                    console.warn(`⚠️ Navigation issue for ${tab.accountName}: ${error.message}`);
-                }
-            } else {
-                console.warn(`⚠️ Unknown navigation issue for ${tab.accountName}:`, error);
-            }
-
+            console.warn(`⚠️ Fast navigation issue for ${tab.accountName}:`, error instanceof Error ? error.message : error);
             tab.url = url;
         }
     }

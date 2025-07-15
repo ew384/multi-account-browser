@@ -130,7 +130,30 @@ export class APIServer {
                 });
             }
         });
+        this.app.post('/api/account/add-init-script', async (req, res) => {
+            try {
+                const { tabId, script } = req.body;
 
+                if (!tabId || !script) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'tabId and script are required'
+                    });
+                }
+
+                await this.tabManager.addInitScript(tabId, script);
+
+                res.json({
+                    success: true,
+                    data: { tabId }
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
         // 在指定账号标签页执行脚本
         this.app.post('/api/account/execute', async (req, res) => {
             try {
