@@ -794,11 +794,7 @@ async function createNewTab(): Promise<void> {
 
         if (result.success) {
             const tabId = result.tabId;
-
-            // 切换到新标签页
-            await window.electronAPI.switchTab(tabId);
             activeTabId = tabId;
-
             // 刷新标签页列表
             await refreshTabList();
 
@@ -809,7 +805,7 @@ async function createNewTab(): Promise<void> {
                     urlInput.focus();
                     urlInput.select();
                 }
-            }, 500);
+            }, 800);
 
             showNotification(`已创建新标签页`, 'success');
             console.log('✅ 标签页创建成功:', tabId);

@@ -111,7 +111,8 @@ export class TabManager {
             this.setupWebContentsViewEvents(tab);
 
             console.log(`✅ Tab created successfully: ${accountName} (${tabId})`);
-
+            console.log(`🔄 Auto-switching to new tab: ${accountName}`);
+            await this.switchToTab(tabId);
             // 如果有初始URL，开始导航（非阻塞）
             if (initialUrl) {
                 console.log(`🔗 Starting immediate navigation for ${accountName}...`);
