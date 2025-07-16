@@ -265,7 +265,55 @@ export class APIServer {
                 });
             }
         });
+        this.app.get('/api/account/find-by-cookie', (req, res) => {
+            try {
+                const { cookieFile } = req.query;
 
+                if (!cookieFile) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'cookieFile parameter is required'
+                    });
+                }
+
+                const cookieFileName = require('path').basename(cookieFile as string);
+                const tabs = this.tabManager.getAllTabs();
+
+                // 查找匹配的标签页
+                const matchingTab = tabs.find(tab => {
+                    if (tab.cookieFile) {
+                        const tabCookieFileName = require('path').basename(tab.cookieFile);
+                        return tabCookieFileName === cookieFileName;
+                    }
+                    return false;
+                });
+
+                if (matchingTab) {
+                    res.json({
+                        success: true,
+                        data: {
+                            found: true,
+                            tabId: matchingTab.id,
+                            accountName: matchingTab.accountName,
+                            platform: matchingTab.platform,
+                            url: matchingTab.url,
+                            loginStatus: matchingTab.loginStatus
+                        }
+                    });
+                } else {
+                    res.json({
+                        success: true,
+                        data: { found: false }
+                    });
+                }
+            } catch (error) {
+                console.error('Error finding account by cookie:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
         // 获取所有账号状态
         this.app.get('/api/accounts', (req, res) => {
             try {
