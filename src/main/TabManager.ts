@@ -238,7 +238,37 @@ export class TabManager {
 
             this.tabs.set(tabId, tab);
             this.setupWebContentsViewEvents(tab);
+            webContentsView.webContents.once('did-finish-load', async () => {
+                try {
+                    await webContentsView.webContents.executeJavaScript(`
+                        window.__TAB_ID__ = '${tabId}';
+                        window.__ACCOUNT_NAME__ = '${accountName}';
+                        window.__PLATFORM__ = '${platform}';
+                        console.log('🏷️ Tab identity injected:', {
+                            tabId: '${tabId}',
+                            accountName: '${accountName}',
+                            platform: '${platform}'
+                        });
+                    `);
+                    console.log(`✅ Tab ID injected for ${accountName}: ${tabId}`);
+                } catch (error) {
+                    console.warn(`Failed to inject tab_id for ${accountName}:`, error);
+                }
+            });
 
+            // 🔥 页面导航时重新注入
+            webContentsView.webContents.on('did-navigate', async (event, url) => {
+                try {
+                    await webContentsView.webContents.executeJavaScript(`
+                        window.__TAB_ID__ = '${tabId}';
+                        window.__ACCOUNT_NAME__ = '${accountName}';
+                        window.__PLATFORM__ = '${platform}';
+                    `);
+                    console.log(`🔄 Tab ID re-injected after navigation: ${tabId}`);
+                } catch (error) {
+                    console.warn(`Failed to re-inject tab_id after navigation:`, error);
+                }
+            });
             console.log(`✅ Tab created successfully: ${accountName} (${tabId})`);
             console.log(`🔄 Auto-switching to new tab: ${accountName}`);
             await this.switchToTab(tabId);

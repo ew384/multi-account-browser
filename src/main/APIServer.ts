@@ -266,33 +266,6 @@ export class APIServer {
             }
         });
 
-        this.app.post('/api/account/set-shadow-input-files', async (req, res) => {
-            try {
-                const { tabId, shadowSelector, inputSelector, filePath } = req.body;
-
-                if (!tabId || !shadowSelector || !inputSelector || !filePath) {
-                    return res.status(400).json({
-                        success: false,
-                        error: 'tabId, shadowSelector, inputSelector and filePath are required'
-                    });
-                }
-
-                console.log(`📁 Setting shadow input files for tab ${tabId}: ${filePath}`);
-
-                const result = await this.tabManager.setShadowInputFiles(tabId, shadowSelector, inputSelector, filePath);
-
-                res.json({
-                    success: result,
-                    data: { tabId, shadowSelector, inputSelector, filePath, method: 'setShadowInputFiles' }
-                });
-            } catch (error) {
-                console.error('Error setting shadow input files:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error instanceof Error ? error.message : 'Unknown error'
-                });
-            }
-        });
 
         this.app.get('/api/account/find-by-cookie', (req, res) => {
             try {
