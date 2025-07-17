@@ -14,7 +14,7 @@ class MultiAccountBrowser {
         // 确保 Electron 版本支持 WebContentsView
         console.log(`🚀 Starting Multi-Account Browser with Electron ${process.versions.electron}`);
         console.log(`🔄 Using WebContentsView renderer`);
-        
+
         // Electron 性能优化参数
         app.commandLine.appendSwitch('--enable-features', 'VaapiVideoDecoder');
         app.commandLine.appendSwitch('--disable-features', 'VizDisplayCompositor');
@@ -39,22 +39,22 @@ class MultiAccountBrowser {
         app.commandLine.appendSwitch('--disable-sync');
         app.commandLine.appendSwitch('--disable-features', 'MediaRouter');
         app.commandLine.appendSwitch('--disable-ipc-flooding-protection');
-        
+
         // ✅ 新增：禁用开发者工具相关提示
         app.commandLine.appendSwitch('--disable-dev-shm-usage');
         app.commandLine.appendSwitch('--disable-gpu-sandbox');
         app.commandLine.appendSwitch('--disable-software-rasterizer');
         app.commandLine.appendSwitch('--disable-background-timer-throttling');
-        
+
         // ✅ 新增：禁用语言和地区检测提示
         app.commandLine.appendSwitch('--lang', 'en-US');
         app.commandLine.appendSwitch('--disable-locale-detection');
-        
+
         // ✅ 新增：禁用各种安全警告
         app.commandLine.appendSwitch('--allow-running-insecure-content');
         app.commandLine.appendSwitch('--disable-web-security');
         app.commandLine.appendSwitch('--disable-site-isolation-trials');
-
+        app.commandLine.appendSwitch('remote-debugging-port', '9712');
         this.sessionManager = new SessionManager(
             path.join(app.getPath('userData'), 'sessions')
         );
@@ -66,7 +66,7 @@ class MultiAccountBrowser {
         // 监听开发者工具打开事件
         this.mainWindow?.webContents.on('devtools-opened', () => {
             console.log('🛠️ DevTools opened');
-            
+
             // 确保主窗口不会遮挡开发者工具
             setTimeout(() => {
                 if (this.mainWindow) {
@@ -85,7 +85,7 @@ class MultiAccountBrowser {
         // 监听开发者工具关闭事件
         this.mainWindow?.webContents.on('devtools-closed', () => {
             console.log('🛠️ DevTools closed');
-            
+
             // 恢复窗口大小
             setTimeout(() => {
                 if (this.mainWindow) {
@@ -157,7 +157,7 @@ class MultiAccountBrowser {
             this.mainWindow.webContents.once('did-finish-load', () => {
                 // 延迟打开开发者工具，确保界面加载完成
                 setTimeout(() => {
-                    this.mainWindow?.webContents.openDevTools({ 
+                    this.mainWindow?.webContents.openDevTools({
                         mode: 'detach' // ✅ 关键：使用独立窗口模式
                     });
                 }, 1000);
@@ -241,13 +241,6 @@ class MultiAccountBrowser {
             {
                 label: '工具',
                 submenu: [
-                    {
-                        label: '测试Session隔离',
-                        click: async () => {
-                            const result = await this.sessionManager.validateIsolation();
-                            console.log('Session隔离测试结果:', result);
-                        }
-                    },
                     {
                         label: '调试 WebContentsView 边界',
                         click: () => {
@@ -370,15 +363,6 @@ class MultiAccountBrowser {
             }
         });
 
-        // 测试Session隔离
-        ipcMain.handle('test-isolation', async () => {
-            try {
-                const result = await this.sessionManager.validateIsolation();
-                return { success: true, isolated: result };
-            } catch (error) {
-                return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-            }
-        });
 
         // 显示打开对话框
         ipcMain.handle('show-open-dialog', async (event, options) => {
@@ -471,10 +455,6 @@ class MultiAccountBrowser {
 
             // 启动API服务器
             await this.apiServer.start();
-
-            // 验证Session隔离
-            const isolationValid = await this.sessionManager.validateIsolation();
-            console.log('🔍 Initial session isolation test:', isolationValid ? '✅ PASSED' : '❌ FAILED');
 
             // 创建一个示例标签页用于测试（仅开发模式）
             if (process.env.NODE_ENV === 'development') {

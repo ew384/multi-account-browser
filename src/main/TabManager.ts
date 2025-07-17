@@ -66,6 +66,135 @@ export class TabManager {
         });
     }
 
+    async setShadowInputFiles(tabId: string, shadowSelector: string, inputSelector: string, filePath: string): Promise<boolean> {
+        const tab = this.tabs.get(tabId);
+        if (!tab) throw new Error(`Tab ${tabId} not found`);
+
+        try {
+            if (!fs.existsSync(filePath)) {
+                throw new Error(`File not found: ${filePath}`);
+            }
+
+            const fileName = path.basename(filePath);
+            const fileSize = fs.statSync(filePath).size;
+            const mimeType = this.getMimeType(filePath);
+
+            console.log(`📁 Setting file "${fileName}" to Shadow DOM in ${tab.accountName}`);
+
+            // 🔥 使用 Electron 的文件路径引用方式，不读取内容
+            const script = `
+                (function() {
+                    try {
+                        console.log('🔍 使用 Electron 文件路径引用方式...');
+                        
+                        const shadowHost = document.querySelector('${shadowSelector}');
+                        if (!shadowHost || !shadowHost.shadowRoot) {
+                            return { success: false, error: 'Shadow DOM 不可访问' };
+                        }
+                        
+                        const shadowRoot = shadowHost.shadowRoot;
+                        const fileInput = shadowRoot.querySelector('${inputSelector}');
+                        if (!fileInput) {
+                            return { success: false, error: 'Shadow DOM 中未找到文件输入框' };
+                        }
+                        
+                        console.log('✅ 找到文件输入框:', fileInput);
+                        
+                        // 🔥 关键：使用 Electron 的文件路径引用，不读取内容
+                        // 这模拟了原生 Playwright 的行为
+                        
+                        // 方法1：直接设置 Electron 特有的文件路径属性
+                        fileInput.setAttribute('data-electron-file-path', '${filePath}');
+                        
+                        // 方法2：创建一个模拟的 File 对象，但不包含实际数据
+                        const mockFile = {
+                            name: '${fileName}',
+                            size: ${fileSize},
+                            type: '${mimeType}',
+                            lastModified: ${fs.statSync(filePath).mtimeMs},
+                            // 🔥 关键：Electron 特有的路径引用
+                            path: '${filePath}',
+                            // 模拟 File 对象的方法
+                            stream: function() { throw new Error('Not implemented'); },
+                            text: function() { throw new Error('Not implemented'); },
+                            arrayBuffer: function() { throw new Error('Not implemented'); }
+                        };
+                        
+                        // 创建 FileList 对象
+                        const mockFileList = {
+                            length: 1,
+                            0: mockFile,
+                            item: function(index) { return this[index] || null; },
+                            [Symbol.iterator]: function* () { yield this[0]; }
+                        };
+                        
+                        // 🔥 关键：重写 files 属性的 getter
+                        Object.defineProperty(fileInput, 'files', {
+                            get: function() {
+                                return mockFileList;
+                            },
+                            configurable: true
+                        });
+                        
+                        // 设置 value 属性（显示文件名）
+                        Object.defineProperty(fileInput, 'value', {
+                            get: function() {
+                                return '${fileName}';
+                            },
+                            configurable: true
+                        });
+                        
+                        // 触发标准事件
+                        fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        
+                        // 验证设置
+                        const verification = {
+                            filesLength: fileInput.files.length,
+                            fileName: fileInput.files[0] ? fileInput.files[0].name : null,
+                            fileSize: fileInput.files[0] ? fileInput.files[0].size : null,
+                            filePath: fileInput.files[0] ? fileInput.files[0].path : null,
+                            inputValue: fileInput.value
+                        };
+                        
+                        console.log('📁 文件设置验证:', verification);
+                        
+                        return { 
+                            success: true,
+                            method: 'electron-file-reference',
+                            verification: verification
+                        };
+                        
+                    } catch (e) {
+                        console.error('❌ Electron 文件引用失败:', e);
+                        return { success: false, error: e.message, stack: e.stack };
+                    }
+                })()
+            `;
+
+            const result = await tab.webContentsView.webContents.executeJavaScript(script);
+            console.log(`📁 Electron 文件引用结果:`, result);
+
+            if (result.success) {
+                const verification = result.verification;
+                if (verification.filesLength > 0) {
+                    console.log(`✅ 文件引用成功设置: ${verification.fileName} (${verification.fileSize} bytes)`);
+                    return true;
+                } else {
+                    console.log(`❌ 文件引用设置失败: files.length = ${verification.filesLength}`);
+                    return false;
+                }
+            } else {
+                console.log(`❌ 脚本执行失败: ${result.error}`);
+                return false;
+            }
+
+        } catch (error) {
+            console.error(`❌ setShadowInputFiles 失败:`, error);
+            return false;
+        }
+    }
+
     async createAccountTab(accountName: string, platform: string, initialUrl?: string): Promise<string> {
         const timestamp = Date.now();
         const tabId = `${platform}-${accountName.replace(/[^a-zA-Z0-9]/g, '_')}-${timestamp}`;
