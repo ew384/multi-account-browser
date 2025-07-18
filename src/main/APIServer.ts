@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import { TabManager } from './TabManager';
 import { CreateAccountRequest, ExecuteScriptRequest, NavigateRequest, APIResponse } from '../types';
+import * as path from 'path';
+import { AutomationEngine } from '../main/automation/uploader/AutomationEngine';
 
 export class APIServer {
     private app: express.Application;
@@ -51,6 +53,48 @@ export class APIServer {
                 version: '2.0.0', // 版本号提升表示支持 WebContentsView
                 renderer: 'WebContentsView' // 标识使用的渲染器
             });
+        });
+
+        this.app.post('/api/automation/upload-video-complete', async (req, res) => {
+            try {
+                const {
+                    tabId,
+                    platform,
+                    filePath,
+                    title,
+                    tags,
+                    publishDate,
+                    enableOriginal,
+                    addToCollection,
+                    category
+                } = req.body;
+
+                console.log(`📥 收到上传请求: Tab ${tabId}, 平台 ${platform}`);
+                console.log(`   文件: ${path.basename(filePath)}`);
+                console.log(`   标题: ${title}`);
+
+                // 执行上传
+                const automation = new AutomationEngine(this.tabManager);
+                const result = await automation.uploadVideo(tabId, platform, {
+                    filePath,
+                    title,
+                    tags,
+                    publishDate: publishDate ? new Date(publishDate) : undefined,
+                    enableOriginal,
+                    addToCollection,
+                    category
+                });
+
+                console.log(`📤 上传结果: ${result ? '成功' : '失败'}`);
+                res.json({ success: result });
+
+            } catch (error) {
+                console.error('❌ 上传视频失败:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
         });
 
         // 获取API信息
@@ -760,6 +804,60 @@ export class APIServer {
                 });
             } catch (error) {
                 console.error('Error setting file:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
+        // 在 APIServer.ts 中添加
+        this.app.post('/api/account/set-files-streaming', async (req, res) => {
+            try {
+                const { tabId, selector, filePath, options = {} } = req.body;
+
+                console.log(`📥 收到流式上传请求:`);
+                console.log(`   tabId: ${tabId}`);
+                console.log(`   selector: ${selector}`);
+                console.log(`   filePath: ${filePath}`);
+                console.log(`   options:`, options);
+
+                const result = await this.tabManager.setInputFilesStreaming(
+                    tabId, selector, filePath, options
+                );
+
+                res.json({
+                    success: result,
+                    data: { tabId, selector, filePath, method: 'streaming' }
+                });
+
+            } catch (error) {
+                console.error(`❌ 流式上传API失败:`, error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
+
+        // 在 APIServer.ts 中添加
+        this.app.post('/api/account/set-files-streaming-v2', async (req, res) => {
+            try {
+                const { tabId, selector, filePath, options = {} } = req.body;
+
+                console.log(`📥 收到V2流式上传请求:`);
+                console.log(`   文件: ${path.basename(filePath)}`);
+
+                const result = await this.tabManager.setInputFilesStreamingV2(
+                    tabId, selector, filePath, options
+                );
+
+                res.json({
+                    success: result,
+                    data: { tabId, selector, filePath, method: 'streaming-v2' }
+                });
+
+            } catch (error) {
+                console.error(`❌ V2流式上传API失败:`, error);
                 res.status(500).json({
                     success: false,
                     error: error instanceof Error ? error.message : 'Unknown error'

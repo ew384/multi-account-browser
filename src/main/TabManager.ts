@@ -1012,6 +1012,537 @@ export class TabManager {
         tab.cookieFile = cookieFilePath;
     }
 
+    async setInputFilesStreaming(tabId: string, selector: string, filePath: string, options?: {
+        shadowSelector?: string,
+        triggerSelector?: string,
+        waitForInput?: boolean
+    }): Promise<boolean> {
+        const tab = this.tabs.get(tabId);
+        if (!tab) throw new Error(`Tab ${tabId} not found`);
+
+        try {
+            if (!fs.existsSync(filePath)) {
+                throw new Error(`文件不存在: ${filePath}`);
+            }
+
+            const fileName = path.basename(filePath);
+            const fileSize = fs.statSync(filePath).size;
+            const mimeType = this.getMimeType(filePath);
+
+            console.log(`🌊 开始流式上传: ${fileName} (${(fileSize / 1024 / 1024).toFixed(2)}MB)`);
+            console.log(`📋 参数: selector="${selector}", shadowSelector="${options?.shadowSelector}"`);
+
+            const chunkSize = 2 * 1024 * 1024; // 2MB 块
+            const totalChunks = Math.ceil(fileSize / chunkSize);
+
+            // 在页面中注入流式上传处理器
+            const prepareScript = `
+            (function() {
+                try {
+                    window.__streamUpload = {
+                        chunks: new Array(${totalChunks}),
+                        receivedChunks: 0,
+                        totalChunks: ${totalChunks},
+                        fileName: '${fileName}',
+                        fileSize: ${fileSize},
+                        mimeType: '${mimeType}',
+                        selector: '${selector}',
+                        shadowSelector: '${options?.shadowSelector || ''}',
+                        triggerSelector: '${options?.triggerSelector || ''}',
+                        waitForInput: ${options?.waitForInput || false},
+                        
+                        findFileInput: function() {
+                            console.log('🔍 查找文件输入框...');
+                            console.log('   selector:', this.selector);
+                            console.log('   shadowSelector:', this.shadowSelector);
+                            
+                            let fileInput = null;
+                            
+                            // 方法1：直接查找
+                            fileInput = document.querySelector(this.selector);
+                            if (fileInput) {
+                                console.log('✅ 在主文档中找到文件输入框');
+                                return fileInput;
+                            }
+                            
+                            // 方法2：在 Shadow DOM 中查找
+                            if (this.shadowSelector) {
+                                const shadowHost = document.querySelector(this.shadowSelector);
+                                if (shadowHost && shadowHost.shadowRoot) {
+                                    fileInput = shadowHost.shadowRoot.querySelector(this.selector);
+                                    if (fileInput) {
+                                        console.log('✅ 在 Shadow DOM 中找到文件输入框');
+                                        return fileInput;
+                                    }
+                                } else {
+                                    console.log('⚠️ 未找到 Shadow DOM 宿主或 shadowRoot');
+                                }
+                            }
+                            
+                            // 方法3：点击触发区域创建文件输入框
+                            if (!fileInput && this.triggerSelector) {
+                                console.log('🎯 尝试点击触发区域...');
+                                const trigger = this.shadowSelector ? 
+                                    (document.querySelector(this.shadowSelector)?.shadowRoot?.querySelector(this.triggerSelector)) :
+                                    document.querySelector(this.triggerSelector);
+                                    
+                                if (trigger) {
+                                    trigger.click();
+                                    console.log('✅ 已点击触发区域');
+                                    
+                                    if (this.waitForInput) {
+                                        for (let attempts = 0; attempts < 20; attempts++) {
+                                            fileInput = this.shadowSelector ?
+                                                (document.querySelector(this.shadowSelector)?.shadowRoot?.querySelector(this.selector)) :
+                                                document.querySelector(this.selector);
+                                                
+                                            if (fileInput) {
+                                                console.log('✅ 触发后找到文件输入框');
+                                                return fileInput;
+                                            }
+                                            
+                                            // 同步等待 100ms
+                                            const waitStart = Date.now();
+                                            while (Date.now() - waitStart < 100) {}
+                                        }
+                                    }
+                                } else {
+                                    console.log('❌ 未找到触发区域:', this.triggerSelector);
+                                }
+                            }
+                            
+                            console.log('❌ 未找到文件输入框');
+                            return null;
+                        },
+                        
+                        receiveChunk: function(chunkData, chunkIndex) {
+                            try {
+                                const binaryString = atob(chunkData);
+                                const bytes = new Uint8Array(binaryString.length);
+                                
+                                for (let i = 0; i < binaryString.length; i++) {
+                                    bytes[i] = binaryString.charCodeAt(i);
+                                }
+                                
+                                this.chunks[chunkIndex] = bytes;
+                                this.receivedChunks++;
+                                
+                                const progress = ((this.receivedChunks / this.totalChunks) * 100).toFixed(1);
+                                console.log(\`📦 接收块 \${this.receivedChunks}/\${this.totalChunks} (\${progress}%)\`);
+                                
+                                if (this.receivedChunks === this.totalChunks) {
+                                    this.assembleFile();
+                                }
+                                
+                                return { success: true, chunkIndex: chunkIndex };
+                            } catch (e) {
+                                console.error('❌ 接收块失败:', e);
+                                return { success: false, error: e.message };
+                            }
+                        },
+                        
+                        assembleFile: function() {
+                            try {
+                                console.log('🔧 开始组装文件...');
+                                
+                                const file = new File(this.chunks, this.fileName, {
+                                    type: this.mimeType,
+                                    lastModified: Date.now()
+                                });
+                                
+                                console.log('📁 文件对象创建成功:', file.name, file.size, 'bytes');
+                                
+                                const fileInput = this.findFileInput();
+                                
+                                if (fileInput) {
+                                    console.log('🎯 设置文件到输入框...');
+                                    
+                                    const dataTransfer = new DataTransfer();
+                                    dataTransfer.items.add(file);
+                                    
+                                    Object.defineProperty(fileInput, 'files', {
+                                        value: dataTransfer.files,
+                                        configurable: true
+                                    });
+                                    
+                                    console.log('🔔 触发事件...');
+                                    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+                                    fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                    
+                                    console.log('✅ 流式文件上传完成!');
+                                    
+                                    // 验证设置
+                                    const verification = {
+                                        filesCount: fileInput.files ? fileInput.files.length : 0,
+                                        fileName: fileInput.files && fileInput.files[0] ? fileInput.files[0].name : 'N/A',
+                                        fileSize: fileInput.files && fileInput.files[0] ? fileInput.files[0].size : 0
+                                    };
+                                    
+                                    console.log('🔍 验证结果:', verification);
+                                    
+                                } else {
+                                    console.error('❌ 组装完成但无法找到文件输入框');
+                                }
+                                
+                                delete window.__streamUpload;
+                                
+                            } catch (e) {
+                                console.error('❌ 组装文件失败:', e);
+                            }
+                        }
+                    };
+                    
+                    console.log('✅ 流式上传处理器已注入');
+                    return { success: true, totalChunks: ${totalChunks} };
+                    
+                } catch (e) {
+                    console.error('❌ 注入流式上传处理器失败:', e);
+                    return { success: false, error: e.message };
+                }
+            })()
+            `;
+
+            // 注入处理器
+            const prepareResult = await tab.webContentsView.webContents.executeJavaScript(prepareScript);
+            if (!prepareResult.success) {
+                throw new Error(`注入处理器失败: ${prepareResult.error}`);
+            }
+
+            console.log(`📦 开始传输 ${totalChunks} 个块...`);
+
+            // 流式读取并发送文件块
+            const fd = fs.openSync(filePath, 'r');
+
+            try {
+                for (let i = 0; i < totalChunks; i++) {
+                    const start = i * chunkSize;
+                    const end = Math.min(start + chunkSize, fileSize);
+                    const actualChunkSize = end - start;
+
+                    // 读取当前块
+                    const buffer = Buffer.alloc(actualChunkSize);
+                    fs.readSync(fd, buffer, 0, actualChunkSize, start);
+
+                    const chunkBase64 = buffer.toString('base64');
+
+                    // 发送到页面
+                    const chunkScript = `
+                    if (window.__streamUpload) {
+                        window.__streamUpload.receiveChunk('${chunkBase64}', ${i});
+                    } else {
+                        console.error('❌ 流式上传处理器不存在');
+                    }
+                    `;
+
+                    await tab.webContentsView.webContents.executeJavaScript(chunkScript);
+
+                    // 进度报告
+                    if (i % 10 === 0 || i === totalChunks - 1) {
+                        const progress = ((i + 1) / totalChunks * 100).toFixed(1);
+                        console.log(`📊 传输进度: ${progress}% (${i + 1}/${totalChunks})`);
+                    }
+
+                    // 避免阻塞，每5块休息一下
+                    if (i % 5 === 0 && i > 0) {
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                    }
+                }
+
+                console.log(`✅ 所有块传输完成，等待文件组装...`);
+
+                // 等待组装完成
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
+                return true;
+
+            } finally {
+                fs.closeSync(fd);
+            }
+
+        } catch (error) {
+            console.error(`❌ 流式上传失败:`, error);
+            return false;
+        }
+    }
+
+
+    async setInputFilesStreamingV2(tabId: string, selector: string, filePath: string, options?: {
+        shadowSelector?: string,
+        triggerSelector?: string,
+        waitForInput?: boolean
+    }): Promise<boolean> {
+        const tab = this.tabs.get(tabId);
+        if (!tab) throw new Error(`Tab ${tabId} not found`);
+
+        try {
+            const fileName = path.basename(filePath);
+            const fileSize = fs.statSync(filePath).size;
+            const mimeType = this.getMimeType(filePath);
+
+            console.log(`🌊 V2流式上传: ${fileName} (${(fileSize / 1024 / 1024).toFixed(2)}MB)`);
+
+            // 🔥 新方案：真正的流式处理
+            const streamScriptV2 = `
+            (function() {
+                try {
+                    console.log('🚀 V2: 创建真正的流式处理器...');
+                    
+                    // 🔥 关键：使用临时存储 + 实时组装
+                    window.__streamUploaderV2 = {
+                        fileName: '${fileName}',
+                        fileSize: ${fileSize},
+                        mimeType: '${mimeType}',
+                        selector: '${selector}',
+                        shadowSelector: '${options?.shadowSelector || ''}',
+                        triggerSelector: '${options?.triggerSelector || ''}',
+                        
+                        // 🔥 关键1：不保存所有块，实时组装
+                        chunkBuffer: [],
+                        assembledSize: 0,
+                        totalChunks: 0,
+                        receivedChunks: 0,
+                        
+                        // 内存监控
+                        maxMemoryUsed: 0,
+                        currentMemoryUsed: 0,
+                        
+                        // 🔥 关键2：接收块后立即处理，不累积
+                        processChunk: function(chunkData, chunkIndex, totalChunks) {
+                            const startTime = performance.now();
+                            this.totalChunks = totalChunks;
+                            
+                            try {
+                                // 解码当前块
+                                const binaryString = atob(chunkData);
+                                const bytes = new Uint8Array(binaryString.length);
+                                
+                                for (let i = 0; i < binaryString.length; i++) {
+                                    bytes[i] = binaryString.charCodeAt(i);
+                                }
+                                
+                                // 🔥 关键：立即添加到缓冲区，不等待所有块
+                                this.chunkBuffer.push(bytes);
+                                this.assembledSize += bytes.length;
+                                this.receivedChunks++;
+                                
+                                // 🔥 内存使用监控
+                                this.currentMemoryUsed = this.chunkBuffer.reduce((sum, chunk) => sum + chunk.length, 0);
+                                this.maxMemoryUsed = Math.max(this.maxMemoryUsed, this.currentMemoryUsed);
+                                
+                                const progress = (this.receivedChunks / totalChunks * 100).toFixed(1);
+                                console.log(\`📦 V2处理块 \${chunkIndex + 1}/\${totalChunks} (\${progress}%) - 内存: \${(this.currentMemoryUsed / 1024 / 1024).toFixed(2)}MB\`);
+                                
+                                // 🔥 关键：达到一定块数就部分组装（减少内存占用）
+                                if (this.chunkBuffer.length >= 50 || this.receivedChunks === totalChunks) {
+                                    this.partialAssemble();
+                                }
+                                
+                                // 最后一块时完成文件创建
+                                if (this.receivedChunks === totalChunks) {
+                                    this.finalizeFile();
+                                }
+                                
+                                const endTime = performance.now();
+                                return { 
+                                    success: true, 
+                                    chunkIndex: chunkIndex,
+                                    processingTime: endTime - startTime,
+                                    memoryUsed: this.currentMemoryUsed
+                                };
+                                
+                            } catch (e) {
+                                console.error('❌ V2处理块失败:', e);
+                                return { success: false, error: e.message };
+                            }
+                        },
+                        
+                        // 🔥 关键3：部分组装，释放内存
+                        partialAssemble: function() {
+                            if (this.chunkBuffer.length === 0) return;
+                            
+                            console.log(\`🔧 V2部分组装 \${this.chunkBuffer.length} 块...\`);
+                            
+                            // 创建一个组合的 Uint8Array
+                            const totalLength = this.chunkBuffer.reduce((sum, chunk) => sum + chunk.length, 0);
+                            const combined = new Uint8Array(totalLength);
+                            
+                            let offset = 0;
+                            for (const chunk of this.chunkBuffer) {
+                                combined.set(chunk, offset);
+                                offset += chunk.length;
+                            }
+                            
+                            // 🔥 关键：创建部分 Blob 并立即释放块内存
+                            if (!this.partialBlobs) {
+                                this.partialBlobs = [];
+                            }
+                            
+                            this.partialBlobs.push(new Blob([combined], { type: this.mimeType }));
+                            
+                            // 🔥 立即清理内存
+                            this.chunkBuffer = [];
+                            this.currentMemoryUsed = 0;
+                            
+                            console.log(\`✅ V2部分组装完成，内存已释放\`);
+                        },
+                        
+                        // 🔥 关键4：最终组装文件
+                        finalizeFile: function() {
+                            try {
+                                console.log('🎯 V2最终组装文件...');
+                                console.log(\`📊 内存使用峰值: \${(this.maxMemoryUsed / 1024 / 1024).toFixed(2)}MB\`);
+                                
+                                // 最后一次部分组装
+                                if (this.chunkBuffer.length > 0) {
+                                    this.partialAssemble();
+                                }
+                                
+                                // 🔥 从部分 Blobs 创建最终文件
+                                const file = new File(this.partialBlobs || [], this.fileName, {
+                                    type: this.mimeType,
+                                    lastModified: Date.now()
+                                });
+                                
+                                console.log(\`📁 V2文件创建完成: \${file.name}, \${file.size} bytes\`);
+                                
+                                this.setToFileInput(file);
+                                
+                            } catch (e) {
+                                console.error('❌ V2最终组装失败:', e);
+                            }
+                        },
+                        
+                        setToFileInput: function(file) {
+                            // 查找文件输入框的通用逻辑
+                            let fileInput = document.querySelector(this.selector);
+                            
+                            if (!fileInput && this.shadowSelector) {
+                                const shadowHost = document.querySelector(this.shadowSelector);
+                                if (shadowHost && shadowHost.shadowRoot) {
+                                    fileInput = shadowHost.shadowRoot.querySelector(this.selector);
+                                }
+                            }
+                            
+                            // 如果需要触发
+                            if (!fileInput && this.triggerSelector) {
+                                const trigger = this.shadowSelector ? 
+                                    (document.querySelector(this.shadowSelector)?.shadowRoot?.querySelector(this.triggerSelector)) :
+                                    document.querySelector(this.triggerSelector);
+                                    
+                                if (trigger) {
+                                    trigger.click();
+                                    
+                                    // 等待文件输入框出现
+                                    for (let attempts = 0; attempts < 20; attempts++) {
+                                        fileInput = this.shadowSelector ?
+                                            (document.querySelector(this.shadowSelector)?.shadowRoot?.querySelector(this.selector)) :
+                                            document.querySelector(this.selector);
+                                            
+                                        if (fileInput) break;
+                                        
+                                        const waitStart = Date.now();
+                                        while (Date.now() - waitStart < 100) {}
+                                    }
+                                }
+                            }
+                            
+                            if (fileInput) {
+                                const dataTransfer = new DataTransfer();
+                                dataTransfer.items.add(file);
+                                fileInput.files = dataTransfer.files;
+                                
+                                fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+                                fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                
+                                console.log('✅ V2文件设置到输入框完成!');
+                                
+                                // 验证
+                                const verification = {
+                                    filesCount: fileInput.files ? fileInput.files.length : 0,
+                                    fileName: fileInput.files && fileInput.files[0] ? fileInput.files[0].name : 'N/A',
+                                    fileSize: fileInput.files && fileInput.files[0] ? fileInput.files[0].size : 0,
+                                    maxMemoryUsed: \`\${(this.maxMemoryUsed / 1024 / 1024).toFixed(2)}MB\`
+                                };
+                                
+                                console.log('🔍 V2验证结果:', verification);
+                            } else {
+                                console.error('❌ V2未找到文件输入框');
+                            }
+                            
+                            // 清理
+                            delete window.__streamUploaderV2;
+                        }
+                    };
+                    
+                    console.log('✅ V2流式上传处理器已注入');
+                    return { success: true };
+                    
+                } catch (e) {
+                    console.error('❌ V2注入流式上传处理器失败:', e);
+                    return { success: false, error: e.message };
+                }
+            })()
+            `;
+
+            // 注入V2处理器
+            const prepareResult = await tab.webContentsView.webContents.executeJavaScript(streamScriptV2);
+            if (!prepareResult.success) {
+                throw new Error(`V2注入处理器失败: ${prepareResult.error}`);
+            }
+
+            // 🔥 流式读取并发送（与V1相同，但接收端处理不同）
+            const chunkSize = 2 * 1024 * 1024;
+            const totalChunks = Math.ceil(fileSize / chunkSize);
+            const fd = fs.openSync(filePath, 'r');
+
+            console.log(`📦 V2开始传输 ${totalChunks} 个块...`);
+
+            try {
+                for (let i = 0; i < totalChunks; i++) {
+                    const start = i * chunkSize;
+                    const end = Math.min(start + chunkSize, fileSize);
+                    const actualChunkSize = end - start;
+
+                    const buffer = Buffer.alloc(actualChunkSize);
+                    fs.readSync(fd, buffer, 0, actualChunkSize, start);
+
+                    const chunkBase64 = buffer.toString('base64');
+
+                    // 发送到V2处理器
+                    const chunkScript = `
+                    if (window.__streamUploaderV2) {
+                        window.__streamUploaderV2.processChunk('${chunkBase64}', ${i}, ${totalChunks});
+                    } else {
+                        console.error('❌ V2流式上传处理器不存在');
+                    }
+                    `;
+
+                    await tab.webContentsView.webContents.executeJavaScript(chunkScript);
+
+                    // 🔥 立即释放Node.js端内存
+                    buffer.fill(0);
+
+                    if (i % 10 === 0 || i === totalChunks - 1) {
+                        const progress = ((i + 1) / totalChunks * 100).toFixed(1);
+                        console.log(`📊 V2传输进度: ${progress}% (${i + 1}/${totalChunks})`);
+                    }
+                }
+
+                console.log(`✅ V2所有块传输完成，等待文件组装...`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
+                return true;
+
+            } finally {
+                fs.closeSync(fd);
+            }
+
+        } catch (error) {
+            console.error(`❌ V2流式上传失败:`, error);
+            return false;
+        }
+    }
+
     async setFileInput(tabId: string, selector: string, filePath: string): Promise<any> {
         const tab = this.tabs.get(tabId);
         if (!tab) throw new Error(`Tab ${tabId} not found`);
@@ -1130,9 +1661,6 @@ export class TabManager {
             return { success: false, error: this.getErrorMessage(error), method: 'FileChooser' };
         }
     }
-    // ========================================
-    // 新增：添加 Playwright 兼容的 setInputFiles 方法
-    // ========================================
     async setInputFiles(tabId: string, selector: string, filePath: string): Promise<boolean> {
         try {
             const result = await this.setFileInput(tabId, selector, filePath);
@@ -1143,148 +1671,6 @@ export class TabManager {
         }
     }
 
-    private async setFileViaPlaywrightStyle(tab: any, selector: string, filePath: string, fileName: string): Promise<any> {
-        try {
-            // 关键：不读取文件内容，使用类似 Playwright 的机制
-            // 让 Electron 的 WebContents 直接处理文件路径
-
-            // 首先，我们需要在页面中准备文件输入框
-            const prepareScript = `
-                (function() {
-                    try {
-                        const fileInput = document.querySelector('${selector}');
-                        if (!fileInput) {
-                            return { success: false, error: 'File input not found with selector: ${selector}' };
-                        }
-                        
-                        // 准备接收文件的标记
-                        fileInput.setAttribute('data-ready-for-file', 'true');
-                        fileInput.setAttribute('data-expected-file', '${fileName}');
-                        
-                        return { success: true, ready: true };
-                    } catch (e) {
-                        return { success: false, error: e.message };
-                    }
-                })()
-            `;
-
-            const prepareResult = await tab.webContentsView.webContents.executeJavaScript(prepareScript);
-
-            if (!prepareResult.success) {
-                throw new Error(`Prepare failed: ${prepareResult.error}`);
-            }
-
-            // 关键：使用 WebContents 的文件处理能力，而不是手动读取文件
-            // 这模拟了 Playwright 的 setInputFiles 行为
-            const setFileScript = `
-                (function() {
-                    try {
-                        const fileInput = document.querySelector('${selector}');
-                        if (!fileInput) {
-                            return { success: false, error: 'File input not found' };
-                        }
-                        
-                        // 模拟文件被选中的状态，但不实际读取文件内容
-                        // 这将由 Electron 在后台处理
-                        
-                        // 创建一个模拟的 FileList，但文件内容由 Electron 处理
-                        const mockFile = {
-                            name: '${fileName}',
-                            size: ${fs.statSync(filePath).size},
-                            type: '${this.getMimeType(filePath)}',
-                            lastModified: ${fs.statSync(filePath).mtimeMs}
-                        };
-                        
-                        // 设置 WebContents 特有的文件路径属性
-                        fileInput._electronFilePath = '${filePath}';
-                        fileInput._electronFileName = '${fileName}';
-                        
-                        // 触发相关事件
-                        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-                        fileInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        
-                        return { 
-                            success: true,
-                            fileName: '${fileName}',
-                            method: 'PlaywrightStyle',
-                            note: 'File path set without reading content'
-                        };
-                    } catch (e) {
-                        return { success: false, error: e.message, method: 'PlaywrightStyle' };
-                    }
-                })()
-            `;
-
-            const result = await tab.webContentsView.webContents.executeJavaScript(setFileScript);
-            console.log(`📁 Playwright-style result for ${tab.accountName}:`, result);
-            return result;
-
-        } catch (error) {
-            return { success: false, error: this.getErrorMessage(error), method: 'PlaywrightStyle' };
-        }
-    }
-
-    private async setFileViaNativeDialog(tab: any, selector: string, filePath: string, fileName: string): Promise<any> {
-        try {
-            // 使用 Electron 的原生能力来处理文件选择
-            // 这避免了在 JavaScript 中处理大文件
-
-            console.log('📁 Using Electron native file handling...');
-
-            // 方法：通过 WebContents 的 IPC 机制设置文件
-            const result = await tab.webContentsView.webContents.executeJavaScript(`
-                (function() {
-                    try {
-                        const fileInput = document.querySelector('${selector}');
-                        if (!fileInput) {
-                            return { success: false, error: 'File input not found with selector: ${selector}' };
-                        }
-                        
-                        // 关键：在 Electron 环境中，我们可以设置特殊属性
-                        // 让 Electron 的文件系统处理实际的文件读取
-                        
-                        // 设置 Electron 特有的文件引用
-                        Object.defineProperty(fileInput, 'files', {
-                            get: function() {
-                                // 返回一个模拟的 FileList，但实际文件处理由 Electron 完成
-                                return {
-                                    length: 1,
-                                    0: {
-                                        name: '${fileName}',
-                                        size: ${fs.statSync(filePath).size},
-                                        type: '${this.getMimeType(filePath)}',
-                                        lastModified: ${fs.statSync(filePath).mtimeMs},
-                                        // Electron 特有：文件路径引用而非内容
-                                        _electronPath: '${filePath}'
-                                    },
-                                    item: function(index) { return this[index] || null; }
-                                };
-                            }
-                        });
-                        
-                        // 触发文件选择事件
-                        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-                        fileInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        
-                        return { 
-                            success: true,
-                            fileName: '${fileName}',
-                            method: 'NativeDialog',
-                            fileSize: ${fs.statSync(filePath).size}
-                        };
-                    } catch (e) {
-                        return { success: false, error: e.message, method: 'NativeDialog' };
-                    }
-                })()
-            `);
-
-            console.log(`📁 Native dialog result for ${tab.accountName}:`, result);
-            return result;
-
-        } catch (error) {
-            return { success: false, error: this.getErrorMessage(error), method: 'NativeDialog' };
-        }
-    }
 
     private getMimeType(filePath: string): string {
         const ext = path.extname(filePath).toLowerCase();
