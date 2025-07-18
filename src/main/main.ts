@@ -54,7 +54,7 @@ class MultiAccountBrowser {
         app.commandLine.appendSwitch('--allow-running-insecure-content');
         app.commandLine.appendSwitch('--disable-web-security');
         app.commandLine.appendSwitch('--disable-site-isolation-trials');
-        app.commandLine.appendSwitch('remote-debugging-port', '9712');
+        //app.commandLine.appendSwitch('remote-debugging-port', '9712');
         this.sessionManager = new SessionManager(
             path.join(app.getPath('userData'), 'sessions')
         );
