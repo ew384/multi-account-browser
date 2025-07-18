@@ -399,4 +399,83 @@ export class WeChatVideoUploader {
             throw new Error('发布失败');
         }
     }
+    private async handleUploadError(filePath: string): Promise<void> {
+        console.log("🔧 处理上传错误，重新上传中");
+
+        await this.tabManager.executeScript(this.tabId, `
+            // 点击删除按钮
+            const deleteBtn = document.querySelector('div.media-status-content div.tag-inner:has-text("删除")');
+            if (deleteBtn) deleteBtn.click();
+        `);
+
+        await this.tabManager.executeScript(this.tabId, `
+            // 确认删除
+            const confirmBtn = document.querySelector('button:has-text("删除")');
+            if (confirmBtn) confirmBtn.click();
+        `);
+
+        // 重新上传文件
+        await this.uploadFile(filePath);
+    }
+
+    private async handleAdvancedOriginal(category?: string): Promise<void> {
+        console.log("📋 处理高级原创声明");
+
+        const originalScript = `
+        (async function() {
+            try {
+                // 检查原创权限
+                const originalLabel = document.querySelector('label:has-text("视频为原创")');
+                if (originalLabel) {
+                    const checkbox = originalLabel.querySelector('input[type="checkbox"]');
+                    if (checkbox && !checkbox.disabled) {
+                        checkbox.click();
+                        console.log('✅ 已勾选原创声明');
+                    }
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 1500));
+
+                // 同意条款
+                const agreeLabel = document.querySelector('label:has-text("我已阅读并同意")');
+                if (agreeLabel) {
+                    agreeLabel.click();
+                    console.log('✅ 已同意条款');
+                }
+
+                // 处理原创类型
+                if ('${category || ''}') {
+                    const typeDropdown = document.querySelector('div.form-content');
+                    if (typeDropdown) {
+                        typeDropdown.click();
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        const typeOption = document.querySelector(\`li:has-text("\${category}")\`);
+                        if (typeOption) {
+                            typeOption.click();
+                        }
+                    }
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // 点击声明原创按钮
+                const declareBtn = document.querySelector('button:has-text("声明原创"):not(:disabled)');
+                if (declareBtn) {
+                    declareBtn.click();
+                    console.log('✅ 已点击声明原创');
+                }
+
+                return { success: true };
+            } catch (e) {
+                return { success: false, error: e.message };
+            }
+        })()
+        `;
+
+        const result = await this.tabManager.executeScript(this.tabId, originalScript);
+        if (!result.success) {
+            console.warn(`⚠️ 原创声明失败: ${result.error}`);
+        }
+    }
 }

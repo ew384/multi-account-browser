@@ -65,7 +65,92 @@ export class TabManager {
             }
         });
     }
+    // 🆕 智能等待元素出现
+    async waitForElement(tabId: string, selector: string, timeout: number = 30000): Promise<boolean> {
+        const tab = this.tabs.get(tabId);
+        if (!tab) throw new Error(`Tab ${tabId} not found`);
 
+        const script = `
+        new Promise((resolve) => {
+            const startTime = Date.now();
+            const check = () => {
+                const element = document.querySelector('${selector}');
+                if (element) {
+                    resolve(true);
+                } else if (Date.now() - startTime > ${timeout}) {
+                    resolve(false);
+                } else {
+                    setTimeout(check, 500);
+                }
+            };
+            check();
+        })
+        `;
+
+        try {
+            const result = await tab.webContentsView.webContents.executeJavaScript(script);
+            return Boolean(result);
+        } catch (error) {
+            console.error(`❌ 等待元素失败: ${error}`);
+            return false;
+        }
+    }
+
+    // 🆕 智能点击元素
+    async clickElement(tabId: string, selector: string): Promise<boolean> {
+        const tab = this.tabs.get(tabId);
+        if (!tab) throw new Error(`Tab ${tabId} not found`);
+
+        const script = `
+        (function() {
+            const element = document.querySelector('${selector}');
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                element.click();
+                return true;
+            }
+            return false;
+        })()
+        `;
+
+        try {
+            const result = await tab.webContentsView.webContents.executeJavaScript(script);
+            return Boolean(result);
+        } catch (error) {
+            console.error(`❌ 点击元素失败: ${error}`);
+            return false;
+        }
+    }
+
+    // 🆕 等待页面URL变化
+    async waitForUrlChange(tabId: string, pattern: string, timeout: number = 30000): Promise<boolean> {
+        const tab = this.tabs.get(tabId);
+        if (!tab) throw new Error(`Tab ${tabId} not found`);
+
+        const script = `
+        new Promise((resolve) => {
+            const startTime = Date.now();
+            const check = () => {
+                if (window.location.href.includes('${pattern}')) {
+                    resolve(true);
+                } else if (Date.now() - startTime > ${timeout}) {
+                    resolve(false);
+                } else {
+                    setTimeout(check, 1000);
+                }
+            };
+            check();
+        })
+        `;
+
+        try {
+            const result = await tab.webContentsView.webContents.executeJavaScript(script);
+            return Boolean(result);
+        } catch (error) {
+            console.error(`❌ 等待URL变化失败: ${error}`);
+            return false;
+        }
+    }
     async setShadowInputFiles(tabId: string, shadowSelector: string, inputSelector: string, filePath: string): Promise<boolean> {
         const tab = this.tabs.get(tabId);
         if (!tab) throw new Error(`Tab ${tabId} not found`);
