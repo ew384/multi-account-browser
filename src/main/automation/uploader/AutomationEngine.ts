@@ -1,5 +1,5 @@
 // src/main/automation/AutomationEngine.ts
-import { WeChatVideoUploader } from '../uploader/tencent_uploader/main';
+import { WeChatVideoUploader, WechatAccountInfo } from '../uploader/tencent_uploader/main';
 import { TabManager } from '../../TabManager';
 export class AutomationEngine {
     private tabManager: TabManager;
@@ -28,6 +28,25 @@ export class AutomationEngine {
             case 'douyin':
                 // 未来扩展
                 throw new Error('抖音平台暂未实现');
+
+            default:
+                throw new Error(`不支持的平台: ${platform}`);
+        }
+    }
+    async getAccountInfo(tabId: string, platform: string) {
+        console.log(`🔍 开始提取 ${platform} 平台账号信息...`);
+
+        switch (platform) {
+            case 'wechat':
+                return await WechatAccountInfo(tabId, this.tabManager);
+
+            case 'douyin':
+                // 未来扩展
+                throw new Error('抖音平台暂未实现');
+
+            case 'xiaohongshu':
+                // 未来扩展
+                throw new Error('小红书平台暂未实现');
 
             default:
                 throw new Error(`不支持的平台: ${platform}`);

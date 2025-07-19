@@ -2,7 +2,7 @@ import { WebContentsView, BrowserWindow, Session } from 'electron';
 import { SessionManager } from './SessionManager';
 import { CookieManager } from './CookieManager';
 import { AccountTab } from '../types';
-import { getPlatformSelectors } from '../utils/platformSelectors';
+//import { getPlatformSelectors } from '../utils/platformSelectors';
 import * as fs from 'fs';
 import * as path from 'path';
 export class TabManager {
@@ -1892,89 +1892,6 @@ export class TabManager {
         } catch (error) {
             console.error(`❌ setInputFiles failed:`, error);
             return false;
-        }
-    }
-    async extractPageElements(tabId: string, selectors: Record<string, string>): Promise<Record<string, any>> {
-        const tab = this.tabs.get(tabId);
-        if (!tab) throw new Error(`Tab ${tabId} not found`);
-
-        const script = `
-        (function() {
-            const selectors = ${JSON.stringify(selectors)};
-            const result = {};
-            
-            for (const [key, selectorList] of Object.entries(selectors)) {
-                const selectors = selectorList.split(',').map(s => s.trim());
-                let value = null;
-                
-                for (const selector of selectors) {
-                    try {
-                        const element = document.querySelector(selector);
-                        if (element) {
-                            value = element.textContent?.trim() || element.innerText?.trim() || element.getAttribute('title') || null;
-                            if (value) break;
-                        }
-                    } catch (e) {
-                        continue;
-                    }
-                }
-                
-                result[key] = value;
-            }
-            
-            return result;
-        })()
-        `;
-
-        return await tab.webContentsView.webContents.executeJavaScript(script);
-    }
-
-    async getAccountInfo(tabId: string, platform: string): Promise<any> {
-        const platformSelectors = getPlatformSelectors(platform);
-        const rawData = await this.extractPageElements(tabId, platformSelectors);
-        
-        return this.normalizeAccountInfo(rawData, platform);
-    }
-
-    private normalizeAccountInfo(rawData: Record<string, any>, platform: string): any {
-        return {
-            platform: platform,
-            accountName: rawData.accountName || null,
-            accountId: rawData.accountId || null,
-            followersCount: this.parseNumber(rawData.followersCount),
-            videosCount: this.parseNumber(rawData.videosCount),
-            avatar: rawData.avatar || null,
-            bio: rawData.bio || null,
-            extractedAt: new Date().toISOString(),
-            rawData: rawData
-        };
-    }
-
-    private parseNumber(text: string | null): number | null {
-        if (!text) return null;
-        
-        const cleaned = text.replace(/[^\d.万wkKWmM]/g, '');
-        if (!cleaned) return null;
-        
-        try {
-            if (cleaned.includes('万') || cleaned.includes('w') || cleaned.includes('W')) {
-                const num = parseFloat(cleaned.replace(/[万wW]/g, ''));
-                return Math.round(num * 10000);
-            }
-            
-            if (cleaned.includes('k') || cleaned.includes('K')) {
-                const num = parseFloat(cleaned.replace(/[kK]/g, ''));
-                return Math.round(num * 1000);
-            }
-            
-            if (cleaned.includes('m') || cleaned.includes('M')) {
-                const num = parseFloat(cleaned.replace(/[mM]/g, ''));
-                return Math.round(num * 1000000);
-            }
-            
-            return parseInt(cleaned, 10);
-        } catch (e) {
-            return null;
         }
     }
 

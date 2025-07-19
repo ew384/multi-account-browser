@@ -54,7 +54,36 @@ export class APIServer {
                 renderer: 'WebContentsView' // 标识使用的渲染器
             });
         });
+        this.app.post('/api/automation/get-account-info', async (req, res) => {
+            try {
+                const { tabId, platform } = req.body;
 
+                if (!tabId || !platform) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'tabId and platform are required'
+                    });
+                }
+
+                console.log(`🔍 收到账号信息提取请求: Tab ${tabId}, 平台 ${platform}`);
+
+                const automation = new AutomationEngine(this.tabManager);
+                const accountInfo = await automation.getAccountInfo(tabId, platform);
+
+                console.log(`📊 账号信息提取结果:`, accountInfo);
+                res.json({ 
+                    success: !!accountInfo, 
+                    data: accountInfo 
+                });
+
+            } catch (error) {
+                console.error('❌ 提取账号信息失败:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
         this.app.post('/api/automation/upload-video-complete', async (req, res) => {
             try {
                 const {
@@ -979,37 +1008,7 @@ export class APIServer {
                 });
             }
         });
-        // 通用页面元素提取
-        this.app.post('/api/account/extract-elements', async (req, res) => {
-            try {
-                const { tabId, selectors } = req.body;
-                
-                if (!tabId || !selectors) {
-                    return res.status(400).json({ success: false, error: 'tabId and selectors are required' });
-                }
 
-                const extractedData = await this.tabManager.extractPageElements(tabId, selectors);
-                res.json({ success: true, data: extractedData });
-            } catch (error) {
-                res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
-            }
-        });
-
-        // 专门的账号信息提取
-        this.app.post('/api/account/get-info', async (req, res) => {
-            try {
-                const { tabId, platform } = req.body;
-                
-                if (!tabId || !platform) {
-                    return res.status(400).json({ success: false, error: 'tabId and platform are required' });
-                }
-
-                const accountInfo = await this.tabManager.getAccountInfo(tabId, platform);
-                res.json({ success: true, data: accountInfo });
-            } catch (error) {
-                res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
-            }
-        });
         // 调试接口 - 强制更新边界
         this.app.post('/api/debug/update-bounds', (req, res) => {
             try {
