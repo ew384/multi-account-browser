@@ -2,6 +2,7 @@ import { WebContentsView, BrowserWindow, Session } from 'electron';
 import { SessionManager } from './SessionManager';
 import { CookieManager } from './CookieManager';
 import { AccountTab } from '../types';
+import { getPlatformSelectors } from '../utils/platformSelectors';
 import * as fs from 'fs';
 import * as path from 'path';
 export class TabManager {
@@ -18,12 +19,32 @@ export class TabManager {
     private readonly TAB_BAR_HEIGHT = 48;
     private readonly TOP_OFFSET = 108; // 60px header + 48px tab-bar
     private initScripts: Map<string, string[]> = new Map();
+    private stealthScript: string | null = null;
     constructor(mainWindow: BrowserWindow, sessionManager: SessionManager) {
         this.mainWindow = mainWindow;
         this.sessionManager = sessionManager;
         this.cookieManager = new CookieManager();
         this.setupWindowEvents();
+        this.loadStealthScript();
     }
+    private loadStealthScript(): void {
+        try {
+            // 假设stealth.min.js在项目根目录的utils文件夹中
+            const stealthPath = path.join(__dirname, '../../src/utils/stealth.min.js');
+            
+            if (fs.existsSync(stealthPath)) {
+                this.stealthScript = fs.readFileSync(stealthPath, 'utf8');
+                console.log('✅ Stealth反检测脚本加载成功');
+            } else {
+                console.warn('⚠️ 未找到stealth.min.js文件:', stealthPath);
+                this.stealthScript = null;
+            }
+        } catch (error) {
+            console.error('❌ 加载stealth脚本失败:', error);
+            this.stealthScript = null;
+        }
+    }
+
     async addInitScript(tabId: string, script: string): Promise<void> {
         const tab = this.tabs.get(tabId);
         if (!tab) throw new Error(`Tab ${tabId} not found`);
@@ -122,35 +143,142 @@ export class TabManager {
         }
     }
 
-    // 🆕 等待页面URL变化
-    async waitForUrlChange(tabId: string, pattern: string, timeout: number = 30000): Promise<boolean> {
+    async getQRCode(tabId: string, selector: string): Promise<string | null> {
         const tab = this.tabs.get(tabId);
         if (!tab) throw new Error(`Tab ${tabId} not found`);
 
-        const script = `
-        new Promise((resolve) => {
-            const startTime = Date.now();
-            const check = () => {
-                if (window.location.href.includes('${pattern}')) {
-                    resolve(true);
-                } else if (Date.now() - startTime > ${timeout}) {
-                    resolve(false);
-                } else {
-                    setTimeout(check, 1000);
-                }
-            };
-            check();
-        })
-        `;
-
         try {
+            console.log(`🔍 获取二维码: ${selector} (${tab.accountName})`);
+
+            const script = `
+            (function() {
+                try {
+                    // 处理 iframe 中的图片
+                    if ('${selector}'.includes('iframe')) {
+                        const iframe = document.querySelector('iframe');
+                        if (iframe && iframe.contentDocument) {
+                            const img = iframe.contentDocument.querySelector('img');
+                            return img ? img.src : null;
+                        }
+                    }
+                    
+                    // 处理普通选择器
+                    const element = document.querySelector('${selector}');
+                    if (element) {
+                        if (element.tagName === 'IMG') {
+                            return element.src;
+                        }
+                        // 如果不是img标签，查找其中的img
+                        const img = element.querySelector('img');
+                        return img ? img.src : null;
+                    }
+                    
+                    return null;
+                } catch (e) {
+                    console.error('获取二维码失败:', e);
+                    return null;
+                }
+            })()
+            `;
+
             const result = await tab.webContentsView.webContents.executeJavaScript(script);
-            return Boolean(result);
+            
+            if (result) {
+                console.log(`✅ 二维码获取成功: ${result.substring(0, 50)}...`);
+            } else {
+                console.log(`❌ 未找到二维码: ${selector}`);
+            }
+            
+            return result;
+
         } catch (error) {
-            console.error(`❌ 等待URL变化失败: ${error}`);
-            return false;
+            console.error(`❌ 获取二维码失败 for ${tab.accountName}:`, error);
+            return null;
         }
     }
+
+    /**
+     * 等待页面URL变化
+     */
+    async waitForUrlChange(tabId: string, timeout: number = 200000): Promise<boolean> {
+        const tab = this.tabs.get(tabId);
+        if (!tab) throw new Error(`Tab ${tabId} not found`);
+
+        return new Promise((resolve) => {
+            console.log(`⏳ 开始监听URL变化 (${tab.accountName}), 超时: ${timeout}ms`);
+            
+            const originalUrl = tab.webContentsView.webContents.getURL();
+            let resolved = false;
+            let timeoutId: NodeJS.Timeout;
+
+            const cleanup = () => {
+                if (resolved) return;
+                resolved = true;
+                
+                if (timeoutId) clearTimeout(timeoutId);
+                tab.webContentsView.webContents.removeListener('did-navigate', onNavigate);
+                tab.webContentsView.webContents.removeListener('did-navigate-in-page', onNavigate);
+            };
+
+            const onNavigate = (event: any, url: string) => {
+                if (resolved) return;
+                
+                console.log(`🔄 URL变化检测: ${originalUrl} → ${url}`);
+                
+                if (url !== originalUrl && !url.includes('about:blank')) {
+                    console.log(`✅ URL变化确认: ${tab.accountName}`);
+                    cleanup();
+                    resolve(true);
+                }
+            };
+
+            // 监听导航事件
+            tab.webContentsView.webContents.on('did-navigate', onNavigate);
+            tab.webContentsView.webContents.on('did-navigate-in-page', onNavigate);
+
+            // 设置超时
+            timeoutId = setTimeout(() => {
+                console.log(`⏰ URL变化监听超时: ${tab.accountName}`);
+                cleanup();
+                resolve(false);
+            }, timeout);
+
+            // 定期检查URL变化（备用方案）
+            const checkInterval = setInterval(() => {
+                if (resolved) {
+                    clearInterval(checkInterval);
+                    return;
+                }
+
+                try {
+                    const currentUrl = tab.webContentsView.webContents.getURL();
+                    if (currentUrl !== originalUrl && !currentUrl.includes('about:blank')) {
+                        console.log(`✅ 定期检查发现URL变化: ${tab.accountName}`);
+                        clearInterval(checkInterval);
+                        cleanup();
+                        resolve(true);
+                    }
+                } catch (error) {
+                    console.warn(`URL检查出错: ${error}`);
+                }
+            }, 1000);
+
+            // 确保interval也会被清理
+            const originalCleanup = cleanup;
+            const enhancedCleanup = () => {
+                clearInterval(checkInterval);
+                originalCleanup();
+            };
+            
+            // 替换cleanup引用
+            timeoutId = setTimeout(() => {
+                console.log(`⏰ URL变化监听超时: ${tab.accountName}`);
+                enhancedCleanup();
+                resolve(false);
+            }, timeout);
+        });
+    }
+
     async setShadowInputFiles(tabId: string, shadowSelector: string, inputSelector: string, filePath: string): Promise<boolean> {
         const tab = this.tabs.get(tabId);
         if (!tab) throw new Error(`Tab ${tabId} not found`);
@@ -316,7 +444,7 @@ export class TabManager {
                 accountName: accountName,
                 platform: platform,
                 session: session,
-                webContentsView: webContentsView, // 替换 browserView 为 webContentsView
+                webContentsView: webContentsView,
                 loginStatus: 'unknown',
                 url: initialUrl || `https://channels.weixin.qq.com`
             };
@@ -358,6 +486,14 @@ export class TabManager {
             console.log(`🔄 Auto-switching to new tab: ${accountName}`);
             await this.switchToTab(tabId);
             // 如果有初始URL，开始导航（非阻塞）
+            if (this.stealthScript) {
+                try {
+                    await this.addInitScript(tabId, this.stealthScript);
+                    console.log(`🛡️ 反检测脚本已注入: ${accountName}`);
+                } catch (error) {
+                    console.warn(`⚠️ 反检测脚本注入失败 for ${accountName}:`, error);
+                }
+            }
             if (initialUrl) {
                 console.log(`🔗 Starting immediate navigation for ${accountName}...`);
                 // 不使用 setImmediate，直接开始导航
@@ -967,10 +1103,13 @@ export class TabManager {
             const webContents = tab.webContentsView.webContents;
 
             // 预加载优化
-            webContents.setZoomFactor(1.0);
             webContents.setUserAgent(
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             );
+            webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+                // 快速拒绝不必要的权限请求
+                callback(false);
+            });
             const navigationPromise = new Promise<void>((resolve, reject) => {
                 let resolved = false;
                 let loadingTimer: NodeJS.Timeout;
@@ -1755,7 +1894,89 @@ export class TabManager {
             return false;
         }
     }
+    async extractPageElements(tabId: string, selectors: Record<string, string>): Promise<Record<string, any>> {
+        const tab = this.tabs.get(tabId);
+        if (!tab) throw new Error(`Tab ${tabId} not found`);
 
+        const script = `
+        (function() {
+            const selectors = ${JSON.stringify(selectors)};
+            const result = {};
+            
+            for (const [key, selectorList] of Object.entries(selectors)) {
+                const selectors = selectorList.split(',').map(s => s.trim());
+                let value = null;
+                
+                for (const selector of selectors) {
+                    try {
+                        const element = document.querySelector(selector);
+                        if (element) {
+                            value = element.textContent?.trim() || element.innerText?.trim() || element.getAttribute('title') || null;
+                            if (value) break;
+                        }
+                    } catch (e) {
+                        continue;
+                    }
+                }
+                
+                result[key] = value;
+            }
+            
+            return result;
+        })()
+        `;
+
+        return await tab.webContentsView.webContents.executeJavaScript(script);
+    }
+
+    async getAccountInfo(tabId: string, platform: string): Promise<any> {
+        const platformSelectors = getPlatformSelectors(platform);
+        const rawData = await this.extractPageElements(tabId, platformSelectors);
+        
+        return this.normalizeAccountInfo(rawData, platform);
+    }
+
+    private normalizeAccountInfo(rawData: Record<string, any>, platform: string): any {
+        return {
+            platform: platform,
+            accountName: rawData.accountName || null,
+            accountId: rawData.accountId || null,
+            followersCount: this.parseNumber(rawData.followersCount),
+            videosCount: this.parseNumber(rawData.videosCount),
+            avatar: rawData.avatar || null,
+            bio: rawData.bio || null,
+            extractedAt: new Date().toISOString(),
+            rawData: rawData
+        };
+    }
+
+    private parseNumber(text: string | null): number | null {
+        if (!text) return null;
+        
+        const cleaned = text.replace(/[^\d.万wkKWmM]/g, '');
+        if (!cleaned) return null;
+        
+        try {
+            if (cleaned.includes('万') || cleaned.includes('w') || cleaned.includes('W')) {
+                const num = parseFloat(cleaned.replace(/[万wW]/g, ''));
+                return Math.round(num * 10000);
+            }
+            
+            if (cleaned.includes('k') || cleaned.includes('K')) {
+                const num = parseFloat(cleaned.replace(/[kK]/g, ''));
+                return Math.round(num * 1000);
+            }
+            
+            if (cleaned.includes('m') || cleaned.includes('M')) {
+                const num = parseFloat(cleaned.replace(/[mM]/g, ''));
+                return Math.round(num * 1000000);
+            }
+            
+            return parseInt(cleaned, 10);
+        } catch (e) {
+            return null;
+        }
+    }
 
     private getMimeType(filePath: string): string {
         const ext = path.extname(filePath).toLowerCase();

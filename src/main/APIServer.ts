@@ -386,6 +386,33 @@ export class APIServer {
             }
         });
 
+        this.app.post('/api/account/get-qrcode', async (req, res) => {
+            try {
+                const { tabId, selector } = req.body;
+                if (!tabId || !selector) {
+                    return res.status(400).json({ success: false, error: 'tabId and selector are required' });
+                }
+
+                const qrUrl = await this.tabManager.getQRCode(tabId, selector);
+                res.json({ success: !!qrUrl, data: { qrUrl } });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+            }
+        });
+
+        this.app.post('/api/account/wait-url-change', async (req, res) => {
+            try {
+                const { tabId, timeout = 200000 } = req.body;
+                if (!tabId) {
+                    return res.status(400).json({ success: false, error: 'tabId is required' });
+                }
+
+                const changed = await this.tabManager.waitForUrlChange(tabId, timeout);
+                res.json({ success: true, data: { urlChanged: changed } });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+            }
+        });
         // 获取指定账号详情
         this.app.get('/api/account/:tabId', (req, res) => {
             try {
@@ -952,7 +979,37 @@ export class APIServer {
                 });
             }
         });
+        // 通用页面元素提取
+        this.app.post('/api/account/extract-elements', async (req, res) => {
+            try {
+                const { tabId, selectors } = req.body;
+                
+                if (!tabId || !selectors) {
+                    return res.status(400).json({ success: false, error: 'tabId and selectors are required' });
+                }
 
+                const extractedData = await this.tabManager.extractPageElements(tabId, selectors);
+                res.json({ success: true, data: extractedData });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+            }
+        });
+
+        // 专门的账号信息提取
+        this.app.post('/api/account/get-info', async (req, res) => {
+            try {
+                const { tabId, platform } = req.body;
+                
+                if (!tabId || !platform) {
+                    return res.status(400).json({ success: false, error: 'tabId and platform are required' });
+                }
+
+                const accountInfo = await this.tabManager.getAccountInfo(tabId, platform);
+                res.json({ success: true, data: accountInfo });
+            } catch (error) {
+                res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+            }
+        });
         // 调试接口 - 强制更新边界
         this.app.post('/api/debug/update-bounds', (req, res) => {
             try {
