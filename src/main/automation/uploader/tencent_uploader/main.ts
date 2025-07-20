@@ -479,10 +479,10 @@ export class WeChatVideoUploader {
         }
     }
 }
+
 export async function WechatAccountInfo(tabId: string, tabManager: TabManager) {
     const extractScript = `
-    // 直接执行，不要包装成函数
-    (function() {
+    (function extractWechatFinderInfo() {
         try {
             // 提取头像URL
             const avatarImg = document.querySelector('.finder-info-container .avatar');
@@ -518,9 +518,9 @@ export async function WechatAccountInfo(tabId: string, tabManager: TabManager) {
                 return parseInt(cleanValue) || 0;
             }
             
-            // 返回标准化数据
+            // 标准化数据
             return {
-                platform: 'wechat_finder',
+                platform: 'wechat',
                 accountName: accountName,
                 accountId: accountId,
                 followersCount: parseNumber(followersCount),
