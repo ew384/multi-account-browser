@@ -2,18 +2,20 @@ import { WebContentsView, BrowserWindow, Session } from 'electron';
 import { SessionManager } from './SessionManager';
 import { CookieManager } from './CookieManager';
 import { AccountTab } from '../types';
-//import { getPlatformSelectors } from '../utils/platformSelectors';
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
+import { app } from 'electron'
+
+const dbPath = path.join(
+    app.getPath('userData'),
+    'database.db'
+)
 import * as fs from 'fs';
 import * as path from 'path';
-interface CookieData {
-    name: string;
-    value: string;
-    domain: string;
-    path: string;
-    secure: boolean;
-    httpOnly: boolean;
-    expires?: number;
-    sameSite: 'strict' | 'lax' | 'none';
+interface AccountInfo {
+    username: string;
+    platform: string;
+    platformType: number;
 }
 export class TabManager {
     private tabs: Map<string, AccountTab> = new Map();
@@ -535,6 +537,121 @@ export class TabManager {
             throw error;
         }
     }
+    private async getAccountInfoFromDb(cookieFile: string): Promise<AccountInfo | null> {
+        /**
+         * Get account info from database
+         * @param cookieFile - Cookie file path
+         * @returns Account info or null if not found
+         */
+        try {
+            const cookieFilename = path.basename(cookieFile);
+
+            // Open database connection
+            const db = await open({
+                filename: dbPath,
+                driver: sqlite3.Database
+            });
+
+            // Execute query
+            const result = await db.get(
+                'SELECT userName, type FROM user_info WHERE filePath = ?',
+                [cookieFilename]
+            );
+
+            await db.close();
+
+            if (result) {
+                const { userName, type: platformType } = result;
+                const platformMap: Record<number, string> = {
+                    1: 'xiaohongshu',
+                    2: 'weixin',
+                    3: 'douyin',
+                    4: 'kuaishou'
+                };
+
+                return {
+                    username: userName,
+                    platform: platformMap[platformType] || 'unknown',
+                    platformType: platformType
+                };
+            }
+
+            return null;
+        } catch (e) {
+            console.error(`⚠️ Failed to get account info:`, e);
+            return null;
+        }
+    }
+    async get_or_create_tab(cookieFile: string, platform: string, initialUrl: string, tabNamePrefix?: string): Promise<string> {
+        /**
+         * Get or create a tab - general method
+         * 
+         * @param cookieFile - Cookie file path/name, used as identifier
+         * @param platform - Platform name (xiaohongshu, wechat, douyin, kuaishou)
+         * @param initialUrl - Initial URL
+         * @param tabNamePrefix - Tab name prefix, e.g. "视频号_", "抖音_"
+         * @returns Tab ID
+         */
+        console.log(`🚀 Getting or creating tab for ${cookieFile} on ${platform}...`);
+
+        const cookieIdentifier = typeof cookieFile === 'string' ? path.basename(cookieFile) : String(cookieFile);
+
+        // 1. Check existing tabs
+        try {
+            const existingTabs = await this.getAllTabs();
+            if (existingTabs) {
+                for (const tab of existingTabs) {
+                    const tabCookieFile = tab.cookieFile;
+                    if (tabCookieFile) {
+                        const tabCookieName = path.basename(tabCookieFile);
+                        if (tabCookieName === cookieIdentifier) {
+                            console.log(`🔄 Reusing existing tab: ${tab.id} (Cookie match: ${cookieIdentifier})`);
+                            return tab.id;
+                        }
+                    } else {
+                        console.log(`📋 Tab ${cookieFile} doesn't match (Cookie: ${tab.cookieFile})`);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error(`⚠️ Failed to query existing tabs:`, e);
+        }
+
+        // 2. Create new tab
+        try {
+            // Get account info for naming
+            const accountInfo = await this.getAccountInfoFromDb(cookieFile);
+            const accountName = accountInfo?.username || 'unknown';
+
+            // Generate tab name
+            let fullTabName: string;
+            if (tabNamePrefix) {
+                fullTabName = `${tabNamePrefix}${accountName}`;
+            } else {
+                const platformPrefixMap: Record<string, string> = {
+                    'xiaohongshu': '小红书_',
+                    'wechat': '视频号_',
+                    'douyin': '抖音_',
+                    'kuaishou': '快手_'
+                };
+                const prefix = platformPrefixMap[platform] || `${platform}_`;
+                fullTabName = `${prefix}${accountName}`;
+            }
+
+            // Create tab (pass cookieFile directly for one-step process)
+            const tabId = await this.createAccountTab(
+                fullTabName,
+                platform,
+                initialUrl
+            );
+            await this.loadAccountCookies(tabId, cookieFile);
+            return tabId;
+
+        } catch (e) {
+            throw new Error(`Failed to create tab: ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
+
     async openDevTools(tabId: string): Promise<void> {
         console.log('🔧 TabManager.openDevTools called for:', tabId);
 
