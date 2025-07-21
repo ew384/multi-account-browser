@@ -3,7 +3,7 @@ import cors from 'cors';
 import { TabManager } from './TabManager';
 import { CreateAccountRequest, ExecuteScriptRequest, NavigateRequest, APIResponse } from '../types';
 import * as path from 'path';
-import { AutomationEngine } from '../main/automation/uploader/AutomationEngine';
+import { AutomationEngine } from '../main/automation/AutomationEngine';
 
 export class APIServer {
     private app: express.Application;
@@ -71,9 +71,9 @@ export class APIServer {
                 const accountInfo = await automation.getAccountInfo(tabId, platform);
 
                 console.log(`📊 账号信息提取结果:`, accountInfo);
-                res.json({ 
-                    success: !!accountInfo, 
-                    data: accountInfo 
+                res.json({
+                    success: !!accountInfo,
+                    data: accountInfo
                 });
 
             } catch (error) {
@@ -84,6 +84,35 @@ export class APIServer {
                 });
             }
         });
+
+        // 打开标签页开发者工具
+        this.app.post('/api/account/open-devtools', async (req, res) => {
+            try {
+                const { tabId } = req.body;
+
+                if (!tabId) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'tabId is required'
+                    });
+                }
+
+                console.log(`🛠️ Opening DevTools for tab: ${tabId}`);
+                await this.tabManager.openDevTools(tabId);
+
+                res.json({
+                    success: true,
+                    data: { tabId, message: 'DevTools window opened' }
+                });
+            } catch (error) {
+                console.error('Error opening DevTools:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
+
         this.app.post('/api/automation/upload-video-complete', async (req, res) => {
             try {
                 const {
@@ -283,6 +312,30 @@ export class APIServer {
             }
         });
 
+        // UI覆盖层管理API
+        this.app.post('/api/ui/hide-tab-temporarily', async (req, res) => {
+            try {
+                await this.tabManager.hideCurrentTabTemporarily();
+                res.json({ success: true });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
+
+        this.app.post('/api/ui/show-current-tab', async (req, res) => {
+            try {
+                await this.tabManager.showCurrentTab();
+                res.json({ success: true });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
         // 加载Cookie
         this.app.post('/api/account/load-cookies', async (req, res) => {
             try {

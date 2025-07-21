@@ -5,6 +5,16 @@ import { AccountTab } from '../types';
 //import { getPlatformSelectors } from '../utils/platformSelectors';
 import * as fs from 'fs';
 import * as path from 'path';
+interface CookieData {
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    secure: boolean;
+    httpOnly: boolean;
+    expires?: number;
+    sameSite: 'strict' | 'lax' | 'none';
+}
 export class TabManager {
     private tabs: Map<string, AccountTab> = new Map();
     private activeTabId: string | null = null;
@@ -31,7 +41,7 @@ export class TabManager {
         try {
             // 假设stealth.min.js在项目根目录的utils文件夹中
             const stealthPath = path.join(__dirname, '../../src/utils/stealth.min.js');
-            
+
             if (fs.existsSync(stealthPath)) {
                 this.stealthScript = fs.readFileSync(stealthPath, 'utf8');
                 console.log('✅ Stealth反检测脚本加载成功');
@@ -182,13 +192,13 @@ export class TabManager {
             `;
 
             const result = await tab.webContentsView.webContents.executeJavaScript(script);
-            
+
             if (result) {
                 console.log(`✅ 二维码获取成功: ${result.substring(0, 50)}...`);
             } else {
                 console.log(`❌ 未找到二维码: ${selector}`);
             }
-            
+
             return result;
 
         } catch (error) {
@@ -206,7 +216,7 @@ export class TabManager {
 
         return new Promise((resolve) => {
             console.log(`⏳ 开始监听URL变化 (${tab.accountName}), 超时: ${timeout}ms`);
-            
+
             const originalUrl = tab.webContentsView.webContents.getURL();
             let resolved = false;
             let timeoutId: NodeJS.Timeout;
@@ -214,7 +224,7 @@ export class TabManager {
             const cleanup = () => {
                 if (resolved) return;
                 resolved = true;
-                
+
                 if (timeoutId) clearTimeout(timeoutId);
                 tab.webContentsView.webContents.removeListener('did-navigate', onNavigate);
                 tab.webContentsView.webContents.removeListener('did-navigate-in-page', onNavigate);
@@ -222,9 +232,9 @@ export class TabManager {
 
             const onNavigate = (event: any, url: string) => {
                 if (resolved) return;
-                
+
                 console.log(`🔄 URL变化检测: ${originalUrl} → ${url}`);
-                
+
                 if (url !== originalUrl && !url.includes('about:blank')) {
                     console.log(`✅ URL变化确认: ${tab.accountName}`);
                     cleanup();
@@ -269,7 +279,7 @@ export class TabManager {
                 clearInterval(checkInterval);
                 originalCleanup();
             };
-            
+
             // 替换cleanup引用
             timeoutId = setTimeout(() => {
                 console.log(`⏰ URL变化监听超时: ${tab.accountName}`);
@@ -525,7 +535,269 @@ export class TabManager {
             throw error;
         }
     }
+    async openDevTools(tabId: string): Promise<void> {
+        console.log('🔧 TabManager.openDevTools called for:', tabId);
 
+        const tab = this.tabs.get(tabId);
+        if (!tab) {
+            console.log('❌ Tab not found:', tabId);
+            throw new Error(`Tab ${tabId} not found`);
+        }
+
+        console.log('✅ Tab found:', tab.accountName);
+
+        try {
+            const { BrowserWindow } = require('electron');
+
+            console.log('🔧 Creating DevTools using webview approach for Electron 37...');
+
+            // 🔥 获取当前页面的URL，用于在webview中重新加载
+            const currentUrl = tab.webContentsView.webContents.getURL();
+            console.log('🔧 Current page URL:', currentUrl);
+
+            // 🔥 创建包含webview的开发者工具窗口
+            const devtools = new BrowserWindow({
+                width: 1400,
+                height: 900,
+                title: `DevTools - ${tab.accountName}`,
+                show: true,
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true,
+                    devTools: true,  // 这个窗口本身可以有开发者工具
+                    webviewTag: true, // 🔥 关键：启用webview标签
+                    webSecurity: false
+                },
+                autoHideMenuBar: true
+            });
+
+            // 🔥 创建包含webview的HTML页面
+            const webviewHTML = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>DevTools for ${tab.accountName}</title>
+                <style>
+                    body {
+                        margin: 0;
+                        padding: 0;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        background: #1e1e1e;
+                        display: flex;
+                        flex-direction: column;
+                        height: 100vh;
+                    }
+                    .header {
+                        background: #2d2d30;
+                        color: #cccccc;
+                        padding: 8px 16px;
+                        border-bottom: 1px solid #3c3c3c;
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        min-height: 40px;
+                    }
+                    .url-info {
+                        font-size: 12px;
+                        color: #9cdcfe;
+                        font-family: monospace;
+                    }
+                    .controls {
+                        display: flex;
+                        gap: 8px;
+                    }
+                    .btn {
+                        background: #0e639c;
+                        color: white;
+                        border: none;
+                        padding: 4px 12px;
+                        border-radius: 3px;
+                        cursor: pointer;
+                        font-size: 11px;
+                    }
+                    .btn:hover {
+                        background: #1177bb;
+                    }
+                    .container {
+                        flex: 1;
+                        display: flex;
+                        position: relative;
+                    }
+                    webview {
+                        flex: 1;
+                        border: none;
+                    }
+                    .status {
+                        position: absolute;
+                        top: 50%;
+                        left: 50%;
+                        transform: translate(-50%, -50%);
+                        color: #cccccc;
+                        text-align: center;
+                        pointer-events: none;
+                        z-index: 1000;
+                        background: rgba(45, 45, 48, 0.9);
+                        padding: 20px;
+                        border-radius: 8px;
+                        display: none;
+                    }
+                    .loading {
+                        display: block;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <div class="url-info">🛠️ DevTools for: ${currentUrl || 'about:blank'}</div>
+                    <div class="controls">
+                        <button class="btn" onclick="openDevTools()">打开开发者工具</button>
+                        <button class="btn" onclick="refreshPage()">刷新页面</button>
+                        <button class="btn" onclick="inspectMode()">检查元素</button>
+                    </div>
+                </div>
+                <div class="container">
+                    <div id="status" class="status loading">
+                        正在加载页面...
+                    </div>
+                    <webview 
+                        id="webview" 
+                        src="${currentUrl || 'about:blank'}"
+                        partition="persist:devtools-${tabId}"
+                        webpreferences="contextIsolation=false, nodeIntegration=false, devTools=true"
+                        style="width: 100%; height: 100%;">
+                    </webview>
+                </div>
+    
+                <script>
+                    console.log('DevTools webview container loaded');
+                    
+                    const webview = document.getElementById('webview');
+                    const status = document.getElementById('status');
+                    
+                    // 🔥 webview事件监听
+                    webview.addEventListener('dom-ready', () => {
+                        console.log('✅ Webview DOM ready');
+                        status.style.display = 'none';
+                        
+                        // 🔥 自动打开开发者工具
+                        setTimeout(() => {
+                            try {
+                                webview.openDevTools();
+                                console.log('✅ DevTools opened in webview');
+                            } catch (error) {
+                                console.error('❌ Failed to open DevTools:', error);
+                            }
+                        }, 1000);
+                    });
+    
+                    webview.addEventListener('did-start-loading', () => {
+                        console.log('🔄 Webview started loading');
+                        status.textContent = '正在加载页面...';
+                        status.style.display = 'block';
+                    });
+    
+                    webview.addEventListener('did-finish-load', () => {
+                        console.log('✅ Webview finished loading');
+                        status.style.display = 'none';
+                    });
+    
+                    webview.addEventListener('did-fail-load', (event) => {
+                        console.error('❌ Webview failed to load:', event);
+                        status.textContent = '页面加载失败';
+                        status.style.display = 'block';
+                    });
+    
+                    // 🔥 控制函数
+                    function openDevTools() {
+                        try {
+                            webview.openDevTools();
+                            console.log('🛠️ DevTools opened manually');
+                        } catch (error) {
+                            console.error('❌ Failed to open DevTools manually:', error);
+                            alert('无法打开开发者工具: ' + error.message);
+                        }
+                    }
+    
+                    function refreshPage() {
+                        webview.reload();
+                        console.log('🔄 Page refreshed');
+                    }
+    
+                    function inspectMode() {
+                        try {
+                            // 尝试启用检查模式
+                            webview.executeJavaScript(\`
+                                console.log('🔍 Inspect mode activated');
+                                document.addEventListener('click', function(e) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    console.log('Element clicked:', e.target);
+                                    return false;
+                                }, true);
+                            \`);
+                            alert('检查模式已激活，点击页面元素查看信息');
+                        } catch (error) {
+                            console.error('❌ Failed to activate inspect mode:', error);
+                        }
+                    }
+    
+                    // 🔥 与原始标签页同步Cookie的功能
+                    function syncWithOriginalTab() {
+                        // 这里可以通过IPC与主进程通信，同步Cookie
+                        console.log('🔄 Syncing with original tab...');
+                    }
+    
+                    // 监听webview的导航事件
+                    webview.addEventListener('did-navigate', (event) => {
+                        console.log('🔗 Webview navigated to:', event.url);
+                        document.querySelector('.url-info').textContent = '🛠️ DevTools for: ' + event.url;
+                    });
+    
+                    console.log('🎉 DevTools container ready');
+                </script>
+            </body>
+            </html>
+            `;
+
+            // 🔥 加载webview HTML
+            await devtools.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(webviewHTML)}`);
+
+            // 🔥 尝试同步Cookie到webview
+            try {
+                await this.syncCookiesToWebview(tab, tabId);
+            } catch (error) {
+                console.warn('Cookie同步失败:', error);
+            }
+
+            // 窗口关闭处理
+            devtools.on('closed', () => {
+                console.log(`🔧 DevTools window closed for: ${tab.accountName}`);
+            });
+
+            console.log('✅ WebView-based DevTools created successfully');
+
+        } catch (error) {
+            console.error(`❌ Failed to create webview DevTools:`, error);
+            throw error;
+        }
+    }
+
+    // 🔥 同步Cookie到webview的辅助方法
+    private async syncCookiesToWebview(tab: any, tabId: string): Promise<void> {
+        try {
+            console.log('🔄 Syncing cookies to webview...');
+
+            // 获取原始标签页的所有Cookie
+            const cookies = await tab.session.cookies.get({});
+            console.log(`📋 Found ${cookies.length} cookies to sync`);
+
+            // 这里可以通过临时文件或其他方式传递Cookie
+            // 由于webview有独立的partition，我们需要特殊处理
+
+        } catch (error) {
+            console.warn('Cookie同步过程中出错:', error);
+        }
+    }
     private async injectInitScripts(tabId: string): Promise<void> {
         const scripts = this.initScripts.get(tabId);
         if (!scripts || scripts.length === 0) return;
@@ -934,7 +1206,24 @@ export class TabManager {
             throw error;
         }
     }
+    // 临时隐藏当前标签页，显示UI
+    async hideCurrentTabTemporarily(): Promise<void> {
+        if (this.activeTabId) {
+            const tab = this.tabs.get(this.activeTabId);
+            if (tab) {
+                console.log(`🙈 Temporarily hiding tab: ${tab.accountName}`);
+                tab.webContentsView.setBounds({ x: -5000, y: -5000, width: 1, height: 1 });
+            }
+        }
+    }
 
+    // 恢复当前标签页显示
+    async showCurrentTab(): Promise<void> {
+        if (this.activeTabId) {
+            console.log(`👁️ Showing current tab again`);
+            this.updateActiveWebContentsViewBounds();
+        }
+    }
     async switchToTab(tabId: string): Promise<void> {
         const tab = this.tabs.get(tabId);
         if (!tab) throw new Error(`Tab ${tabId} not found`);

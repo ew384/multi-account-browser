@@ -1,6 +1,6 @@
 // src/main/automation/AutomationEngine.ts
-import { WeChatVideoUploader, WechatAccountInfo } from '../uploader/tencent_uploader/main';
-import { TabManager } from '../../TabManager';
+import { WeChatVideoUploader, WechatAccountInfo } from '../plugins/uploader/tencent/main';
+import { TabManager } from '../../main/TabManager';
 export class AutomationEngine {
     private tabManager: TabManager;
 

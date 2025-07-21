@@ -556,23 +556,157 @@ async function navigateToUrl(): Promise<void> {
     }
 }
 (window as any).navigateToUrl = navigateToUrl;
-function showCookieDialog(): void {
-    const modal = document.getElementById('cookie-modal');
-    if (modal) {
-        modal.style.display = 'flex';
-        setTimeout(() => {
-            // 这些按钮在模态框HTML中，通过onclick属性调用函数
-            // 确保这些函数在全局可用
-        }, 0);
+async function showCookieDialog(): Promise<void> {
+    try {
+        // 先隐藏当前标签页，避免被遮挡
+        await fetch('http://localhost:3000/api/ui/hide-tab-temporarily', { method: 'POST' });
+
+        // 显示模态框
+        const modal = document.getElementById('cookie-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+            console.log('🍪 Cookie dialog shown');
+        }
+    } catch (error) {
+        console.error('Failed to show cookie dialog:', error);
+        showNotification('显示Cookie管理对话框失败', 'error');
     }
 }
 
-function hideCookieDialog(): void {
-    const modal = document.getElementById('cookie-modal');
-    if (modal) {
-        modal.style.display = 'none';
+async function hideCookieDialog(): Promise<void> {
+    try {
+        // 隐藏模态框
+        const modal = document.getElementById('cookie-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+
+        // 恢复标签页显示
+        await fetch('http://localhost:3000/api/ui/show-current-tab', { method: 'POST' });
+
+        console.log('🍪 Cookie dialog hidden');
+    } catch (error) {
+        console.error('Failed to hide cookie dialog:', error);
     }
 }
+/**
+ * 加载Cookie文件
+ */
+async function loadCookieFile(): Promise<void> {
+    if (!activeTabId) {
+        showNotification('请先选择一个标签页', 'warning');
+        return;
+    }
+
+    try {
+        // 使用Electron的文件对话框
+        const result = await window.electronAPI.showOpenDialog({
+            title: '选择Cookie文件',
+            filters: [
+                { name: 'JSON Files', extensions: ['json'] },
+                { name: 'All Files', extensions: ['*'] }
+            ],
+            properties: ['openFile']
+        });
+
+        if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+            return;
+        }
+
+        const cookieFile = result.filePaths[0];
+
+        showLoading('正在加载Cookie...');
+
+        // 🔥 使用现有的API端点
+        const response = await fetch('http://localhost:3000/api/account/load-cookies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                tabId: activeTabId,
+                cookieFile: cookieFile  // 注意参数名是 cookieFile，不是 cookieFilePath
+            })
+        });
+
+        const result2 = await response.json();
+
+        if (result2.success) {
+            showNotification(`Cookie加载成功: ${cookieFile.split('/').pop()}`, 'success');
+
+            // 刷新当前标签页
+            setTimeout(() => {
+                refreshCurrentTab();
+            }, 1000);
+        } else {
+            throw new Error(result2.error || '加载失败');
+        }
+
+    } catch (error) {
+        console.error('加载Cookie失败:', error);
+        showNotification(`加载Cookie失败: ${handleError(error)}`, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+/**
+ * 保存Cookie文件
+ */
+async function saveCookieFile(): Promise<void> {
+    if (!activeTabId) {
+        showNotification('请先选择一个标签页', 'warning');
+        return;
+    }
+
+    try {
+        const currentTab = currentTabs.find(tab => tab.id === activeTabId);
+        const defaultName = currentTab
+            ? `${currentTab.accountName}-cookies-${new Date().toISOString().slice(0, 10)}.json`
+            : `cookies-${new Date().toISOString().slice(0, 10)}.json`;
+
+        // 使用Electron的保存对话框
+        const result = await window.electronAPI.showSaveDialog({
+            title: '保存Cookie文件',
+            defaultPath: defaultName,
+            filters: [
+                { name: 'JSON Files', extensions: ['json'] },
+                { name: 'All Files', extensions: ['*'] }
+            ]
+        });
+
+        if (result.canceled || !result.filePath) {
+            return;
+        }
+
+        const cookieFile = result.filePath;
+
+        showLoading('正在保存Cookie...');
+
+        // 🔥 使用现有的API端点
+        const response = await fetch('http://localhost:3000/api/account/save-cookies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                tabId: activeTabId,
+                cookieFile: cookieFile  // 注意参数名是 cookieFile，不是 cookieFilePath
+            })
+        });
+
+        const result2 = await response.json();
+
+        if (result2.success) {
+            showNotification(`Cookie保存成功: ${cookieFile.split('/').pop()}`, 'success');
+        } else {
+            throw new Error(result2.error || '保存失败');
+        }
+
+    } catch (error) {
+        console.error('保存Cookie失败:', error);
+        showNotification(`保存Cookie失败: ${handleError(error)}`, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
 
 function updateTabBar(): void {
     const tabBarContent = document.getElementById('tab-bar-content');
@@ -1609,6 +1743,10 @@ function showTabContextMenu(event: MouseEvent, tabId: string): void {
             <span class="icon">🗑️</span>
             关闭标签页
         </div>
+        <div class="menu-item" onclick="openTabDevTools('${tabId}')">
+            <span class="icon">🛠️</span>
+            开发者工具
+        </div>
     `;
 
     // 显示菜单
@@ -1774,7 +1912,12 @@ function setupKeyboardShortcuts(): void {
                 switchTab(currentTabs[index].id);
             }
         }
-
+        if (e.key === 'F12') {
+            console.log('🔧 F12 pressed, activeTabId:', activeTabId);
+            e.preventDefault();
+            e.stopPropagation();
+            openCurrentTabDevTools();
+        }
         // Ctrl/Cmd + Shift + I: 测试隔离
         if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'I') {
             e.preventDefault();
@@ -1788,7 +1931,6 @@ function setupKeyboardShortcuts(): void {
 // ========================================
 // 文件处理
 // ========================================
-
 /**
  * 处理Cookie文件选择
  */
@@ -1835,10 +1977,78 @@ async function runQuickTest(): Promise<void> {
     }
 }
 
+/**
+ * 打开当前标签页的开发者工具
+ */
+async function openCurrentTabDevTools(): Promise<void> {
+    console.log('🔧 openCurrentTabDevTools called, activeTabId:', activeTabId);
+
+    if (!activeTabId) {
+        console.log('❌ No active tab');
+        showNotification('请先选择一个标签页', 'warning');
+        return;
+    }
+
+    try {
+        console.log('🔧 Sending request to open devtools for tab:', activeTabId);
+
+        showLoading('正在打开开发者工具...');
+
+        const response = await fetch('http://localhost:3000/api/account/open-devtools', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tabId: activeTabId })
+        });
+
+        console.log('🔧 Response status:', response.status);
+
+        const result = await response.json();
+        console.log('🔧 Response result:', result);
+
+        if (result.success) {
+            showNotification('开发者工具已在独立窗口中打开', 'success');
+        } else {
+            throw new Error(result.error || '打开失败');
+        }
+    } catch (error) {
+        console.error('❌ 打开开发者工具失败:', error);
+        showNotification(`打开开发者工具失败: ${handleError(error)}`, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+/**
+ * 为指定标签页打开开发者工具（用于右键菜单）
+ */
+async function openTabDevTools(tabId: string): Promise<void> {
+    try {
+        showLoading('正在打开开发者工具...');
+
+        const response = await fetch('http://localhost:3000/api/account/open-devtools', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tabId })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            showNotification('开发者工具已在独立窗口中打开', 'success');
+        } else {
+            throw new Error(result.error || '打开失败');
+        }
+    } catch (error) {
+        console.error('打开开发者工具失败:', error);
+        showNotification('打开开发者工具失败', 'error');
+    } finally {
+        hideLoading();
+    }
+
+    hideContextMenu();
+}
 // ========================================
 // 通知系统
 // ========================================
-
 /**
  * 显示通知
  */
@@ -1992,6 +2202,24 @@ function delay(ms: number): Promise<void> {
     }
 };
 
+(window as any).openTabDevTools = async (tabId: string) => {
+    try {
+        const response = await fetch('http://localhost:3000/api/account/open-devtools', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tabId })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            showNotification('开发者工具已打开', 'info');
+        }
+    } catch (error) {
+        console.error('打开开发者工具失败:', error);
+        showNotification('打开开发者工具失败', 'error');
+    }
+    hideContextMenu();
+};
 // ========================================
 // 页面生命周期
 // ========================================
@@ -2096,3 +2324,5 @@ if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
     };
     console.log('🛠️ 调试接口已暴露到 window.debugAPI');
 }
+(window as any).openCurrentTabDevTools = openCurrentTabDevTools;
+(window as any).openTabDevTools = openTabDevTools;
