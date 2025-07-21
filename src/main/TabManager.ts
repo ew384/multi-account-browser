@@ -545,16 +545,22 @@ export class TabManager {
         }
 
         console.log('✅ Tab found:', tab.accountName);
-
+        const accountName = tab.accountName;
+        const cookieFilePath = path.join(__dirname, 'cookies', `${accountName}.json`);
+        await this.cookieManager.saveCookiesFromSession(tab.session, cookieFilePath);
         try {
-            const { BrowserWindow } = require('electron');
+            const { BrowserWindow, session } = require('electron');
 
             console.log('🔧 Creating DevTools using webview approach for Electron 37...');
 
             // 🔥 获取当前页面的URL，用于在webview中重新加载
             const currentUrl = tab.webContentsView.webContents.getURL();
             console.log('🔧 Current page URL:', currentUrl);
+            const partitionName = `persist:${accountName}`;
+            const devtoolsSession = session.fromPartition(partitionName);
 
+            // 📥 3. 加载 cookie 到 devtools 的 session
+            await this.cookieManager.loadCookiesToSession(devtoolsSession, cookieFilePath)
             // 🔥 创建包含webview的开发者工具窗口
             const devtools = new BrowserWindow({
                 width: 1400,
@@ -762,13 +768,6 @@ export class TabManager {
             // 🔥 加载webview HTML
             await devtools.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(webviewHTML)}`);
 
-            // 🔥 尝试同步Cookie到webview
-            try {
-                await this.syncCookiesToWebview(tab, tabId);
-            } catch (error) {
-                console.warn('Cookie同步失败:', error);
-            }
-
             // 窗口关闭处理
             devtools.on('closed', () => {
                 console.log(`🔧 DevTools window closed for: ${tab.accountName}`);
@@ -782,22 +781,7 @@ export class TabManager {
         }
     }
 
-    // 🔥 同步Cookie到webview的辅助方法
-    private async syncCookiesToWebview(tab: any, tabId: string): Promise<void> {
-        try {
-            console.log('🔄 Syncing cookies to webview...');
 
-            // 获取原始标签页的所有Cookie
-            const cookies = await tab.session.cookies.get({});
-            console.log(`📋 Found ${cookies.length} cookies to sync`);
-
-            // 这里可以通过临时文件或其他方式传递Cookie
-            // 由于webview有独立的partition，我们需要特殊处理
-
-        } catch (error) {
-            console.warn('Cookie同步过程中出错:', error);
-        }
-    }
     private async injectInitScripts(tabId: string): Promise<void> {
         const scripts = this.initScripts.get(tabId);
         if (!scripts || scripts.length === 0) return;
