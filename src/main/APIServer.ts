@@ -3,57 +3,442 @@ import cors from 'cors';
 import { TabManager } from './TabManager';
 import { CreateAccountRequest, ExecuteScriptRequest, NavigateRequest, APIResponse } from '../types';
 import * as path from 'path';
-import { AutomationEngine } from '../main/automation/AutomationEngine';
-
+import { AutomationEngine } from './automation/AutomationEngine';
+import {
+    UploadParams,
+    LoginResult,
+    LoginStatus,
+    BatchUploadRequest,
+    UploadResult
+} from '../types/pluginInterface';
 export class APIServer {
     private app: express.Application;
-    private tabManager: TabManager;
     private server: any;
-    private port: number;
+    private automationEngine: AutomationEngine;
+    private tabManager: TabManager;  // 🔥 保留 tabManager 用于底层操作
 
-    constructor(tabManager: TabManager, port: number = 3000) {
+    // 🔥 活跃队列映射 (对应 Python 的 active_queues)
+    private activeQueues: Map<string, NodeJS.EventEmitter> = new Map();
+
+    constructor(automationEngine: AutomationEngine, tabManager: TabManager) {
+        this.automationEngine = automationEngine;
+        this.tabManager = tabManager;  // 🔥 保留 tabManager 引用
         this.app = express();
-        this.tabManager = tabManager;
-        this.port = port;
         this.setupMiddleware();
         this.setupRoutes();
     }
 
     private setupMiddleware(): void {
-        this.app.use(express.json({ limit: '10mb' }));
-        this.app.use(cors({
-            origin: '*',
-            methods: ['GET', 'POST', 'PUT', 'DELETE'],
-            allowedHeaders: ['Content-Type', 'Authorization']
-        }));
+        this.app.use(cors());
+        this.app.use(express.json({ limit: '50mb' }));
+        this.app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-        // 请求日志中间件
+        // 请求日志
         this.app.use((req, res, next) => {
-            console.log(`🌐 API ${req.method} ${req.path} - ${new Date().toLocaleTimeString()}`);
+            console.log(`📡 API请求: ${req.method} ${req.path}`);
             next();
         });
+    }
+    private setupRoutes(): void {
+        // 🔥 登录接口 - 对应 Python 的 /login
+        this.app.get('/login', this.handleLogin.bind(this));
 
-        // 错误处理中间件
-        this.app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-            console.error('API Error:', err);
+        // 🔥 登录状态查询接口 (SSE)
+        this.app.get('/login/status/:id', this.handleLoginStatus.bind(this));
+
+        // 🔥 取消登录接口
+        this.app.post('/login/cancel', this.handleCancelLogin.bind(this));
+
+        // 🔥 视频发布接口 - 对应 Python 的 /postVideo
+        this.app.post('/postVideo', this.handlePostVideo.bind(this));
+
+        // 其他现有接口...
+        this.setupOtherRoutes();
+    }
+    /**
+     * 🔥 登录接口
+     * 对应 Python: @app.route('/login')
+     */
+    private async handleLogin(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const type = req.query.type as string;
+            const id = req.query.id as string;
+
+            console.log(`🔐 接收到登录请求: type=${type}, id=${id}`);
+
+            // 验证参数
+            if (!type || !id) {
+                res.status(400).json({
+                    success: false,
+                    error: '缺少必要参数: type 和 id'
+                });
+                return;
+            }
+
+            // 平台类型映射 (对应 Python 的类型编号)
+            const platformMap: Record<string, string> = {
+                '1': 'xiaohongshu',
+                '2': 'wechat',
+                '3': 'douyin',
+                '4': 'kuaishou'
+            };
+
+            const platform = platformMap[type];
+            if (!platform) {
+                res.status(400).json({
+                    success: false,
+                    error: `不支持的平台类型: ${type}`
+                });
+                return;
+            }
+
+            // 检查平台是否支持登录
+            if (!this.automationEngine.isLoginSupported(platform)) {
+                res.status(400).json({
+                    success: false,
+                    error: `平台 ${platform} 暂不支持登录功能`
+                });
+                return;
+            }
+
+            // 🔥 启动登录流程
+            const loginResult = await this.automationEngine.startLogin(platform, id);
+
+            if (loginResult.success && loginResult.qrCodeUrl) {
+                // 创建事件发射器用于状态通知
+                const { EventEmitter } = require('events');
+                const statusEmitter = new EventEmitter();
+                this.activeQueues.set(id, statusEmitter);
+
+                // 🔥 启动后台监听登录完成
+                this.monitorLoginCompletion(id, platform);
+
+                res.json({
+                    success: true,
+                    qrCodeUrl: loginResult.qrCodeUrl,
+                    message: '二维码已生成，请使用手机扫码登录'
+                });
+            } else {
+                res.status(500).json({
+                    success: false,
+                    error: loginResult.error || '登录启动失败'
+                });
+            }
+
+        } catch (error) {
+            console.error(`❌ 登录接口错误:`, error);
             res.status(500).json({
                 success: false,
-                error: err instanceof Error ? err.message : 'Internal Server Error'
+                error: error instanceof Error ? error.message : '服务器内部错误'
             });
-        });
+        }
     }
 
-    private setupRoutes(): void {
-        // 健康检查
-        this.app.get('/api/health', (req, res) => {
+    /**
+     * 🔥 登录状态查询接口 (SSE)
+     * 对应 Python 的 SSE 机制
+     */
+    private handleLoginStatus(req: express.Request, res: express.Response): void {
+        const id = req.params.id;
+
+        console.log(`📡 建立登录状态连接: ${id}`);
+
+        // 设置 SSE 响应头
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Cache-Control'
+        });
+
+        // 获取状态发射器
+        const statusEmitter = this.activeQueues.get(id);
+        if (!statusEmitter) {
+            res.write(`data: {"status": "404", "message": "登录会话不存在"}\n\n`);
+            res.end();
+            return;
+        }
+
+        // 监听状态变化
+        const statusHandler = (status: string, data?: any) => {
+            const response = {
+                status,
+                timestamp: new Date().toISOString(),
+                ...data
+            };
+            res.write(`data: ${JSON.stringify(response)}\n\n`);
+
+            // 如果登录完成（成功或失败），关闭连接
+            if (status === '200' || status === '500') {
+                res.end();
+                this.activeQueues.delete(id);
+            }
+        };
+
+        statusEmitter.on('status', statusHandler);
+
+        // 连接断开时清理
+        req.on('close', () => {
+            console.log(`📡 登录状态连接断开: ${id}`);
+            statusEmitter.removeListener('status', statusHandler);
+        });
+
+        // 发送初始状态
+        res.write(`data: {"status": "pending", "message": "等待登录中..."}\n\n`);
+    }
+
+    /**
+     * 🔥 取消登录接口
+     */
+    private async handleCancelLogin(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const { id } = req.body;
+
+            if (!id) {
+                res.status(400).json({
+                    success: false,
+                    error: '缺少参数: id'
+                });
+                return;
+            }
+
+            const success = await this.automationEngine.cancelLogin(id);
+
+            // 通知状态变化
+            const statusEmitter = this.activeQueues.get(id);
+            if (statusEmitter) {
+                statusEmitter.emit('status', '500', { message: '用户取消登录' });
+            }
+
+            res.json({
+                success,
+                message: success ? '登录已取消' : '取消登录失败'
+            });
+
+        } catch (error) {
+            console.error(`❌ 取消登录错误:`, error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : '服务器内部错误'
+            });
+        }
+    }
+
+    /**
+     * 🔥 视频发布接口
+     * 对应 Python: @app.route('/postVideo', methods=['POST'])
+     */
+    private async handlePostVideo(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const {
+                fileList = [],
+                accountList = [],
+                type: typeVal,
+                title,
+                tags,
+                category,
+                enableTimer,
+                videosPerDay,
+                dailyTimes,
+                startDays
+            } = req.body;
+
+            console.log(`📤 接收到视频发布请求:`);
+            console.log(`   文件数: ${fileList.length}`);
+            console.log(`   账号数: ${accountList.length}`);
+            console.log(`   平台类型: ${typeVal}`);
+
+            // 验证必要参数
+            if (!fileList || !Array.isArray(fileList) || fileList.length === 0) {
+                res.status(400).json({
+                    success: false,
+                    error: '文件列表不能为空'
+                });
+                return;
+            }
+
+            if (!accountList || !Array.isArray(accountList) || accountList.length === 0) {
+                res.status(400).json({
+                    success: false,
+                    error: '账号列表不能为空'
+                });
+                return;
+            }
+
+            // 平台类型映射
+            const platformMap: Record<string, string> = {
+                '1': 'xiaohongshu',
+                '2': 'wechat',
+                '3': 'douyin',
+                '4': 'kuaishou'
+            };
+
+            const platform = platformMap[typeVal];
+            if (!platform) {
+                res.status(400).json({
+                    success: false,
+                    error: `不支持的平台类型: ${typeVal}`
+                });
+                return;
+            }
+
+            // 检查平台是否支持上传
+            if (!this.automationEngine.isPlatformSupported(platform)) {
+                res.status(400).json({
+                    success: false,
+                    error: `平台 ${platform} 暂不支持视频上传功能`
+                });
+                return;
+            }
+
+            // 🔥 构造批量上传请求
+            const batchRequest: BatchUploadRequest = {
+                platform,
+                files: fileList,
+                accounts: accountList.map((account: any) => ({
+                    cookieFile: account.cookieFile || account.filePath,
+                    platform: platform,
+                    accountName: account.userName || account.accountName,
+                    accountId: account.accountId,
+                    followersCount: account.followersCount,
+                    videosCount: account.videosCount,
+                    avatar: account.avatar,
+                    bio: account.bio
+                })),
+                params: {
+                    title: title || '默认标题',
+                    tags: Array.isArray(tags) ? tags : (tags ? [tags] : []),
+                    category: category === 0 ? undefined : category,
+                    enableOriginal: true,
+                    addToCollection: false,
+                    // 🔥 定时发布相关参数
+                    publishDate: enableTimer ? this.calculatePublishDate(videosPerDay, dailyTimes, startDays) : undefined
+                }
+            };
+
+            // 🔥 执行批量上传
+            const uploadResults = await this.automationEngine.batchUpload(batchRequest);
+
+            // 统计结果
+            const successCount = uploadResults.filter(r => r.success).length;
+            const failedCount = uploadResults.length - successCount;
+
+            console.log(`📊 批量上传完成: 成功 ${successCount}, 失败 ${failedCount}`);
+
             res.json({
                 success: true,
-                message: 'Multi-Account Browser API is running',
-                timestamp: new Date().toISOString(),
-                version: '2.0.0', // 版本号提升表示支持 WebContentsView
-                renderer: 'WebContentsView' // 标识使用的渲染器
+                message: `批量上传完成: 成功 ${successCount}, 失败 ${failedCount}`,
+                results: uploadResults,
+                summary: {
+                    total: uploadResults.length,
+                    success: successCount,
+                    failed: failedCount,
+                    platform: platform
+                }
             });
-        });
+
+        } catch (error) {
+            console.error(`❌ 视频发布接口错误:`, error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : '服务器内部错误'
+            });
+        }
+    }
+
+    /**
+     * 🔥 监听登录完成状态
+     * 对应 Python 的后台监听逻辑
+     */
+    private async monitorLoginCompletion(userId: string, platform: string): Promise<void> {
+        const statusEmitter = this.activeQueues.get(userId);
+        if (!statusEmitter) return;
+
+        try {
+            // 轮询检查登录状态
+            const checkInterval = setInterval(async () => {
+                try {
+                    const loginStatus = this.automationEngine.getLoginStatus(userId);
+
+                    if (!loginStatus) {
+                        clearInterval(checkInterval);
+                        statusEmitter.emit('status', '500', { message: '登录会话丢失' });
+                        return;
+                    }
+
+                    if (loginStatus.status === 'completed') {
+                        clearInterval(checkInterval);
+                        statusEmitter.emit('status', '200', {
+                            message: '登录成功',
+                            accountInfo: loginStatus
+                        });
+                    } else if (loginStatus.status === 'failed') {
+                        clearInterval(checkInterval);
+                        statusEmitter.emit('status', '500', {
+                            message: '登录失败',
+                            error: '登录过程中发生错误'
+                        });
+                    } else if (loginStatus.status === 'cancelled') {
+                        clearInterval(checkInterval);
+                        statusEmitter.emit('status', '500', { message: '登录已取消' });
+                    }
+
+                } catch (error) {
+                    console.error(`❌ 登录状态检查错误:`, error);
+                    clearInterval(checkInterval);
+                    statusEmitter.emit('status', '500', {
+                        message: '状态检查失败',
+                        error: error instanceof Error ? error.message : '未知错误'
+                    });
+                }
+            }, 2000); // 每2秒检查一次
+
+            // 设置超时（5分钟）
+            setTimeout(() => {
+                clearInterval(checkInterval);
+                const loginStatus = this.automationEngine.getLoginStatus(userId);
+                if (loginStatus && loginStatus.status === 'pending') {
+                    statusEmitter.emit('status', '500', { message: '登录超时' });
+                }
+            }, 300000); // 5分钟超时
+
+        } catch (error) {
+            console.error(`❌ 监听登录完成失败:`, error);
+            statusEmitter.emit('status', '500', {
+                message: '监听失败',
+                error: error instanceof Error ? error.message : '未知错误'
+            });
+        }
+    }
+
+    /**
+     * 🔥 计算发布时间
+     * 对应 Python 的定时发布逻辑
+     */
+    private calculatePublishDate(videosPerDay?: number, dailyTimes?: string[], startDays?: number): Date | undefined {
+        if (!videosPerDay || !dailyTimes || !Array.isArray(dailyTimes)) {
+            return undefined;
+        }
+
+        try {
+            const now = new Date();
+            const startDate = new Date(now.getTime() + (startDays || 0) * 24 * 60 * 60 * 1000);
+
+            // 使用第一个时间点作为发布时间
+            const timeStr = dailyTimes[0] || '09:00';
+            const [hours, minutes] = timeStr.split(':').map(Number);
+
+            startDate.setHours(hours, minutes, 0, 0);
+
+            return startDate;
+        } catch (error) {
+            console.warn(`⚠️ 计算发布时间失败:`, error);
+            return undefined;
+        }
+    }
+    private setupOtherRoutes(): void {
+
         this.app.post('/api/automation/get-account-info', async (req, res) => {
             try {
                 const { tabId, platform } = req.body;
@@ -106,48 +491,6 @@ export class APIServer {
                 });
             } catch (error) {
                 console.error('Error opening DevTools:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error instanceof Error ? error.message : 'Unknown error'
-                });
-            }
-        });
-
-        this.app.post('/api/automation/upload-video-complete', async (req, res) => {
-            try {
-                const {
-                    tabId,
-                    platform,
-                    filePath,
-                    title,
-                    tags,
-                    publishDate,
-                    enableOriginal,
-                    addToCollection,
-                    category
-                } = req.body;
-
-                console.log(`📥 收到上传请求: Tab ${tabId}, 平台 ${platform}`);
-                console.log(`   文件: ${path.basename(filePath)}`);
-                console.log(`   标题: ${title}`);
-
-                // 执行上传
-                const automation = new AutomationEngine(this.tabManager);
-                const result = await automation.uploadVideo(tabId, platform, {
-                    filePath,
-                    title,
-                    tags,
-                    publishDate: publishDate ? new Date(publishDate) : undefined,
-                    enableOriginal,
-                    addToCollection,
-                    category
-                });
-
-                console.log(`📤 上传结果: ${result ? '成功' : '失败'}`);
-                res.json({ success: result });
-
-            } catch (error) {
-                console.error('❌ 上传视频失败:', error);
                 res.status(500).json({
                     success: false,
                     error: error instanceof Error ? error.message : 'Unknown error'
@@ -1081,21 +1424,39 @@ export class APIServer {
             }
         });
 
+        // 健康检查接口
+        this.app.get('/health', (req, res) => {
+            const systemStatus = this.automationEngine.getSystemStatus();
+            res.json({
+                success: true,
+                status: 'healthy',
+                timestamp: new Date().toISOString(),
+                system: systemStatus
+            });
+        });
+
+        // 获取支持的平台
+        this.app.get('/platforms', (req, res) => {
+            const platformInfo = this.automationEngine.getPlatformSupportInfo();
+            res.json({
+                success: true,
+                platforms: platformInfo
+            });
+        });
+
         // 404 处理
-        this.app.use('*', (req, res) => {
+        this.app.use((req, res) => {
             res.status(404).json({
                 success: false,
-                error: 'API endpoint not found',
-                renderer: 'WebContentsView'
+                error: `接口不存在: ${req.method} ${req.path}`
             });
         });
     }
-
-    start(): Promise<void> {
+    start(port: number): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
-                this.server = this.app.listen(this.port, () => {
-                    console.log(`🚀 API Server running on http://localhost:${this.port}`);
+                this.server = this.app.listen(port, () => {
+                    console.log(`🚀 API Server running on http://localhost:${port}`);
                     console.log(`📋 Available endpoints:`);
                     console.log(`   GET  /api/health - Health check`);
                     console.log(`   GET  /api/info - Server info`);
@@ -1123,7 +1484,7 @@ export class APIServer {
 
                 this.server.on('error', (error: any) => {
                     if (error.code === 'EADDRINUSE') {
-                        console.error(`❌ Port ${this.port} is already in use`);
+                        console.error(`❌ Port ${port} is already in use`);
                     } else {
                         console.error('❌ API Server error:', error);
                     }
@@ -1146,10 +1507,6 @@ export class APIServer {
                 resolve();
             }
         });
-    }
-
-    getPort(): number {
-        return this.port;
     }
 
     isRunning(): boolean {

@@ -1,59 +1,60 @@
-// multi-account-browser//src/main/plugins/uploader/tencent/main.ts
+// multi-account-browser/src/main/plugins/uploader/tencent/main.ts
+import { PluginUploader, UploadParams, PluginType } from '../../../../types/pluginInterface';
 import { TabManager } from '../../../TabManager';
 
-export class WeChatVideoUploader {
-    private tabId: string;
-    private tabManager: TabManager;
+export class WeChatVideoUploader implements PluginUploader {
+    public readonly type = PluginType.UPLOADER;
+    public readonly platform = 'wechat';
+    public readonly name = 'WeChat Video Uploader';
 
-    constructor(tabId: string, tabManager: TabManager) {
-        this.tabId = tabId;
+    private tabManager!: TabManager;
+
+    async init(tabManager: TabManager): Promise<void> {
         this.tabManager = tabManager;
+        console.log(`✅ ${this.name} 初始化完成`);
     }
-
-    async uploadVideoComplete(params: {
-        filePath: string;
-        title: string;
-        tags: string[];
-        publishDate?: Date;
-        enableOriginal?: boolean;
-        addToCollection?: boolean;
-        category?: string;
-    }): Promise<boolean> {
+    // 🔥 改动：uploadVideoComplete 方法签名和逻辑
+    async uploadVideoComplete(params: UploadParams): Promise<boolean> {
         try {
-            console.log(`🎭 开始微信视频号完整上传流程... (Tab: ${this.tabId})`);
-
+            console.log(`🎭 开始微信视频号完整上传流程... (${params.title})`);
+            const tabId = await this.tabManager.getOrCreateTab(
+                params.cookieFile,
+                'wechat',
+                'https://channels.weixin.qq.com/platform/post/create'
+            );
             // 1. 文件上传
-            await this.uploadFile(params.filePath);
-            const uploadStarted = await this.verifyUploadStarted();
+            await this.uploadFile(params.filePath, tabId);
+            const uploadStarted = await this.verifyUploadStarted(tabId);
             if (!uploadStarted) {
                 throw new Error("文件上传验证失败");
             }
+
             // 2. 等待视频处理
-            await this.waitForVideoProcessing();
+            await this.waitForVideoProcessing(tabId);
 
             // 3. 填写标题和标签
-            await this.addTitleAndTags(params.title, params.tags);
+            await this.addTitleAndTags(params.title, params.tags, tabId);
 
             // 4: 等待上传完全完成
-            await this.detectUploadStatusNoTimeout();
+            await this.detectUploadStatusNoTimeout(tabId);
 
             // 5: 添加到合集（如果需要）
             if (params.addToCollection) {
-                await this.addToCollection();
+                await this.addToCollection(tabId);
             }
 
             // 6: 处理原创声明（在发布前）
             if (params.enableOriginal) {
-                await this.handleOriginalDeclaration(params.category);
+                await this.handleOriginalDeclaration(tabId, params.category);
             }
 
             // 7:  处理定时发布
             if (params.publishDate) {
-                await this.setScheduleTime(params.publishDate);
+                await this.setScheduleTime(params.publishDate, tabId);
             }
 
             // 8. 发布
-            await this.clickPublish();
+            await this.clickPublish(tabId);
 
             return true;
         } catch (error) {
@@ -63,10 +64,10 @@ export class WeChatVideoUploader {
     }
 
     // 🔥 使用 TabManager 的流式上传
-    private async uploadFile(filePath: string): Promise<void> {
+    private async uploadFile(filePath: string, tabId: string): Promise<void> {
         console.log('📤 上传文件到微信视频号...');
         const success = await this.tabManager.setInputFilesStreaming(
-            this.tabId,
+            tabId,
             'input[type="file"]',
             filePath,
             {
@@ -81,8 +82,7 @@ export class WeChatVideoUploader {
         }
     }
 
-    // 🔥 使用 TabManager 的 executeScript
-    private async addTitleAndTags(title: string, tags: string[]): Promise<void> {
+    private async addTitleAndTags(title: string, tags: string[], tabId: string): Promise<void> {
         console.log('📝 填写标题和标签...');
 
         const titleTagScript = `
@@ -159,13 +159,12 @@ export class WeChatVideoUploader {
         })()
         `;
 
-        // 🔥 直接使用 TabManager 的 executeScript
-        const result = await this.tabManager.executeScript(this.tabId, titleTagScript);
+        const result = await this.tabManager.executeScript(tabId, titleTagScript); // 🔥 改动：使用传入的tabId
         if (!result) {
             throw new Error('标题标签填写失败');
         }
     }
-    private async detectUploadStatusNoTimeout(): Promise<void> {
+    private async detectUploadStatusNoTimeout(tabId: string): Promise<void> {
         const startTime = Date.now();
 
         console.log("开始检测上传状态（无超时限制）");
@@ -194,7 +193,7 @@ export class WeChatVideoUploader {
                 })()
                 `;
 
-                const result = await this.tabManager.executeScript(this.tabId, checkButtonScript);
+                const result = await this.tabManager.executeScript(tabId, checkButtonScript);
 
                 if (result.found && !result.disabled) {
                     console.log("✅ 上传完成!");
@@ -216,8 +215,8 @@ export class WeChatVideoUploader {
 
         console.log("上传检测完成");
     }
-    // 🔥 使用 TabManager 的 executeScript
-    private async setScheduleTime(publishDate: Date): Promise<void> {
+
+    private async setScheduleTime(publishDate: Date, tabId: string): Promise<void> {
         console.log('⏰ 设置定时发布...');
 
         const scheduleScript = `
@@ -259,13 +258,13 @@ export class WeChatVideoUploader {
         })()
         `;
 
-        const result = await this.tabManager.executeScript(this.tabId, scheduleScript);
+        const result = await this.tabManager.executeScript(tabId, scheduleScript);
         if (!result.success) {
             throw new Error(`定时发布设置失败: ${result.error}`);
         }
     }
 
-    private async handleOriginalDeclaration(category?: string): Promise<void> {
+    private async handleOriginalDeclaration(tabId: string, category?: string): Promise<void> {
         console.log('📋 处理原创声明...');
 
         const originalScript = `
@@ -330,13 +329,13 @@ export class WeChatVideoUploader {
         })()
         `;
 
-        const result = await this.tabManager.executeScript(this.tabId, originalScript);
+        const result = await this.tabManager.executeScript(tabId, originalScript);
         if (!result.success) {
             console.warn(`⚠️ 原创声明处理失败: ${result.error}`);
         }
     }
 
-    private async addToCollection(): Promise<void> {
+    private async addToCollection(tabId: string): Promise<void> {
         console.log('📚 添加到合集...');
 
         const collectionScript = `
@@ -368,12 +367,12 @@ export class WeChatVideoUploader {
         })()
         `;
 
-        const result = await this.tabManager.executeScript(this.tabId, collectionScript);
+        const result = await this.tabManager.executeScript(tabId, collectionScript);
         if (!result.success) {
             console.warn(`⚠️ 添加到合集失败: ${result.error}`);
         }
     }
-    private async verifyUploadStarted(): Promise<boolean> {
+    private async verifyUploadStarted(tabId: string): Promise<boolean> {
         console.log('验证上传是否开始...');
         const verifyScript = `
         (function() {
@@ -407,7 +406,7 @@ export class WeChatVideoUploader {
             }
         })()
         `;
-        const result = await this.tabManager.executeScript(this.tabId, verifyScript);
+        const result = await this.tabManager.executeScript(tabId, verifyScript);
         if (result.started) {
             const details = result.details
             console.log(`✅ 上传已开始! 文件数: ${details.fileCount},视频:${details.hasVideo}, 进度:${details.hasProgress}`);
@@ -417,7 +416,7 @@ export class WeChatVideoUploader {
             return false
         }
     }
-    private async waitForVideoProcessing(): Promise<void> {
+    private async waitForVideoProcessing(tabId: string): Promise<void> {
         console.log('⏳ 等待视频处理完成...');
 
         const waitScript = `
@@ -454,10 +453,10 @@ export class WeChatVideoUploader {
         })
         `;
 
-        await this.tabManager.executeScript(this.tabId, waitScript);
+        await this.tabManager.executeScript(tabId, waitScript);
     }
 
-    private async clickPublish(): Promise<void> {
+    private async clickPublish(tabId: string): Promise<void> {
         console.log('🚀 点击发布...');
 
         const publishScript = `
@@ -494,31 +493,31 @@ export class WeChatVideoUploader {
         })()
         `;
 
-        const result = await this.tabManager.executeScript(this.tabId, publishScript);
+        const result = await this.tabManager.executeScript(tabId, publishScript);
         if (!result) {
             throw new Error('发布失败');
         }
     }
-    private async handleUploadError(filePath: string): Promise<void> {
+    private async handleUploadError(filePath: string, tabId: string): Promise<void> {
         console.log("🔧 处理上传错误，重新上传中");
 
-        await this.tabManager.executeScript(this.tabId, `
+        await this.tabManager.executeScript(tabId, `
             // 点击删除按钮
             const deleteBtn = document.querySelector('div.media-status-content div.tag-inner:has-text("删除")');
             if (deleteBtn) deleteBtn.click();
         `);
 
-        await this.tabManager.executeScript(this.tabId, `
+        await this.tabManager.executeScript(tabId, `
             // 确认删除
             const confirmBtn = document.querySelector('button:has-text("删除")');
             if (confirmBtn) confirmBtn.click();
         `);
 
         // 重新上传文件
-        await this.uploadFile(filePath);
+        await this.uploadFile(filePath, tabId);
     }
 
-    private async handleAdvancedOriginal(category?: string): Promise<void> {
+    private async handleAdvancedOriginal(tabId: string, category?: string): Promise<void> {
         console.log("📋 处理高级原创声明");
 
         const originalScript = `
@@ -573,12 +572,12 @@ export class WeChatVideoUploader {
         })()
         `;
 
-        const result = await this.tabManager.executeScript(this.tabId, originalScript);
+        const result = await this.tabManager.executeScript(tabId, originalScript);
         if (!result.success) {
             console.warn(`⚠️ 原创声明失败: ${result.error}`);
         }
     }
-    async AccountInfo(tabId: string, tabManager: TabManager) {
+    async getAccountInfo(tabId: string): Promise<any> {
         const extractScript = `
         (function extractWechatFinderInfo() {
             try {
@@ -633,7 +632,7 @@ export class WeChatVideoUploader {
             }
         })()
         `;
-        return await this.tabManager.executeScript(this.tabId, extractScript);
+        return await this.tabManager.executeScript(tabId, extractScript);
     }
 }
 

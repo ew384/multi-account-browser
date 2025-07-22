@@ -2,14 +2,10 @@ import { WebContentsView, BrowserWindow, Session } from 'electron';
 import { SessionManager } from './SessionManager';
 import { CookieManager } from './CookieManager';
 import { AccountTab } from '../types';
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
-import { app } from 'electron'
 
-const dbPath = path.join(
-    app.getPath('userData'),
-    'database.db'
-)
+import { app } from 'electron'
+import { AccountStorage } from './plugins/login/base/AccountStorage';
+
 import * as fs from 'fs';
 import * as path from 'path';
 interface AccountInfo {
@@ -537,51 +533,7 @@ export class TabManager {
             throw error;
         }
     }
-    private async getAccountInfoFromDb(cookieFile: string): Promise<AccountInfo | null> {
-        /**
-         * Get account info from database
-         * @param cookieFile - Cookie file path
-         * @returns Account info or null if not found
-         */
-        try {
-            const cookieFilename = path.basename(cookieFile);
 
-            // Open database connection
-            const db = await open({
-                filename: dbPath,
-                driver: sqlite3.Database
-            });
-
-            // Execute query
-            const result = await db.get(
-                'SELECT userName, type FROM user_info WHERE filePath = ?',
-                [cookieFilename]
-            );
-
-            await db.close();
-
-            if (result) {
-                const { userName, type: platformType } = result;
-                const platformMap: Record<number, string> = {
-                    1: 'xiaohongshu',
-                    2: 'weixin',
-                    3: 'douyin',
-                    4: 'kuaishou'
-                };
-
-                return {
-                    username: userName,
-                    platform: platformMap[platformType] || 'unknown',
-                    platformType: platformType
-                };
-            }
-
-            return null;
-        } catch (e) {
-            console.error(`⚠️ Failed to get account info:`, e);
-            return null;
-        }
-    }
     async getOrCreateTab(cookieFile: string, platform: string, initialUrl: string, tabNamePrefix?: string): Promise<string> {
         /**
          * Get or create a tab - general method
@@ -620,7 +572,7 @@ export class TabManager {
         // 2. Create new tab
         try {
             // Get account info for naming
-            const accountInfo = await this.getAccountInfoFromDb(cookieFile);
+            const accountInfo = await AccountStorage.getAccountInfoFromDb(cookieFile);
             const accountName = accountInfo?.username || 'unknown';
 
             // Generate tab name
