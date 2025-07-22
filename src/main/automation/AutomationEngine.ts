@@ -2,7 +2,7 @@
 
 import { TabManager } from '../TabManager';
 import { PluginManager } from '../PluginManager';
-import { LoginManager } from '../plugins/login/base/LoginManager';
+
 import {
     UploadParams,
     UploadResult,
@@ -16,43 +16,69 @@ import { PluginType, PluginUploader, PluginLogin } from '../../types/pluginInter
 export class AutomationEngine {
     private tabManager: TabManager;
     private pluginManager: PluginManager;
-    private loginManager: LoginManager;
+
 
     constructor(tabManager: TabManager) {
         this.tabManager = tabManager;
         this.pluginManager = new PluginManager(tabManager);
-        this.loginManager = new LoginManager(tabManager);
     }
 
-    /**
-     * 🔥 新增：获取插件管理器实例
-     */
     getPluginManager(): PluginManager {
         return this.pluginManager;
     }
 
-    /**
-     * 🔥 新增：获取登录管理器实例
-     */
-    getLoginManager(): LoginManager {
-        return this.loginManager;
-    }
+    private activeLogins: Map<string, LoginStatus> = new Map();
 
-    /**
-     * 🔥 新增：开始账号登录流程
-     * 对应 Python 的 /login 路由和 get_tencent_cookie 等函数
-     * @param platform 平台名称
-     * @param userId 用户ID
-     * @returns 登录结果（包含二维码URL）
-     */
     async startLogin(platform: string, userId: string): Promise<LoginResult> {
         try {
             console.log(`🔐 AutomationEngine: 开始 ${platform} 登录流程`);
 
-            return await this.loginManager.startLogin(platform, userId);
+            // 检查是否已有进行中的登录
+            if (this.activeLogins.has(userId)) {
+                const status = this.activeLogins.get(userId)!;
+                if (status.status === 'pending') {
+                    return {
+                        success: false,
+                        error: `用户 ${userId} 已有进行中的登录`
+                    };
+                }
+            }
+
+            const plugin = this.pluginManager.getPlugin<PluginLogin>(PluginType.LOGIN, platform);
+            if (!plugin) {
+                throw new Error(`不支持的平台: ${platform}`);
+            }
+
+            // 记录登录开始状态
+            const loginStatus: LoginStatus = {
+                userId,
+                platform,
+                status: 'pending',
+                startTime: new Date().toISOString()
+            };
+            this.activeLogins.set(userId, loginStatus);
+
+            const result = await plugin.startLogin({ platform, userId });
+
+            if (result.success && result.qrCodeUrl) {
+                // 更新登录状态
+                loginStatus.tabId = result.tabId;
+                loginStatus.qrCodeUrl = result.qrCodeUrl;
+                this.activeLogins.set(userId, loginStatus);
+
+                // 🔥 启动后台等待登录完成的任务
+                this.startWaitingForLogin(userId, result.tabId!, platform);
+            } else {
+                // 登录启动失败，移除状态
+                this.activeLogins.delete(userId);
+            }
+
+            return result;
 
         } catch (error) {
             console.error(`❌ AutomationEngine: 登录启动失败:`, error);
+            this.activeLogins.delete(userId);
+
             return {
                 success: false,
                 error: error instanceof Error ? error.message : '登录启动失败'
@@ -60,55 +86,100 @@ export class AutomationEngine {
         }
     }
 
-    /**
-     * 🔥 新增：获取登录状态
-     * @param userId 用户ID
-     * @returns 登录状态
-     */
-    getLoginStatus(userId: string): LoginStatus | null {
-        return this.loginManager.getLoginStatus(userId);
-    }
 
-    /**
-     * 🔥 新增：取消登录
-     * @param userId 用户ID
-     * @returns 是否成功取消
-     */
-    async cancelLogin(userId: string): Promise<boolean> {
+    // 🔥 启动后台等待登录完成任务
+    private async startWaitingForLogin(userId: string, tabId: string, platform: string): Promise<void> {
         try {
-            console.log(`🚫 AutomationEngine: 取消登录 ${userId}`);
+            const plugin = this.pluginManager.getPlugin<PluginLogin>(PluginType.LOGIN, platform);
+            if (!plugin) return;
 
-            return await this.loginManager.cancelLogin(userId);
+            console.log(`⏳ 开始等待登录完成: ${userId}`);
+
+            // 在后台异步等待登录
+            const result = await plugin.waitForLogin(tabId, userId);
+
+            // 更新登录状态
+            const loginStatus = this.activeLogins.get(userId);
+            if (loginStatus) {
+                loginStatus.status = result.success ? 'completed' : 'failed';
+                loginStatus.endTime = new Date().toISOString();
+
+                if (result.success) {
+                    console.log(`✅ 登录成功: ${userId}`);
+                    console.log(`   Cookie文件: ${result.cookieFile}`);
+                    console.log(`   账号名: ${result.accountInfo?.accountName}`);
+                } else {
+                    console.log(`❌ 登录失败: ${userId} - ${result.error}`);
+                }
+
+                this.activeLogins.set(userId, loginStatus);
+            }
 
         } catch (error) {
-            console.error(`❌ AutomationEngine: 取消登录失败:`, error);
+            console.error(`❌ 等待登录完成失败: ${userId}:`, error);
+
+            const loginStatus = this.activeLogins.get(userId);
+            if (loginStatus) {
+                loginStatus.status = 'failed';
+                loginStatus.endTime = new Date().toISOString();
+                this.activeLogins.set(userId, loginStatus);
+            }
+        }
+    }
+
+    getLoginStatus(userId: string): LoginStatus | null {
+        return this.activeLogins.get(userId) || null;
+    }
+
+    async cancelLogin(userId: string): Promise<boolean> {
+        try {
+            const loginStatus = this.activeLogins.get(userId);
+            if (!loginStatus || !loginStatus.tabId) {
+                return false;
+            }
+
+            const plugin = this.pluginManager.getPlugin<PluginLogin>(PluginType.LOGIN, loginStatus.platform);
+            if (plugin && plugin.cancelLogin) {
+                await plugin.cancelLogin(loginStatus.tabId);
+            }
+
+            // 更新状态
+            loginStatus.status = 'cancelled';
+            loginStatus.endTime = new Date().toISOString();
+            this.activeLogins.set(userId, loginStatus);
+
+            console.log(`🚫 登录已取消: ${userId}`);
+            return true;
+
+        } catch (error) {
+            console.error(`❌ 取消登录失败: ${userId}:`, error);
             return false;
         }
     }
 
-    /**
-     * 🔥 新增：获取所有登录状态
-     * @returns 所有登录状态列表
-     */
     getAllLoginStatuses(): LoginStatus[] {
-        return this.loginManager.getAllLoginStatuses();
+        return Array.from(this.activeLogins.values());
     }
 
-    /**
-     * 🔥 新增：清理过期的登录状态
-     */
     cleanupExpiredLogins(): void {
-        this.loginManager.cleanupCompletedLogins();
-        console.log(`🧹 AutomationEngine: 已清理过期登录状态`);
+        const now = Date.now();
+        const maxAge = 24 * 60 * 60 * 1000; // 24小时
+
+        for (const [userId, status] of this.activeLogins.entries()) {
+            if (status.status !== 'pending') {
+                const statusTime = status.endTime ? new Date(status.endTime).getTime() : new Date(status.startTime).getTime();
+                if (now - statusTime > maxAge) {
+                    this.activeLogins.delete(userId);
+                    console.log(`🧹 清理过期登录状态: ${userId}`);
+                }
+            }
+        }
     }
 
-    /**
-     * 🔥 新增：获取支持的登录平台
-     * @returns 支持登录的平台列表
-     */
     getSupportedLoginPlatforms(): string[] {
-        return this.loginManager.getSupportedPlatforms();
+        return this.pluginManager.getSupportedPlatforms(PluginType.LOGIN);
     }
+
 
     /**
      * 🔥 新增：检查平台是否支持登录
