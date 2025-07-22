@@ -1,7 +1,8 @@
 // src/main/plugins/login/base/LoginManager.ts
-// ================================
+
 import { TabManager } from '../../../TabManager';
 import {
+    PluginType,
     PluginLogin,
     LoginParams,
     LoginResult,

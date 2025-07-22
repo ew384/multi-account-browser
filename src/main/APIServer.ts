@@ -62,15 +62,15 @@ export class APIServer {
     private async handleLogin(req: express.Request, res: express.Response): Promise<void> {
         try {
             const type = req.query.type as string;
-            const id = req.query.id as string;
+            const id = (req.query.id as string) || `session_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
             console.log(`🔐 接收到登录请求: type=${type}, id=${id}`);
 
             // 验证参数
-            if (!type || !id) {
+            if (!type) {
                 res.status(400).json({
                     success: false,
-                    error: '缺少必要参数: type 和 id'
+                    error: '缺少必要参数: type'
                 });
                 return;
             }

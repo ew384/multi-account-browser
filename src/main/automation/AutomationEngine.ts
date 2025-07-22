@@ -116,7 +116,7 @@ export class AutomationEngine {
      * @returns 是否支持登录
      */
     isLoginSupported(platform: string): boolean {
-        return this.loginManager.isPlatformSupported(platform);
+        return this.pluginManager.isPlatformSupported(PluginType.LOGIN, platform);
     }
     /*
      * @param params 上传参数
