@@ -12,7 +12,7 @@ import {
     LoginResult,
     LoginStatus
 } from '../../types/pluginInterface';
-
+import { PluginType, PluginUploader, PluginLogin } from '../../types/pluginInterface';
 export class AutomationEngine {
     private tabManager: TabManager;
     private pluginManager: PluginManager;
@@ -127,7 +127,7 @@ export class AutomationEngine {
             console.log(`🚀 开始 ${params.platform} 平台视频上传: ${params.title}`);
 
             // 🔥 通过插件管理器获取对应平台的上传器
-            const uploader = this.pluginManager.getUploader(params.platform);
+            const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, params.platform);
             if (!uploader) {
                 throw new Error(`不支持的平台: ${params.platform}`);
             }
@@ -155,7 +155,7 @@ export class AutomationEngine {
             console.log(`   文件数: ${request.files.length}`);
             console.log(`   账号数: ${request.accounts.length}`);
 
-            const uploader = this.pluginManager.getUploader(request.platform);
+            const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, request.platform);
             if (!uploader) {
                 throw new Error(`不支持的平台: ${request.platform}`);
             }
@@ -324,7 +324,7 @@ export class AutomationEngine {
         try {
             console.log(`🔍 获取 ${platform} 平台账号信息...`);
 
-            const uploader = this.pluginManager.getUploader(platform);
+            const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, platform);
             if (!uploader || !uploader.getAccountInfo) {
                 throw new Error(`平台 ${platform} 不支持账号信息获取`);
             }
@@ -355,7 +355,7 @@ export class AutomationEngine {
         try {
             console.log(`🔍 验证 ${platform} 账号状态...`);
 
-            const uploader = this.pluginManager.getUploader(platform);
+            const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, platform);
             if (!uploader || !uploader.validateAccount) {
                 // 如果插件不支持验证，尝试通过获取账号信息来判断
                 const accountInfo = await this.getAccountInfo(platform, tabId);
@@ -378,7 +378,7 @@ export class AutomationEngine {
      * @returns 平台列表
      */
     getSupportedPlatforms(): string[] {
-        return this.pluginManager.getSupportedPlatforms();
+        return this.pluginManager.getSupportedPlatforms(PluginType.UPLOADER);
     }
 
     /**
@@ -387,7 +387,7 @@ export class AutomationEngine {
      * @returns 是否支持
      */
     isPlatformSupported(platform: string): boolean {
-        return this.pluginManager.getUploader(platform) !== null;
+        return this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, platform) !== null;
     }
 
     /**
@@ -396,7 +396,7 @@ export class AutomationEngine {
      * @returns 插件信息
      */
     getPluginInfo(platform: string): { name: string; platform: string } | null {
-        const uploader = this.pluginManager.getUploader(platform);
+        const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, platform);
         if (!uploader) return null;
 
         return {
