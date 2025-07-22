@@ -4,6 +4,7 @@ import { SessionManager } from './SessionManager';
 import { TabManager } from './TabManager';
 import { APIServer } from './APIServer';
 import { AutomationEngine } from './automation/AutomationEngine';
+import { AccountStorage } from './plugins/login/base/AccountStorage';
 class MultiAccountBrowser {
     private mainWindow: BrowserWindow | null = null;
     private sessionManager: SessionManager;
@@ -450,6 +451,10 @@ class MultiAccountBrowser {
 
         if (this.mainWindow) {
             try {
+                // 🔥 步骤0：首先初始化数据库
+                console.log('🗄️ 初始化数据库...');
+                await AccountStorage.ensureDatabaseInitialized();
+                console.log('✅ 数据库初始化完成');
                 // 🔥 步骤1：初始化 TabManager
                 console.log('📋 初始化 TabManager...');
                 this.tabManager = new TabManager(this.mainWindow, this.sessionManager);

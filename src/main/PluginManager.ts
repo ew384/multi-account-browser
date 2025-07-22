@@ -80,7 +80,6 @@ export class PluginManager {
      */
     private async registerUploaderPlugins(): Promise<void> {
         console.log(`📤 注册上传插件...`);
-
         const uploaders: PluginUploader[] = [
             new WeChatVideoUploader(),
             // TODO: 添加其他平台的上传插件

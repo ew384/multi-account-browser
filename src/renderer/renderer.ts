@@ -205,7 +205,7 @@ async function initializeApplication(): Promise<void> {
         showLoading('正在初始化应用...');
         await initializeComponents();
         setupEventListeners();
-        setupTabTitleListeners(); // 新增：设置标题监听
+        setupTabTitleListeners();
         await checkAPIStatus();
         await refreshTabList();
         setupMenuListeners();
@@ -908,27 +908,55 @@ async function createNewTab(): Promise<void> {
     try {
         showLoading('正在创建标签页...');
 
+        // 🔥 修复1：先实时检查API状态，不依赖全局变量
+        console.log('🔍 创建标签页前检查API状态...');
+        await checkAPIStatus();
+
+        console.log('🔍 当前 apiConnected 状态:', apiConnected);
+
+        // 🔥 修复2：如果API检查失败，尝试直接测试连接
+        if (!apiConnected) {
+            console.log('⚠️ API状态显示未连接，尝试直接测试...');
+
+            try {
+                const testResponse = await fetch('http://localhost:3409/health');
+                const testResult = await testResponse.json();
+
+                if (testResult.success) {
+                    console.log('✅ 直接测试成功，更新状态');
+                    apiConnected = true;
+                } else {
+                    throw new Error('API测试失败');
+                }
+            } catch (testError) {
+                console.error('❌ 直接API测试失败:', testError);
+                throw new Error('API服务未连接，请检查服务状态');
+            }
+        }
+
         // 生成简单的标签页名称
         const tabNumber = currentTabs.length + 1;
         const accountName = `标签页 ${tabNumber}`;
 
-        console.log('创建标签页:', { accountName });
+        console.log('🔍 调用 electronAPI.createAccountTab:', {
+            accountName,
+            platform: 'other',
+            url: 'about:blank'
+        });
 
-        // 检查API连接
-        if (!apiConnected) {
-            throw new Error('API服务未连接，请检查服务状态');
-        }
-
-        // 创建标签页 - 使用默认值
+        // 🔥 修复3：创建标签页 - 使用默认值
         const result = await window.electronAPI.createAccountTab(
             accountName,
             'other',  // 默认平台类型
             'about:blank'  // 空白页面
         );
 
+        console.log('🔍 electronAPI.createAccountTab 结果:', result);
+
         if (result.success) {
             const tabId = result.tabId;
             activeTabId = tabId;
+
             // 刷新标签页列表
             await refreshTabList();
 
@@ -941,13 +969,13 @@ async function createNewTab(): Promise<void> {
                 }
             }, 800);
 
-            showNotification(`已创建新标签页`, 'success');
+            showNotification(`已创建新标签页: ${accountName}`, 'success');
             console.log('✅ 标签页创建成功:', tabId);
         } else {
             throw new Error(result.error || '创建失败');
         }
     } catch (error) {
-        console.error('创建标签页失败:', error);
+        console.error('❌ 创建标签页失败:', error);
         showNotification(`创建标签页失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
@@ -1588,20 +1616,20 @@ async function checkAPIStatus(): Promise<void> {
     const connectionStatus = document.getElementById('connection-status');
 
     try {
-        const response = await fetch('http://localhost:3409/api/health', {
+        const response = await fetch('http://localhost:3409/health', {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' }
         });
-
+        console.log('🔍 API响应状态:', response.status, response.statusText);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
         const result = await response.json();
-
+        console.log('🔍 API响应数据:', result);
         if (result.success) {
             apiConnected = true;
-
+            console.log('✅ API连接成功，设置 apiConnected = true');
             if (statusElement) {
                 statusElement.textContent = '已连接';
                 statusElement.className = 'value status-logged_in';
@@ -1628,6 +1656,7 @@ async function checkAPIStatus(): Promise<void> {
             }
         } else {
             apiConnected = false;
+            console.log('❌ API响应失败，设置 apiConnected = false');
             updateAPIOfflineStatus();
         }
     } catch (error) {
@@ -2272,6 +2301,43 @@ function getAppState(): object {
         timestamp: new Date().toISOString()
     };
 }
+(window as any).debugAPI = {
+    checkAPIStatus: async () => {
+        console.log('🔧 手动检查API状态...');
+        await checkAPIStatus();
+        console.log('🔧 当前 apiConnected:', apiConnected);
+        return apiConnected;
+    },
+
+    testAPIConnection: async () => {
+        console.log('🔧 直接测试API连接...');
+        try {
+            const response = await fetch('http://localhost:3409/health');
+            const result = await response.json();
+            console.log('🔧 API测试结果:', result);
+            return result;
+        } catch (error) {
+            console.error('🔧 API测试失败:', error);
+            return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+        }
+    },
+
+    forceCreateTab: async () => {
+        console.log('🔧 强制创建标签页（忽略API状态）...');
+        try {
+            const result = await window.electronAPI.createAccountTab(
+                `强制标签页 ${Date.now()}`,
+                'other',
+                'about:blank'
+            );
+            console.log('🔧 强制创建结果:', result);
+            return result;
+        } catch (error) {
+            console.error('🔧 强制创建失败:', error);
+            return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+        }
+    }
+};
 
 /**
  * 导出应用状态（调试用）
