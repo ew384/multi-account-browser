@@ -471,8 +471,8 @@ class MultiAccountBrowser {
                 this.setupIPC();
 
                 // 🔥 步骤6：启动API服务器
-                await this.apiServer.start(3000);
-                console.log('✅ API 服务器启动成功: http://localhost:3000');
+                await this.apiServer.start(3409);
+                console.log('✅ API 服务器启动成功: http://localhost:3409');
 
                 // 创建一个示例标签页用于测试（仅开发模式）
                 if (process.env.NODE_ENV === 'development') {

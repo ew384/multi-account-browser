@@ -72,10 +72,10 @@ const electronAPI: ElectronAPI = {
 
     // 获取显示信息
     getTabDisplayInfo: (tabId: string) =>
-        fetch(`http://localhost:3000/api/account/${tabId}/display`).then(r => r.json()),
+        fetch(`http://localhost:3409/api/account/${tabId}/display`).then(r => r.json()),
 
     getAllTabsWithDisplay: () =>
-        fetch('http://localhost:3000/api/accounts-with-display').then(r => r.json()),
+        fetch('http://localhost:3409/api/accounts-with-display').then(r => r.json()),
     // Cookie管理
     loadCookies: (tabId: string, cookieFile: string) =>
         ipcRenderer.invoke('load-cookies', tabId, cookieFile),

@@ -178,7 +178,7 @@ class TestPanel {
                 const tab = tabs[i];
 
                 try {
-                    const response = await fetch('http://localhost:3000/api/account/execute', {
+                    const response = await fetch('http://localhost:3409/api/account/execute', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -229,7 +229,7 @@ class TestPanel {
                     const tab = tabs[i];
 
                     try {
-                        const response = await fetch('http://localhost:3000/api/account/execute', {
+                        const response = await fetch('http://localhost:3409/api/account/execute', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -394,7 +394,7 @@ class TestPanel {
      */
     private async testAPIConnection(): Promise<void> {
         try {
-            const response = await fetch('http://localhost:3000/api/health', {
+            const response = await fetch('http://localhost:3409/api/health', {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -415,7 +415,7 @@ class TestPanel {
 
                 // 获取API详细信息
                 try {
-                    const infoResponse = await fetch('http://localhost:3000/api/info');
+                    const infoResponse = await fetch('http://localhost:3409/api/info');
                     if (infoResponse.ok) {
                         const infoResult = await infoResponse.json();
                         if (infoResult.success) {
@@ -486,7 +486,7 @@ class TestPanel {
 
                 // 测试JavaScript执行
                 try {
-                    const response = await fetch('http://localhost:3000/api/account/execute', {
+                    const response = await fetch('http://localhost:3409/api/account/execute', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({

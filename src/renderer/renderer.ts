@@ -168,7 +168,7 @@ function createChromeTab(tab: TabData): HTMLElement {
 async function refreshTabList(): Promise<void> {
     try {
         // 使用新的API获取包含显示信息的标签页数据
-        const response = await fetch('http://localhost:3000/api/accounts-with-display');
+        const response = await fetch('http://localhost:3409/api/accounts-with-display');
         if (response.ok) {
             const result = await response.json();
             if (result.success) {
@@ -457,7 +457,7 @@ async function navigateBack(): Promise<void> {
     if (!activeTabId) return;
 
     try {
-        const response = await fetch('http://localhost:3000/api/account/execute', {
+        const response = await fetch('http://localhost:3409/api/account/execute', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -478,7 +478,7 @@ async function navigateForward(): Promise<void> {
     if (!activeTabId) return;
 
     try {
-        const response = await fetch('http://localhost:3000/api/account/execute', {
+        const response = await fetch('http://localhost:3409/api/account/execute', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -526,7 +526,7 @@ async function navigateToUrl(): Promise<void> {
     try {
         showLoading('正在导航...');
 
-        const response = await fetch('http://localhost:3000/api/account/navigate', {
+        const response = await fetch('http://localhost:3409/api/account/navigate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -559,7 +559,7 @@ async function navigateToUrl(): Promise<void> {
 async function showCookieDialog(): Promise<void> {
     try {
         // 先隐藏当前标签页，避免被遮挡
-        await fetch('http://localhost:3000/api/ui/hide-tab-temporarily', { method: 'POST' });
+        await fetch('http://localhost:3409/api/ui/hide-tab-temporarily', { method: 'POST' });
 
         // 显示模态框
         const modal = document.getElementById('cookie-modal');
@@ -582,7 +582,7 @@ async function hideCookieDialog(): Promise<void> {
         }
 
         // 恢复标签页显示
-        await fetch('http://localhost:3000/api/ui/show-current-tab', { method: 'POST' });
+        await fetch('http://localhost:3409/api/ui/show-current-tab', { method: 'POST' });
 
         console.log('🍪 Cookie dialog hidden');
     } catch (error) {
@@ -618,7 +618,7 @@ async function loadCookieFile(): Promise<void> {
         showLoading('正在加载Cookie...');
 
         // 🔥 使用现有的API端点
-        const response = await fetch('http://localhost:3000/api/account/load-cookies', {
+        const response = await fetch('http://localhost:3409/api/account/load-cookies', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -682,7 +682,7 @@ async function saveCookieFile(): Promise<void> {
         showLoading('正在保存Cookie...');
 
         // 🔥 使用现有的API端点
-        const response = await fetch('http://localhost:3000/api/account/save-cookies', {
+        const response = await fetch('http://localhost:3409/api/account/save-cookies', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1223,7 +1223,7 @@ async function clearCookies(): Promise<void> {
     try {
         showLoading('正在清除Cookie...');
 
-        const response = await fetch('http://localhost:3000/api/account/execute', {
+        const response = await fetch('http://localhost:3409/api/account/execute', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1385,7 +1385,7 @@ async function refreshCurrentTab(): Promise<void> {
     }
 
     try {
-        const response = await fetch('http://localhost:3000/api/account/refresh', {
+        const response = await fetch('http://localhost:3409/api/account/refresh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tabId: activeTabId })
@@ -1417,7 +1417,7 @@ async function takeScreenshot(): Promise<void> {
     try {
         showLoading('正在截图...');
 
-        const response = await fetch('http://localhost:3000/api/account/screenshot', {
+        const response = await fetch('http://localhost:3409/api/account/screenshot', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tabId: activeTabId })
@@ -1540,7 +1540,7 @@ async function executeBatchOperation(): Promise<void> {
                 break;
         }
 
-        const response = await fetch('http://localhost:3000/api/accounts/batch', {
+        const response = await fetch('http://localhost:3409/api/accounts/batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ operation, tabIds, data })
@@ -1588,7 +1588,7 @@ async function checkAPIStatus(): Promise<void> {
     const connectionStatus = document.getElementById('connection-status');
 
     try {
-        const response = await fetch('http://localhost:3000/api/health', {
+        const response = await fetch('http://localhost:3409/api/health', {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' }
         });
@@ -1616,7 +1616,7 @@ async function checkAPIStatus(): Promise<void> {
 
             // 获取API详细信息
             try {
-                const infoResponse = await fetch('http://localhost:3000/api/info');
+                const infoResponse = await fetch('http://localhost:3409/api/info');
                 if (infoResponse.ok) {
                     const infoResult = await infoResponse.json();
                     if (infoResult.success) {
@@ -1783,7 +1783,7 @@ function hideContextMenu(): void {
  */
 async function refreshTab(tabId: string): Promise<void> {
     try {
-        const response = await fetch('http://localhost:3000/api/account/refresh', {
+        const response = await fetch('http://localhost:3409/api/account/refresh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tabId })
@@ -1994,7 +1994,7 @@ async function openCurrentTabDevTools(): Promise<void> {
 
         showLoading('正在打开开发者工具...');
 
-        const response = await fetch('http://localhost:3000/api/account/open-devtools', {
+        const response = await fetch('http://localhost:3409/api/account/open-devtools', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tabId: activeTabId })
@@ -2025,7 +2025,7 @@ async function openTabDevTools(tabId: string): Promise<void> {
     try {
         showLoading('正在打开开发者工具...');
 
-        const response = await fetch('http://localhost:3000/api/account/open-devtools', {
+        const response = await fetch('http://localhost:3409/api/account/open-devtools', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tabId })
@@ -2204,7 +2204,7 @@ function delay(ms: number): Promise<void> {
 
 (window as any).openTabDevTools = async (tabId: string) => {
     try {
-        const response = await fetch('http://localhost:3000/api/account/open-devtools', {
+        const response = await fetch('http://localhost:3409/api/account/open-devtools', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tabId })
@@ -2286,7 +2286,7 @@ function getAppState(): object {
         return;
     }
 
-    const response = await fetch('http://localhost:3000/api/account/execute', {
+    const response = await fetch('http://localhost:3409/api/account/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
