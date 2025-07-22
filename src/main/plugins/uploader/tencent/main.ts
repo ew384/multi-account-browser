@@ -478,63 +478,62 @@ export class WeChatVideoUploader {
             console.warn(`⚠️ 原创声明失败: ${result.error}`);
         }
     }
-}
-
-export async function WechatAccountInfo(tabId: string, tabManager: TabManager) {
-    const extractScript = `
-    (function extractWechatFinderInfo() {
-        try {
-            // 提取头像URL
-            const avatarImg = document.querySelector('.finder-info-container .avatar');
-            const avatar = avatarImg ? avatarImg.src : null;
-            
-            // 提取账号名称
-            const accountNameEl = document.querySelector('.finder-nickname');
-            const accountName = accountNameEl ? accountNameEl.textContent.trim() : null;
-            
-            // 提取视频号ID
-            const accountIdEl = document.querySelector('.finder-uniq-id');
-            const accountId = accountIdEl ? accountIdEl.textContent.trim() : null;
-            
-            // 提取视频数和关注者数
-            const infoNums = document.querySelectorAll('.finder-info-num');
-            let videosCount = null;
-            let followersCount = null;
-            
-            if (infoNums.length >= 2) {
-                videosCount = infoNums[0].textContent.trim();
-                followersCount = infoNums[1].textContent.trim();
-            }
-            
-            // 解析数字的辅助函数
-            function parseNumber(value) {
-                if (!value) return 0;
-                const cleanValue = value.toString().replace(/[^\d.万千]/g, '');
-                if (cleanValue.includes('万')) {
-                    return Math.floor(parseFloat(cleanValue) * 10000);
-                } else if (cleanValue.includes('千')) {
-                    return Math.floor(parseFloat(cleanValue) * 1000);
+    private async AccountInfo(tabId: string, tabManager: TabManager) {
+        const extractScript = `
+        (function extractWechatFinderInfo() {
+            try {
+                // 提取头像URL
+                const avatarImg = document.querySelector('.finder-info-container .avatar');
+                const avatar = avatarImg ? avatarImg.src : null;
+                
+                // 提取账号名称
+                const accountNameEl = document.querySelector('.finder-nickname');
+                const accountName = accountNameEl ? accountNameEl.textContent.trim() : null;
+                
+                // 提取视频号ID
+                const accountIdEl = document.querySelector('.finder-uniq-id');
+                const accountId = accountIdEl ? accountIdEl.textContent.trim() : null;
+                
+                // 提取视频数和关注者数
+                const infoNums = document.querySelectorAll('.finder-info-num');
+                let videosCount = null;
+                let followersCount = null;
+                
+                if (infoNums.length >= 2) {
+                    videosCount = infoNums[0].textContent.trim();
+                    followersCount = infoNums[1].textContent.trim();
                 }
-                return parseInt(cleanValue) || 0;
+                
+                // 解析数字的辅助函数
+                function parseNumber(value) {
+                    if (!value) return 0;
+                    const cleanValue = value.toString().replace(/[^\d.万千]/g, '');
+                    if (cleanValue.includes('万')) {
+                        return Math.floor(parseFloat(cleanValue) * 10000);
+                    } else if (cleanValue.includes('千')) {
+                        return Math.floor(parseFloat(cleanValue) * 1000);
+                    }
+                    return parseInt(cleanValue) || 0;
+                }
+                
+                // 标准化数据
+                return {
+                    platform: 'wechat',
+                    accountName: accountName,
+                    accountId: accountId,
+                    followersCount: parseNumber(followersCount),
+                    videosCount: parseNumber(videosCount),
+                    avatar: avatar,
+                    bio: null,
+                    extractedAt: new Date().toISOString(),
+                };
+            } catch (error) {
+                console.error('提取数据时出错:', error);
+                return null;
             }
-            
-            // 标准化数据
-            return {
-                platform: 'wechat',
-                accountName: accountName,
-                accountId: accountId,
-                followersCount: parseNumber(followersCount),
-                videosCount: parseNumber(videosCount),
-                avatar: avatar,
-                bio: null,
-                extractedAt: new Date().toISOString(),
-            };
-        } catch (error) {
-            console.error('提取数据时出错:', error);
-            return null;
-        }
-    })()
-    `;
-
-    return await tabManager.executeScript(tabId, extractScript);
+        })()
+        `;
+        return await this.tabManager.executeScript(this.tabId, extractScript);
+    }
 }
+
