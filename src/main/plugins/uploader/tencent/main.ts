@@ -34,20 +34,25 @@ export class WeChatVideoUploader {
             // 3. 填写标题和标签
             await this.addTitleAndTags(params.title, params.tags);
 
-            // 4. 其他功能
+            // 4: 等待上传完全完成
+            await this.detectUploadStatusNoTimeout();
+
+            // 5: 添加到合集（如果需要）
             if (params.addToCollection) {
                 await this.addToCollection();
             }
 
+            // 6: 处理原创声明（在发布前）
             if (params.enableOriginal) {
                 await this.handleOriginalDeclaration(params.category);
             }
 
+            // 7:  处理定时发布
             if (params.publishDate) {
                 await this.setScheduleTime(params.publishDate);
             }
 
-            // 5. 发布
+            // 8. 发布
             await this.clickPublish();
 
             return true;
@@ -60,7 +65,6 @@ export class WeChatVideoUploader {
     // 🔥 使用 TabManager 的流式上传
     private async uploadFile(filePath: string): Promise<void> {
         console.log('📤 上传文件到微信视频号...');
-
         const success = await this.tabManager.setInputFilesStreaming(
             this.tabId,
             'input[type="file"]',
@@ -161,7 +165,57 @@ export class WeChatVideoUploader {
             throw new Error('标题标签填写失败');
         }
     }
+    private async detectUploadStatusNoTimeout(): Promise<void> {
+        const startTime = Date.now();
 
+        console.log("开始检测上传状态（无超时限制）");
+
+        while (true) {
+            try {
+                const elapsed = (Date.now() - startTime) / 1000;
+
+                // 检查发布按钮状态
+                const checkButtonScript = `
+                (function() {
+                    const button = document.querySelector('button[role="button"]');
+                    const buttons = document.querySelectorAll('button');
+                    
+                    for (const btn of buttons) {
+                        if (btn.textContent && btn.textContent.includes('发表')) {
+                            const buttonClass = btn.getAttribute('class') || '';
+                            return {
+                                found: true,
+                                disabled: buttonClass.includes('weui-desktop-btn_disabled') || btn.disabled
+                            };
+                        }
+                    }
+                    
+                    return { found: false, disabled: true };
+                })()
+                `;
+
+                const result = await this.tabManager.executeScript(this.tabId, checkButtonScript);
+
+                if (result.found && !result.disabled) {
+                    console.log("✅ 上传完成!");
+                    break;
+                }
+
+                // 每5分钟报告一次进度
+                if (Math.floor(elapsed) % 300 === 0 && elapsed > 0) {
+                    console.log(`⏳ 上传中... (${(elapsed / 60).toFixed(1)}分钟)`);
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 15000)); // 每15秒检查一次
+
+            } catch (error) {
+                console.warn(`状态检测异常: ${error}`);
+                await new Promise(resolve => setTimeout(resolve, 15000));
+            }
+        }
+
+        console.log("上传检测完成");
+    }
     // 🔥 使用 TabManager 的 executeScript
     private async setScheduleTime(publishDate: Date): Promise<void> {
         console.log('⏰ 设置定时发布...');
