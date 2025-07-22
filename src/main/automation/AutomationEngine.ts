@@ -396,19 +396,26 @@ export class AutomationEngine {
             console.log(`🔍 获取 ${platform} 平台账号信息...`);
 
             const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, platform);
-            if (!uploader || !uploader.getAccountInfo) {
+
+            // 🔥 详细调试信息
+            console.log(`📋 插件查找结果:`, {
+                uploader: !!uploader,
+                platform: platform,
+                uploaderName: uploader?.name,
+                uploaderPlatform: uploader?.platform,
+                hasGetAccountInfo: !!uploader?.getAccountInfo,
+                getAccountInfoType: typeof uploader?.getAccountInfo
+            });
+
+            if (uploader && uploader.getAccountInfo) {
+                console.log(`✅ 找到插件和方法，开始调用...`);
+                const accountInfo = await uploader.getAccountInfo(tabId);
+                console.log(`📊 账号信息提取结果:`, accountInfo);
+                return accountInfo;
+            } else {
+                console.error(`❌ 插件或方法不存在`);
                 throw new Error(`平台 ${platform} 不支持账号信息获取`);
             }
-
-            const accountInfo = await uploader.getAccountInfo(tabId);
-
-            if (accountInfo) {
-                console.log(`✅ 账号信息获取成功: ${accountInfo.accountName}`);
-            } else {
-                console.log(`❌ 未获取到账号信息`);
-            }
-
-            return accountInfo;
 
         } catch (error) {
             console.error(`❌ 获取账号信息失败:`, error);

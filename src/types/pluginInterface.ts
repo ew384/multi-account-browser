@@ -134,7 +134,7 @@ export interface PluginUploader extends BasePlugin {
      * @param tabId 标签页ID
      * @returns 账号信息
      */
-    getAccountInfo?(tabId: string): Promise<AccountInfo | null>;
+    getAccountInfo?(tabId: string, downloadAvatar?: boolean): Promise<AccountInfo | null>;
 
     /**
      * 验证账号状态（可选）

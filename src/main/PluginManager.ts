@@ -70,6 +70,9 @@ export class PluginManager {
                 await plugin.init(this.tabManager);
 
                 const key = `${plugin.type}-${plugin.platform}`;
+                console.log(`🔧 插件注册 key: "${key}"`);
+                console.log(`🔧 plugin.type: "${plugin.type}"`);
+                console.log(`🔧 plugin.platform: "${plugin.platform}"`);
                 this.plugins.set(key, plugin);
 
                 console.log(`  ✅ ${plugin.name} (${plugin.platform})`);
@@ -131,7 +134,33 @@ export class PluginManager {
      */
     getPlugin<T extends BasePlugin>(type: PluginType, platform: string): T | null {
         const key = `${type}-${platform}`;
-        return (this.plugins.get(key) as T) || null;
+
+        // 🔥 详细调试
+        console.log(`🔍 getPlugin 调用参数:`, {
+            type: type,
+            typeString: String(type),
+            platform: platform,
+            key: key
+        });
+
+        console.log(`🔍 当前注册的所有插件:`, [...this.plugins.entries()].map(([k, v]) => ({
+            key: k,
+            name: v.name,
+            platform: v.platform,
+            type: v.type
+        })));
+
+        const plugin = this.plugins.get(key) as T;
+        console.log(`🔍 查找结果:`, {
+            found: !!plugin,
+            plugin: plugin ? {
+                name: plugin.name,
+                platform: plugin.platform,
+                type: plugin.type
+            } : null
+        });
+
+        return plugin || null;
     }
 
     /**

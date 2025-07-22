@@ -452,8 +452,7 @@ export class APIServer {
 
                 console.log(`🔍 收到账号信息提取请求: Tab ${tabId}, 平台 ${platform}`);
 
-                const automation = new AutomationEngine(this.tabManager);
-                const accountInfo = await automation.getAccountInfo(tabId, platform);
+                const accountInfo = await this.automationEngine.getAccountInfo(platform, tabId);
 
                 console.log(`📊 账号信息提取结果:`, accountInfo);
                 res.json({

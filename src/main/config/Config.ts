@@ -36,7 +36,7 @@ export class Config {
 
     // 🔥 头像存储目录
     static get AVATAR_DIR(): string {
-        return path.join(this.BASE_DIR, 'assets', 'avatar');
+        return path.join(process.env.HOME || require('os').homedir(), '.config/multi-account-browser/assets/avatar');
     }
 
     // 🔥 日志目录

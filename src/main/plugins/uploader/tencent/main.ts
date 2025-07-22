@@ -1,7 +1,7 @@
 // multi-account-browser/src/main/plugins/uploader/tencent/main.ts
 import { PluginUploader, UploadParams, PluginType } from '../../../../types/pluginInterface';
 import { TabManager } from '../../../TabManager';
-
+import { LoginCompleteProcessor } from '../../../automation/LoginCompleteProcessor'
 export class WeChatVideoUploader implements PluginUploader {
     public readonly type = PluginType.UPLOADER;
     public readonly platform = 'wechat';
@@ -577,7 +577,7 @@ export class WeChatVideoUploader implements PluginUploader {
             console.warn(`⚠️ 原创声明失败: ${result.error}`);
         }
     }
-    async getAccountInfo(tabId: string): Promise<any> {
+    async getAccountInfo(tabId: string, downloadAvatar: boolean = false): Promise<any> {
         const extractScript = `
         (function extractWechatFinderInfo() {
             try {
@@ -632,7 +632,26 @@ export class WeChatVideoUploader implements PluginUploader {
             }
         })()
         `;
-        return await this.tabManager.executeScript(tabId, extractScript);
+        const result = await this.tabManager.executeScript(tabId, extractScript);
+
+        // 🔥 只有明确要求时才下载头像
+        if (downloadAvatar && result && result.avatar) {
+            console.log(`📥 开始下载头像: ${result.avatar}`);
+
+            const localAvatarPath = await LoginCompleteProcessor.downloadAvatarInBrowser(
+                tabId,
+                result.avatar,
+                result.accountName,
+                'wechat',
+                this.tabManager
+            );
+
+            if (localAvatarPath) {
+                result.localAvatar = localAvatarPath;
+            }
+        }
+
+        return result;
     }
 }
 

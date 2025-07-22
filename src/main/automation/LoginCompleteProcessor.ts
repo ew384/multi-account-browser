@@ -10,7 +10,7 @@ import { AccountStorage } from '../plugins/login/base/AccountStorage';
 import { Config } from '../config/Config';
 import { WeChatVideoUploader } from '../plugins/uploader/tencent/main';
 import { AccountInfo } from '../../types/pluginInterface';
-
+import * as os from 'os';
 export interface ProcessLoginResult {
     success: boolean;
     cookiePath?: string;
@@ -191,7 +191,7 @@ export class LoginCompleteProcessor {
      * 🔥 在浏览器内下载头像（更简单的方式）
      * 使用浏览器的 fetch + blob + FileSystem API
      */
-    private static async downloadAvatarInBrowser(
+    public static async downloadAvatarInBrowser(
         tabId: string,
         avatarUrl: string,
         accountName: string,
@@ -208,7 +208,8 @@ export class LoginCompleteProcessor {
             const filename = `${platform}_${sanitizedName}_${timestamp}.${extension}`;
 
             // 🔥 目标目录（相对于项目根目录）
-            const avatarRelativeDir = `sau_frontend/src/assets/avatar/${platform}/${sanitizedName}`;
+            const avatarDir = path.join(process.env.HOME || os.homedir(), '.config/multi-account-browser/assets/avatar');
+            const avatarRelativeDir = path.join(avatarDir, platform, sanitizedName);
             const avatarFileName = `avatar.${extension}`;
 
             // 🔥 在浏览器中执行下载脚本
@@ -276,8 +277,9 @@ export class LoginCompleteProcessor {
             // 🔥 保存到本地文件系统
             const savedPath = await this.saveBase64ToFile(
                 result.data,
-                avatarRelativeDir,
-                avatarFileName
+                platform,           // 添加 platform 参数
+                sanitizedName,      // 添加 sanitizedName 参数  
+                extension           // 添加 extension 参数
             );
 
             if (savedPath) {
@@ -298,28 +300,33 @@ export class LoginCompleteProcessor {
      */
     private static async saveBase64ToFile(
         base64Data: string,
-        relativeDirPath: string,
-        filename: string
+        platform: string,
+        sanitizedName: string,
+        extension: string
     ): Promise<string | null> {
         try {
             // 移除 base64 前缀
             const base64Content = base64Data.replace(/^data:image\/[a-z]+;base64,/, '');
             const buffer = Buffer.from(base64Content, 'base64');
 
-            // 创建完整路径
-            const fullDirPath = path.join(process.cwd(), relativeDirPath);
-            const fullFilePath = path.join(fullDirPath, filename);
+            // 🔥 使用配置目录
+            const avatarDir = Config.AVATAR_DIR;
+            const platformDir = path.join(avatarDir, platform);
+            const accountDir = path.join(platformDir, sanitizedName);
+            const avatarFileName = `avatar.${extension}`;
+            const fullFilePath = path.join(accountDir, avatarFileName);
 
             // 确保目录存在
-            await fs.promises.mkdir(fullDirPath, { recursive: true });
+            await fs.promises.mkdir(accountDir, { recursive: true });
 
             // 写入文件
             await fs.promises.writeFile(fullFilePath, buffer);
 
-            // 返回相对路径（供前端使用）
-            const relativePath = `assets/avatar/${path.basename(path.dirname(relativeDirPath))}/${path.basename(relativeDirPath)}/${filename}`;
+            // 返回相对于配置目录的路径
+            const relativePath = `assets/avatar/${platform}/${sanitizedName}/${avatarFileName}`;
 
-            console.log(`✅ 头像文件保存: ${relativePath} (${buffer.length} bytes)`);
+            console.log(`✅ 头像文件保存: ${fullFilePath}`);
+            console.log(`📍 相对路径: ${relativePath}`);
             return relativePath;
 
         } catch (error) {
