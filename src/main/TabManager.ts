@@ -582,7 +582,7 @@ export class TabManager {
             return null;
         }
     }
-    async get_or_create_tab(cookieFile: string, platform: string, initialUrl: string, tabNamePrefix?: string): Promise<string> {
+    async getOrCreateTab(cookieFile: string, platform: string, initialUrl: string, tabNamePrefix?: string): Promise<string> {
         /**
          * Get or create a tab - general method
          * 
