@@ -1,4 +1,4 @@
-// multi-account-browser/src/main/automation/uploader/tencent_uploader/main.ts
+// multi-account-browser//src/main/plugins/uploader/tencent/main.ts
 import { TabManager } from '../../../TabManager';
 
 export class WeChatVideoUploader {
@@ -524,7 +524,7 @@ export class WeChatVideoUploader {
             console.warn(`⚠️ 原创声明失败: ${result.error}`);
         }
     }
-    private async AccountInfo(tabId: string, tabManager: TabManager) {
+    async AccountInfo(tabId: string, tabManager: TabManager) {
         const extractScript = `
         (function extractWechatFinderInfo() {
             try {
