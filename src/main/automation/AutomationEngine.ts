@@ -1,5 +1,5 @@
 // src/main/automation/AutomationEngine.ts
-import { WeChatVideoUploader, WechatAccountInfo } from '../plugins/uploader/tencent/main';
+import { WeChatVideoUploader } from '../plugins/uploader/tencent/main';
 import { TabManager } from '../../main/TabManager';
 export class AutomationEngine {
     private tabManager: TabManager;
@@ -38,7 +38,8 @@ export class AutomationEngine {
 
         switch (platform) {
             case 'wechat':
-                return await WechatAccountInfo(tabId, this.tabManager);
+                const wechatUploader = new WeChatVideoUploader(tabId, this.tabManager);
+                return await wechatUploader.AccountInfo(tabId, this.tabManager);
 
             case 'douyin':
                 // 未来扩展

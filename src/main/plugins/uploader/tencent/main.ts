@@ -24,7 +24,10 @@ export class WeChatVideoUploader {
 
             // 1. 文件上传
             await this.uploadFile(params.filePath);
-
+            const uploadStarted = await this.verifyUploadStarted();
+            if (!uploadStarted) {
+                throw new Error("文件上传验证失败");
+            }
             // 2. 等待视频处理
             await this.waitForVideoProcessing();
 
@@ -316,7 +319,50 @@ export class WeChatVideoUploader {
             console.warn(`⚠️ 添加到合集失败: ${result.error}`);
         }
     }
-
+    private async verifyUploadStarted(): Promise<boolean> {
+        console.log('验证上传是否开始...');
+        const verifyScript = `
+        (function() {
+            try {
+                const shadowm = document.querySelector('.wujie_iframe');
+                if (!shadowm || !shadowm.shadowRoot) {
+                    return { started: false, reason: 'no shadow DOM' };
+                }
+                
+                const shadowDoc = shadowm.shadowRoot;
+                const fileInput = shadowDoc.querySelector('input[type="file"]');
+                const fileCount = fileInput ? fileInput.files.length : 0;
+                
+                // 检查各种上传指示器
+                const hasVideo = !!shadowDoc.querySelector('video');
+                const hasProgress = !!shadowDoc.querySelector('.progress');
+                const hasLoading = !!shadowDoc.querySelector('[class*="loading"]');
+                
+                return {
+                    started: fileCount > 0 || hasVideo || hasProgress || hasLoading,
+                    details: {
+                        fileCount: fileCount,
+                        hasVideo: hasVideo,
+                        hasProgress: hasProgress,
+                        hasLoading: hasLoading
+                    }
+                };
+                
+            } catch (e) {
+                return { started: false, reason: e.message };
+            }
+        })()
+        `;
+        const result = await this.tabManager.executeScript(this.tabId, verifyScript);
+        if (result.started) {
+            const details = result.details
+            console.log(`✅ 上传已开始! 文件数: ${details.fileCount},视频:${details.hasVideo}, 进度:${details.hasProgress}`);
+            return true
+        } else {
+            console.log(`❌ 上传可能未开始: ${result.reason}`)
+            return false
+        }
+    }
     private async waitForVideoProcessing(): Promise<void> {
         console.log('⏳ 等待视频处理完成...');
 
