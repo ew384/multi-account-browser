@@ -3,13 +3,13 @@ import * as path from 'path';
 import { SessionManager } from './SessionManager';
 import { TabManager } from './TabManager';
 import { APIServer } from './APIServer';
-
+import { AutomationEngine } from './automation/AutomationEngine';
 class MultiAccountBrowser {
     private mainWindow: BrowserWindow | null = null;
     private sessionManager: SessionManager;
     private tabManager!: TabManager;  // 使用断言赋值
     private apiServer!: APIServer;    // 使用断言赋值
-
+    private automationEngine!: AutomationEngine;
     constructor() {
         // 确保 Electron 版本支持 WebContentsView
         console.log(`🚀 Starting Multi-Account Browser with Electron ${process.versions.electron}`);
@@ -449,35 +449,65 @@ class MultiAccountBrowser {
         this.createWindow();
 
         if (this.mainWindow) {
-            this.tabManager = new TabManager(this.mainWindow, this.sessionManager);
-            this.apiServer = new APIServer(this.tabManager, 3000);
+            try {
+                // 🔥 步骤1：初始化 TabManager
+                console.log('📋 初始化 TabManager...');
+                this.tabManager = new TabManager(this.mainWindow, this.sessionManager);
 
-            // 设置IPC通信
-            this.setupIPC();
+                // 🔥 步骤2：创建 AutomationEngine
+                console.log('🔧 初始化 AutomationEngine...');
+                this.automationEngine = new AutomationEngine(this.tabManager);
 
-            // 启动API服务器
-            await this.apiServer.start();
+                // 🔥 步骤3：初始化所有插件
+                console.log('🔌 初始化插件系统...');
+                await this.automationEngine.getPluginManager().initializeAllPlugins();
+                console.log('✅ 插件系统初始化完成');
 
-            // 创建一个示例标签页用于测试（仅开发模式）
-            if (process.env.NODE_ENV === 'development') {
-                setTimeout(async () => {
+                // 🔥 步骤4：创建 APIServer
+                console.log('🚀 初始化 API 服务器...');
+                this.apiServer = new APIServer(this.automationEngine, this.tabManager);
+
+                // 🔥 步骤5：设置IPC通信
+                this.setupIPC();
+
+                // 🔥 步骤6：启动API服务器
+                await this.apiServer.start(3000);
+                console.log('✅ API 服务器启动成功: http://localhost:3000');
+
+                // 创建一个示例标签页用于测试（仅开发模式）
+                if (process.env.NODE_ENV === 'development') {
+                    setTimeout(async () => {
+                        try {
+                            const tabId = await this.tabManager.createAccountTab(
+                                '测试账号-WebContentsView',
+                                '微信视频号',
+                                'https://channels.weixin.qq.com'
+                            );
+                            await this.tabManager.switchToTab(tabId);
+                            console.log('✅ Test tab created successfully with WebContentsView');
+                        } catch (error) {
+                            console.error('Failed to create test tab:', error);
+                        }
+                    }, 2000);
+                }
+                this.setupDeveloperTools();
+                console.log('🎉 Multi-Account Browser 初始化完成');
+            } catch (error) {
+                console.error('❌ 初始化过程中发生错误:', error);
+
+                // 清理资源
+                if (this.apiServer) {
                     try {
-                        const tabId = await this.tabManager.createAccountTab(
-                            '测试账号-WebContentsView',
-                            '微信视频号',
-                            'https://channels.weixin.qq.com'
-                        );
-                        await this.tabManager.switchToTab(tabId);
-                        console.log('✅ Test tab created successfully with WebContentsView');
-                    } catch (error) {
-                        console.error('Failed to create test tab:', error);
+                        await this.apiServer.stop();
+                    } catch (stopError) {
+                        console.error('❌ 停止 API 服务器失败:', stopError);
                     }
-                }, 2000);
+                }
+
+                throw error;
             }
-            this.setupDeveloperTools();
         }
     }
-
     private setupAppEvents(): void {
         app.on('window-all-closed', () => {
             if (process.platform !== 'darwin') {
@@ -491,10 +521,45 @@ class MultiAccountBrowser {
             }
         });
 
-        app.on('before-quit', async () => {
-            console.log('🛑 Application shutting down...');
-            if (this.apiServer) {
-                await this.apiServer.stop();
+        app.on('before-quit', async (event) => {
+            console.log('🛑 应用程序准备退出...');
+
+            // 防止应用立即退出，等待清理完成
+            event.preventDefault();
+
+            try {
+                // 🔥 步骤1：停止 API 服务器
+                if (this.apiServer) {
+                    console.log('🛑 停止 API 服务器...');
+                    await this.apiServer.stop();
+                }
+
+                // 🔥 步骤2：清理所有标签页
+                if (this.tabManager) {
+                    console.log('🗑️ 清理所有标签页...');
+                    const tabs = this.tabManager.getAllTabs();
+                    for (const tab of tabs) {
+                        try {
+                            await this.tabManager.closeTab(tab.id);
+                        } catch (error) {
+                            console.warn(`⚠️ 关闭标签页 ${tab.id} 失败:`, error);
+                        }
+                    }
+                }
+
+                // 🔥 步骤3：销毁插件
+                if (this.automationEngine) {
+                    console.log('🔌 销毁插件系统...');
+                    await this.automationEngine.getPluginManager().destroyAllPlugins();
+                }
+
+                console.log('✅ 清理完成，应用程序退出');
+
+            } catch (error) {
+                console.error('❌ 清理过程中发生错误:', error);
+            } finally {
+                // 强制退出
+                app.exit(0);
             }
         });
 
@@ -527,4 +592,7 @@ class MultiAccountBrowser {
 
 // 启动应用
 const browser = new MultiAccountBrowser();
-browser.start().catch(console.error);
+browser.start().catch((error) => {
+    console.error('❌ 应用启动失败:', error);
+    process.exit(1);
+});
