@@ -2,7 +2,7 @@
 // 上传插件统一导出和注册
 
 import { WeChatVideoUploader } from './tencent/main';
-import { PluginUploader } from '../../..//types/pluginInterface';
+import { PluginUploader } from '../../../types/pluginInterface';
 import { TabManager } from '../../TabManager';
 
 // 🔥 导出所有上传插件类
@@ -11,7 +11,6 @@ export { WeChatVideoUploader };
 // 🔥 上传插件配置数组
 export const UPLOADER_PLUGINS = [
     WeChatVideoUploader,
-    // TODO: 添加其他上传插件
     // DouyinUploader,
     // XiaohongshuUploader,
     // KuaishouUploader,
