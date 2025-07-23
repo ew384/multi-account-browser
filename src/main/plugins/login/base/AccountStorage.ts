@@ -459,4 +459,159 @@ export class AccountStorage {
         };
         return nameMap[platformType] || 'unknown';
     }
+    // 在 src/main/plugins/login/base/AccountStorage.ts 中添加以下方法
+
+    /**
+     * 🔥 更新账号验证状态
+     */
+    static async updateValidationStatus(
+        cookieFile: string,
+        isValid: boolean,
+        validationTime: string
+    ): Promise<boolean> {
+        try {
+            const db = await this.getDatabase();
+
+            const result = await db.run(`
+            UPDATE user_info 
+            SET status = ?, last_check_time = ?
+            WHERE filePath = ?
+        `, [isValid ? 1 : 0, validationTime, cookieFile]);
+
+            await db.close();
+
+            if (result.changes && result.changes > 0) {
+                console.log(`✅ 验证状态已更新: ${cookieFile} -> ${isValid ? '有效' : '无效'}`);
+                return true;
+            } else {
+                console.warn(`⚠️ 未找到要更新的账号: ${cookieFile}`);
+                return false;
+            }
+
+        } catch (error) {
+            console.error('❌ 更新验证状态失败:', error);
+            return false;
+        }
+    }
+
+    /**
+     * 🔥 获取需要验证的账号列表（超过1小时未验证的）
+     */
+    static async getAccountsNeedingValidation(): Promise<Array<{
+        id: number;
+        type: number;
+        filePath: string;
+        userName: string;
+        platform: string;
+        lastCheckTime: string;
+    }>> {
+        try {
+            const db = await this.getDatabase();
+
+            // 获取1小时前的时间戳
+            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+            const accounts = await db.all(`
+            SELECT 
+                id, type, filePath, userName,
+                last_check_time as lastCheckTime
+            FROM user_info 
+            WHERE last_check_time IS NULL 
+               OR last_check_time < ?
+            ORDER BY last_check_time ASC
+        `, [oneHourAgo]);
+
+            await db.close();
+
+            // 添加平台名称
+            return accounts.map(account => ({
+                ...account,
+                platform: this.getPlatformName(account.type)
+            }));
+
+        } catch (error) {
+            console.error('❌ 获取需要验证的账号失败:', error);
+            return [];
+        }
+    }
+
+    /**
+     * 🔥 获取所有有效账号
+     */
+    static async getValidAccounts(): Promise<Array<{
+        id: number;
+        type: number;
+        filePath: string;
+        userName: string;
+        platform: string;
+        status: number;
+        lastCheckTime: string;
+    }>> {
+        try {
+            const db = await this.getDatabase();
+
+            const accounts = await db.all(`
+            SELECT 
+                id, type, filePath, userName, status,
+                last_check_time as lastCheckTime
+            FROM user_info 
+            WHERE status = 1
+            ORDER BY last_check_time DESC
+        `);
+
+            await db.close();
+
+            return accounts.map(account => ({
+                ...account,
+                platform: this.getPlatformName(account.type)
+            }));
+
+        } catch (error) {
+            console.error('❌ 获取有效账号失败:', error);
+            return [];
+        }
+    }
+
+    /**
+     * 🔥 获取分组账号信息
+     */
+    static async getAccountsWithGroups(): Promise<Array<{
+        id: number;
+        type: number;
+        filePath: string;
+        userName: string;
+        platform: string;
+        status: number;
+        lastCheckTime: string;
+        groupId: number | null;
+        groupName: string | null;
+        groupColor: string | null;
+    }>> {
+        try {
+            const db = await this.getDatabase();
+
+            const accounts = await db.all(`
+            SELECT 
+                u.id, u.type, u.filePath, u.userName, u.status,
+                u.last_check_time as lastCheckTime,
+                u.group_id as groupId,
+                g.name as groupName,
+                g.color as groupColor
+            FROM user_info u
+            LEFT JOIN account_groups g ON u.group_id = g.id
+            ORDER BY g.sort_order, u.updated_at DESC
+        `);
+
+            await db.close();
+
+            return accounts.map(account => ({
+                ...account,
+                platform: this.getPlatformName(account.type)
+            }));
+
+        } catch (error) {
+            console.error('❌ 获取分组账号信息失败:', error);
+            return [];
+        }
+    }
 }

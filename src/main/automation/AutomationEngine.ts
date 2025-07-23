@@ -1,8 +1,8 @@
 // src/main/automation/AutomationEngine.ts
-
 import { TabManager } from '../TabManager';
 import { PluginManager } from '../PluginManager';
-
+import { AccountStorage } from '../plugins/login/base/AccountStorage';
+import { Config } from '../config/Config';
 import {
     UploadParams,
     UploadResult,
@@ -12,7 +12,8 @@ import {
     LoginResult,
     LoginStatus
 } from '../../types/pluginInterface';
-import { PluginType, PluginUploader, PluginLogin } from '../../types/pluginInterface';
+import { PluginType, PluginUploader, PluginLogin, PluginValidator } from '../../types/pluginInterface';
+import * as path from 'path';
 export class AutomationEngine {
     private tabManager: TabManager;
     private pluginManager: PluginManager;
@@ -423,34 +424,189 @@ export class AutomationEngine {
         }
     }
 
-    /**
-     * 🔥 新增：验证账号状态
-     * @param platform 平台
-     * @param tabId 标签页ID
-     * @returns 是否有效
-     */
-    async validateAccount(platform: string, tabId: string): Promise<boolean> {
-        try {
-            console.log(`🔍 验证 ${platform} 账号状态...`);
 
-            const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, platform);
-            if (!uploader || !uploader.validateAccount) {
-                // 如果插件不支持验证，尝试通过获取账号信息来判断
-                const accountInfo = await this.getAccountInfo(platform, tabId);
-                return !!accountInfo;
+    /**
+     * 🔥 获取需要验证的账号列表
+     */
+    async getAccountsNeedingValidation(): Promise<Array<{
+        id: number;
+        type: number;
+        filePath: string;
+        userName: string;
+        platform: string;
+        lastCheckTime: string;
+    }>> {
+        try {
+            return await AccountStorage.getAccountsNeedingValidation();
+        } catch (error) {
+            console.error('❌ AutomationEngine: 获取需验证账号失败:', error);
+            return [];
+        }
+    }
+
+    /**
+     * 🔥 获取所有有效账号
+     */
+    async getValidAccounts(): Promise<Array<{
+        id: number;
+        type: number;
+        filePath: string;
+        userName: string;
+        platform: string;
+        status: number;
+        lastCheckTime: string;
+    }>> {
+        try {
+            return await AccountStorage.getValidAccounts();
+        } catch (error) {
+            console.error('❌ AutomationEngine: 获取有效账号失败:', error);
+            return [];
+        }
+    }
+
+    /**
+     * 🔥 获取分组账号信息
+     */
+    async getAccountsWithGroups(): Promise<Array<{
+        id: number;
+        type: number;
+        filePath: string;
+        userName: string;
+        platform: string;
+        status: number;
+        lastCheckTime: string;
+        groupId: number | null;
+        groupName: string | null;
+        groupColor: string | null;
+    }>> {
+        try {
+            return await AccountStorage.getAccountsWithGroups();
+        } catch (error) {
+            console.error('❌ AutomationEngine: 获取分组账号失败:', error);
+            return [];
+        }
+    }
+
+    /**
+     * 🔥 自动验证过期账号
+     * 检查并验证超过1小时未验证的账号
+     */
+    async autoValidateExpiredAccounts(): Promise<{
+        validatedCount: number;
+        validCount: number;
+        invalidCount: number;
+    }> {
+        try {
+            console.log('🔍 AutomationEngine: 开始自动验证过期账号...');
+
+            // 1. 获取需要验证的账号
+            const needValidation = await this.getAccountsNeedingValidation();
+
+            if (needValidation.length === 0) {
+                console.log('✅ 没有账号需要验证');
+                return { validatedCount: 0, validCount: 0, invalidCount: 0 };
             }
 
-            const isValid = await uploader.validateAccount(tabId);
-            console.log(`${isValid ? '✅ 账号有效' : '❌ 账号无效'}`);
+            console.log(`🔍 发现 ${needValidation.length} 个账号需要验证`);
 
+            // 2. 批量验证
+            const validationResults = await this.batchValidateAccounts(
+                needValidation.map(account => ({
+                    platform: account.platform,
+                    accountName: account.userName,
+                    cookieFile: path.join(Config.COOKIE_DIR, account.filePath)
+                }))
+            );
+
+            // 3. 统计结果
+            const validCount = validationResults.filter(r => r.isValid).length;
+            const invalidCount = needValidation.length - validCount;
+
+            console.log(`✅ 自动验证完成: ${validCount}/${needValidation.length} 个账号有效`);
+
+            return {
+                validatedCount: needValidation.length,
+                validCount: validCount,
+                invalidCount: invalidCount
+            };
+
+        } catch (error) {
+            console.error('❌ AutomationEngine: 自动验证失败:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * 🔥 验证账号Cookie有效性
+     * @param platform 平台名称
+     * @param cookieFile Cookie文件路径
+     * @returns 是否有效
+     */
+    async validateAccount(platform: string, cookieFile: string): Promise<boolean> {
+        try {
+            console.log(`🔍 验证 ${platform} 账号Cookie: ${path.basename(cookieFile)}`);
+
+            // 🔥 通过插件管理器获取验证器
+            const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, platform);
+            if (!validator) {
+                console.warn(`⚠️ 平台 ${platform} 暂不支持验证功能`);
+                return false;
+            }
+
+            // 🔥 使用验证插件验证Cookie文件
+            const isValid = await validator.validateCookie(cookieFile);
+
+            console.log(`${isValid ? '✅' : '❌'} ${platform} Cookie验证${isValid ? '成功' : '失败'}`);
             return isValid;
 
         } catch (error) {
-            console.error(`❌ 账号验证失败:`, error);
+            console.error(`❌ AutomationEngine: Cookie验证异常:`, error);
             return false;
         }
     }
 
+    /**
+     * 🔥 批量验证账号Cookie
+     */
+    async batchValidateAccounts(accounts: Array<{
+        platform: string,
+        accountName: string,
+        cookieFile: string
+    }>): Promise<Array<{
+        platform: string,
+        accountName: string,
+        cookieFile: string,
+        isValid: boolean
+    }>> {
+        console.log(`🔍 AutomationEngine: 批量验证 ${accounts.length} 个账号Cookie...`);
+
+        const results = [];
+
+        for (const account of accounts) {
+            try {
+                const isValid = await this.validateAccount(account.platform, account.cookieFile);
+
+                results.push({
+                    ...account,
+                    isValid
+                });
+            } catch (error) {
+                console.error(`❌ 验证账号失败 ${account.accountName}:`, error);
+                results.push({
+                    ...account,
+                    isValid: false
+                });
+            }
+
+            // 避免请求过快
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        const validCount = results.filter(r => r.isValid).length;
+        console.log(`📊 AutomationEngine: 批量验证完成: ${validCount}/${accounts.length} 个账号有效`);
+
+        return results;
+    }
     /**
      * 🔥 新增：获取支持的平台列表
      * @returns 平台列表
@@ -531,38 +687,6 @@ export class AutomationEngine {
             activeLogins: activeLogins
         };
     }
-    /*
-     * @param accounts 账号列表 (包含platform和tabId)
-     * @returns 验证结果
-     */
-    async batchValidateAccounts(accounts: Array<{ platform: string, tabId: string, accountName?: string }>): Promise<Array<{ platform: string, tabId: string, accountName?: string, isValid: boolean }>> {
-        console.log(`🔍 批量验证 ${accounts.length} 个账号...`);
 
-        const results = [];
-
-        for (const account of accounts) {
-            try {
-                const isValid = await this.validateAccount(account.platform, account.tabId);
-                results.push({
-                    ...account,
-                    isValid
-                });
-            } catch (error) {
-                console.error(`❌ 验证账号失败 ${account.accountName || account.tabId}:`, error);
-                results.push({
-                    ...account,
-                    isValid: false
-                });
-            }
-
-            // 避免请求过快
-            await new Promise(resolve => setTimeout(resolve, 500));
-        }
-
-        const validCount = results.filter(r => r.isValid).length;
-        console.log(`📊 批量验证完成: ${validCount}/${accounts.length} 个账号有效`);
-
-        return results;
-    }
 }
 

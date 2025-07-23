@@ -12,6 +12,8 @@ import {
     BatchUploadRequest,
     UploadResult
 } from '../types/pluginInterface';
+import { Config } from './config/Config';
+
 export class APIServer {
     private app: express.Application;
     private server: any;
@@ -470,7 +472,169 @@ export class APIServer {
                 });
             }
         });
+        // 🔥 获取有效账号列表 - 对应 Python 的 /getValidAccounts
+        this.app.get('/api/accounts/valid', async (req, res) => {
+            try {
+                console.log('📋 获取有效账号列表请求');
 
+                // 1. 自动验证过期账号
+                const validationSummary = await this.automationEngine.autoValidateExpiredAccounts();
+
+                // 2. 获取所有有效账号
+                const validAccounts = await this.automationEngine.getValidAccounts();
+
+                res.json({
+                    success: true,
+                    data: {
+                        validAccounts: validAccounts,
+                        totalCount: validAccounts.length,
+                        validationSummary: validationSummary,
+                        timestamp: new Date().toISOString()
+                    }
+                });
+
+            } catch (error) {
+                console.error('❌ 获取有效账号失败:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : '获取有效账号失败'
+                });
+            }
+        });
+
+        // 🔥 获取分组账号信息 - 对应 Python 的 /getAccountsWithGroups  
+        this.app.get('/api/accounts/groups', async (req, res) => {
+            try {
+                console.log('📋 获取分组账号信息请求');
+
+                // 通过 AutomationEngine 获取分组账号信息
+                const accountsWithGroups = await this.automationEngine.getAccountsWithGroups();
+
+                // 按分组整理数据
+                const groupedAccounts = new Map();
+
+                for (const account of accountsWithGroups) {
+                    const groupKey = account.groupId || 0; // 0 表示未分组
+                    const groupName = account.groupName || '未分组';
+                    const groupColor = account.groupColor || '#666666';
+
+                    if (!groupedAccounts.has(groupKey)) {
+                        groupedAccounts.set(groupKey, {
+                            groupId: groupKey,
+                            groupName: groupName,
+                            groupColor: groupColor,
+                            accounts: [],
+                            validCount: 0,
+                            totalCount: 0
+                        });
+                    }
+
+                    const group = groupedAccounts.get(groupKey);
+                    group.accounts.push({
+                        id: account.id,
+                        userName: account.userName,
+                        platform: account.platform,
+                        platformType: account.type,
+                        filePath: account.filePath,
+                        status: account.status,
+                        isValid: account.status === 1,
+                        lastCheckTime: account.lastCheckTime
+                    });
+
+                    group.totalCount++;
+                    if (account.status === 1) {
+                        group.validCount++;
+                    }
+                }
+
+                // 转换为数组格式
+                const result = Array.from(groupedAccounts.values()).sort((a, b) => {
+                    // 未分组排在最后
+                    if (a.groupId === 0) return 1;
+                    if (b.groupId === 0) return -1;
+                    return a.groupId - b.groupId;
+                });
+
+                res.json({
+                    success: true,
+                    data: {
+                        groups: result,
+                        totalGroups: result.length,
+                        totalAccounts: accountsWithGroups.length,
+                        validAccounts: accountsWithGroups.filter(acc => acc.status === 1).length,
+                        timestamp: new Date().toISOString()
+                    }
+                });
+
+            } catch (error) {
+                console.error('❌ 获取分组账号信息失败:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : '获取分组账号信息失败'
+                });
+            }
+        });
+
+        // 🔥 手动批量验证账号
+        this.app.post('/api/accounts/validate-batch', async (req, res) => {
+            try {
+                const { accountIds, platforms } = req.body;
+
+                console.log(`🔍 手动批量验证请求: ${accountIds?.length || 0} 个账号`);
+
+                let accountsToValidate = [];
+
+                if (accountIds && accountIds.length > 0) {
+                    // 验证指定ID的账号
+                    const allAccounts = await this.automationEngine.getAccountsWithGroups();
+                    accountsToValidate = allAccounts.filter(acc => accountIds.includes(acc.id));
+                } else if (platforms && platforms.length > 0) {
+                    // 验证指定平台的所有账号
+                    const allAccounts = await this.automationEngine.getAccountsWithGroups();
+                    accountsToValidate = allAccounts.filter(acc => platforms.includes(acc.platform));
+                } else {
+                    // 验证所有需要验证的账号
+                    accountsToValidate = await this.automationEngine.getAccountsNeedingValidation();
+                }
+
+                if (accountsToValidate.length === 0) {
+                    return res.json({
+                        success: true,
+                        message: '没有账号需要验证',
+                        data: { validatedCount: 0, results: [] }
+                    });
+                }
+
+                // 通过 AutomationEngine 执行批量验证
+                const validationResults = await this.automationEngine.batchValidateAccounts(
+                    accountsToValidate.map(account => ({
+                        platform: account.platform,
+                        accountName: account.userName,
+                        cookieFile: path.join(Config.COOKIE_DIR, account.filePath)
+                    }))
+                );
+
+                const successCount = validationResults.filter(r => r.isValid).length;
+
+                res.json({
+                    success: true,
+                    message: `批量验证完成: ${successCount}/${accountsToValidate.length} 个账号有效`,
+                    data: {
+                        validatedCount: accountsToValidate.length,
+                        validCount: successCount,
+                        invalidCount: accountsToValidate.length - successCount,
+                        results: validationResults
+                    }
+                });
+
+            } catch (error) {
+                console.error('❌ 批量验证失败:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : '批量验证失败'
+                });
+            }
+        });
         // 打开标签页开发者工具
         this.app.post('/api/account/open-devtools', async (req, res) => {
             try {
