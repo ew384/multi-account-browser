@@ -68,7 +68,7 @@ export class AutomationEngine {
                 this.activeLogins.set(userId, loginStatus);
 
                 // 🔥 启动后台等待登录完成的任务
-                this.startWaitingForLogin(userId, result.tabId!, platform);
+                this.startWaitingForLoginWithProcessor(userId, result.tabId!, platform);
             } else {
                 // 登录启动失败，移除状态
                 this.activeLogins.delete(userId);
@@ -89,42 +89,41 @@ export class AutomationEngine {
 
 
     // 🔥 启动后台等待登录完成任务
-    private async startWaitingForLogin(userId: string, tabId: string, platform: string): Promise<void> {
+    private async startWaitingForLoginWithProcessor(
+        userId: string,
+        tabId: string,
+        platform: string
+    ): Promise<void> {
         try {
-            const plugin = this.pluginManager.getPlugin<PluginLogin>(PluginType.LOGIN, platform);
-            if (!plugin) return;
+            // 🔥 使用 getProcessor 方法
+            const processor = this.pluginManager.getProcessor('login');
 
-            console.log(`⏳ 开始等待登录完成: ${userId}`);
+            if (processor) {
+                const completeResult = await processor.process({
+                    tabId,
+                    userId,
+                    platform
+                });
 
-            // 在后台异步等待登录
-            const result = await plugin.waitForLogin(tabId, userId);
+                // 更新登录状态
+                const loginStatus = this.activeLogins.get(userId);
+                if (loginStatus) {
+                    loginStatus.status = completeResult.success ? 'completed' : 'failed';
+                    loginStatus.endTime = new Date().toISOString();
 
-            // 更新登录状态
-            const loginStatus = this.activeLogins.get(userId);
-            if (loginStatus) {
-                loginStatus.status = result.success ? 'completed' : 'failed';
-                loginStatus.endTime = new Date().toISOString();
+                    if (completeResult.success) {
+                        loginStatus.cookieFile = completeResult.cookiePath;
+                        loginStatus.accountInfo = completeResult.accountInfo;
+                        console.log(`✅ 登录处理成功: ${userId}`);
+                    }
 
-                if (result.success) {
-                    console.log(`✅ 登录成功: ${userId}`);
-                    console.log(`   Cookie文件: ${result.cookieFile}`);
-                    console.log(`   账号名: ${result.accountInfo?.accountName}`);
-                } else {
-                    console.log(`❌ 登录失败: ${userId} - ${result.error}`);
+                    this.activeLogins.set(userId, loginStatus);
                 }
-
-                this.activeLogins.set(userId, loginStatus);
+            } else {
+                console.error('❌ 未找到登录处理器插件');
             }
-
         } catch (error) {
-            console.error(`❌ 等待登录完成失败: ${userId}:`, error);
-
-            const loginStatus = this.activeLogins.get(userId);
-            if (loginStatus) {
-                loginStatus.status = 'failed';
-                loginStatus.endTime = new Date().toISOString();
-                this.activeLogins.set(userId, loginStatus);
-            }
+            console.error(`❌ 登录处理失败: ${userId}:`, error);
         }
     }
 

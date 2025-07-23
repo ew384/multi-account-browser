@@ -1,7 +1,7 @@
 // src/main/plugins/PluginManager.ts
 // 插件管理器 - 统一注册和管理所有插件
 
-import { BasePlugin, PluginType } from '../types/pluginInterface';
+import { BasePlugin, PluginType, PluginProcessor } from '../types/pluginInterface';
 import { TabManager } from './TabManager';
 
 // 🔥 导入各类别插件
@@ -25,11 +25,14 @@ import {
     testAllValidatorPlugins,
     createValidatorPlugin
 } from './plugins/validator';
-
+import {
+    PROCESSOR_PLUGINS,
+    getSupportedProcessorScenarios,
+} from './plugins/processor';
 export class PluginManager {
     private tabManager: TabManager;
     private plugins: Map<string, BasePlugin> = new Map();
-
+    private processors: Map<string, any> = new Map();
     constructor(tabManager: TabManager) {
         this.tabManager = tabManager;
     }
@@ -45,7 +48,7 @@ export class PluginManager {
             await this.initializeUploaderPlugins();
             await this.initializeLoginPlugins();
             await this.initializeValidatorPlugins();
-
+            await this.initializeProcessorPlugins();
             const totalPlugins = this.plugins.size;
             console.log(`🎉 插件初始化完成，共加载 ${totalPlugins} 个插件`);
 
@@ -128,6 +131,33 @@ export class PluginManager {
             }
         }
     }
+    async initializeProcessorPlugins(): Promise<void> {
+        console.log('⚙️ 初始化处理器插件...');
+
+        for (const PluginClass of PROCESSOR_PLUGINS) {
+            try {
+                const processor = new PluginClass();
+                await processor.init({
+                    tabManager: this.tabManager,
+                    pluginManager: this
+                });
+
+                // 🔥 存储到专门的处理器 Map 中
+                this.processors.set(processor.scenario, processor);
+                console.log(`  ✅ ${processor.name} (${processor.scenario})`);
+            } catch (error) {
+                console.error(`  ❌ 处理器插件初始化失败 (${PluginClass.name}):`, error);
+            }
+        }
+    }
+
+    // 🔥 新增获取处理器的便捷方法
+    getProcessor(scenario: string): any {
+        const processor = this.processors.get(scenario);
+        console.log(`🔍 查找处理器: ${scenario}, found: ${!!processor}`);
+        return processor || null;
+    }
+
 
     /**
      * 🔥 获取指定类型和平台的插件
@@ -203,22 +233,24 @@ export class PluginManager {
         const uploaderCount = this.getPluginsByType(PluginType.UPLOADER).length;
         const loginCount = this.getPluginsByType(PluginType.LOGIN).length;
         const validatorCount = this.getPluginsByType(PluginType.VALIDATOR).length;
-
+        const processorCount = this.processors.size;
         console.log('\n📊 插件统计:');
         console.log(`   📤 上传插件: ${uploaderCount} 个`);
         console.log(`   🔐 登录插件: ${loginCount} 个`);
         console.log(`   🔍 验证插件: ${validatorCount} 个`);
+        console.log(`   ⚙️ 处理器插件: ${processorCount} 个`);
         console.log(`   🎯 总计: ${this.plugins.size} 个插件\n`);
 
         // 输出支持的平台
         const uploadPlatforms = getSupportedUploadPlatforms();
         const loginPlatforms = getSupportedLoginPlatforms();
         const validatorPlatforms = getSupportedValidatorPlatforms();
-
+        const processorScenarios = getSupportedProcessorScenarios();
         console.log('🎯 支持的平台:');
         console.log(`   📤 上传: ${uploadPlatforms.join(', ') || '无'}`);
         console.log(`   🔐 登录: ${loginPlatforms.join(', ') || '无'}`);
         console.log(`   🔍 验证: ${validatorPlatforms.join(', ') || '无'}\n`);
+        console.log(`   ⚙️ 处理器: ${processorScenarios.join(', ') || '无'}\n`);
     }
 
     /**

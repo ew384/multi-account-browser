@@ -9,7 +9,8 @@ export enum PluginType {
     UPLOADER = 'uploader',
     LOGIN = 'login',
     VALIDATOR = 'validator',
-    DOWNLOADER = 'downloader'
+    DOWNLOADER = 'downloader',
+    PROCESSOR = 'processor',
 }
 
 /**
@@ -37,7 +38,7 @@ export interface UploadParams {
  */
 export interface AccountInfo {
     cookieFile?: string;       // Cookie文件路径
-    platform: string;         // 平台名称
+    platform?: string;         // 平台名称
     accountName: string;       // 账号名称
     accountId?: string;        // 账号ID
     followersCount?: number;   // 粉丝数
@@ -91,19 +92,17 @@ export interface LoginResult {
     tabId?: string;           // 标签页ID (内部使用)
 }
 
-/**
- * 登录状态接口
- */
 export interface LoginStatus {
-    userId: string;           // 用户ID
-    platform: string;        // 平台
-    status: 'pending' | 'completed' | 'failed' | 'cancelled'; // 登录状态
-    tabId?: string;           // 标签页ID
-    qrCodeUrl?: string;       // 二维码URL
-    startTime: string;        // 开始时间
-    endTime?: string;         // 结束时间
+    userId: string;
+    platform: string;
+    status: 'pending' | 'completed' | 'failed' | 'cancelled';
+    startTime: string;
+    endTime?: string;
+    tabId?: string;
+    qrCodeUrl?: string;
+    cookieFile?: string;        // 🔥 新增
+    accountInfo?: LoginAccountInfo;  // 🔥 新增
 }
-
 /**
  * 插件基础接口
  */
@@ -188,7 +187,52 @@ export interface PluginValidator extends BasePlugin {
     validateCookie(cookieFile: string): Promise<boolean>;
     extractAccountInfo(cookieFile: string): Promise<AccountInfo | null>;
 }
+export interface PluginProcessor {
+    readonly name: string;
+    readonly type: PluginType.PROCESSOR;
+    readonly scenario: string;  // 处理场景标识
 
+    init(dependencies: ProcessorDependencies): Promise<void>;
+    process(params: any): Promise<any>;
+    destroy(): Promise<void>;
+}
+
+// 🔥 处理器依赖注入类型 - 使用 any 避免循环依赖
+export interface ProcessorDependencies {
+    tabManager: any;  // TabManager 实例
+    pluginManager: any;  // PluginManager 实例
+    [key: string]: any;
+}
+
+// 🔥 登录完成处理参数
+export interface LoginCompleteParams {
+    tabId: string;
+    userId: string;
+    platform: string;
+}
+
+// 🔥 登录完成处理结果
+export interface LoginCompleteResult {
+    success: boolean;
+    cookiePath?: string;
+    accountInfo?: LoginAccountInfo;  // 使用专门的登录账号信息类型
+    error?: string;
+}
+
+// 🔥 登录账号信息类型 - 基于 AccountInfo 但更灵活
+export interface LoginAccountInfo {
+    platform: string;         // 登录时平台是必需的
+    cookieFile?: string;       // Cookie文件路径
+    accountName?: string;      // 账号名称
+    accountId?: string;        // 账号ID
+    followersCount?: number;   // 粉丝数
+    videosCount?: number;      // 视频数
+    avatar?: string;           // 头像URL
+    bio?: string;              // 个人简介
+    localAvatar?: string;      // 本地头像路径
+    localAvatarPath?: string;  // 本地头像路径（兼容字段）
+    extractedAt?: string;      // 提取时间
+}
 /**
  * 插件注册信息
  */
