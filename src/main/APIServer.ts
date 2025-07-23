@@ -976,19 +976,6 @@ export class APIServer {
             }
         });
 
-        this.app.post('/api/account/get-qrcode', async (req, res) => {
-            try {
-                const { tabId, selector } = req.body;
-                if (!tabId || !selector) {
-                    return res.status(400).json({ success: false, error: 'tabId and selector are required' });
-                }
-
-                const qrUrl = await this.tabManager.getQRCode(tabId, selector);
-                res.json({ success: !!qrUrl, data: { qrUrl } });
-            } catch (error) {
-                res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
-            }
-        });
 
         this.app.post('/api/account/wait-url-change', async (req, res) => {
             try {

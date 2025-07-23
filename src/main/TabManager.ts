@@ -153,60 +153,6 @@ export class TabManager {
         }
     }
 
-    async getQRCode(tabId: string, selector: string): Promise<string | null> {
-        const tab = this.tabs.get(tabId);
-        if (!tab) throw new Error(`Tab ${tabId} not found`);
-
-        try {
-            console.log(`🔍 获取二维码: ${selector} (${tab.accountName})`);
-
-            const script = `
-            (function() {
-                try {
-                    // 处理 iframe 中的图片
-                    if ('${selector}'.includes('iframe')) {
-                        const iframe = document.querySelector('iframe');
-                        if (iframe && iframe.contentDocument) {
-                            const img = iframe.contentDocument.querySelector('img');
-                            return img ? img.src : null;
-                        }
-                    }
-                    
-                    // 处理普通选择器
-                    const element = document.querySelector('${selector}');
-                    if (element) {
-                        if (element.tagName === 'IMG') {
-                            return element.src;
-                        }
-                        // 如果不是img标签，查找其中的img
-                        const img = element.querySelector('img');
-                        return img ? img.src : null;
-                    }
-                    
-                    return null;
-                } catch (e) {
-                    console.error('获取二维码失败:', e);
-                    return null;
-                }
-            })()
-            `;
-
-            const result = await tab.webContentsView.webContents.executeJavaScript(script);
-
-            if (result) {
-                console.log(`✅ 二维码获取成功: ${result.substring(0, 50)}...`);
-            } else {
-                console.log(`❌ 未找到二维码: ${selector}`);
-            }
-
-            return result;
-
-        } catch (error) {
-            console.error(`❌ 获取二维码失败 for ${tab.accountName}:`, error);
-            return null;
-        }
-    }
-
     /**
      * 等待页面URL变化
      */
