@@ -5,17 +5,20 @@ import { TabManager } from './TabManager';
 import { APIServer } from './APIServer';
 import { AutomationEngine } from './automation/AutomationEngine';
 import { AccountStorage } from './plugins/login/base/AccountStorage';
+import { HeadlessManager } from './HeadlessManager';
 class MultiAccountBrowser {
     private mainWindow: BrowserWindow | null = null;
     private sessionManager: SessionManager;
     private tabManager!: TabManager;  // 使用断言赋值
     private apiServer!: APIServer;    // 使用断言赋值
     private automationEngine!: AutomationEngine;
+    private headlessManager: HeadlessManager;
     constructor() {
         // 确保 Electron 版本支持 WebContentsView
         console.log(`🚀 Starting Multi-Account Browser with Electron ${process.versions.electron}`);
         console.log(`🔄 Using WebContentsView renderer`);
-
+        console.log('🔍 Command line arguments:', process.argv);
+        this.headlessManager = HeadlessManager.getInstance();
         // Electron 性能优化参数
         app.commandLine.appendSwitch('--enable-features', 'VaapiVideoDecoder');
         app.commandLine.appendSwitch('--disable-features', 'VizDisplayCompositor');
@@ -118,7 +121,11 @@ class MultiAccountBrowser {
     }
 
     private createWindow(): void {
-        this.mainWindow = new BrowserWindow({
+        const mode = this.headlessManager.getMode();
+        console.log(`🚀 创建窗口 - 模式: ${mode}`);
+
+        // 基础配置（所有模式共用）
+        const baseConfig: Electron.BrowserWindowConstructorOptions = {
             width: 1400,
             height: 900,
             webPreferences: {
@@ -126,92 +133,172 @@ class MultiAccountBrowser {
                 contextIsolation: true,
                 preload: path.join(__dirname, '../preload/preload.js'),
                 devTools: process.env.NODE_ENV === 'development',
-                webSecurity: false, // ✅ 禁用 web 安全检查
+                webSecurity: false,
                 allowRunningInsecureContent: true,
                 experimentalFeatures: false,
-                // ✅ 新增：禁用各种提示
                 backgroundThrottling: false,
                 webviewTag: true,
                 offscreen: false
             },
             title: 'Multi-Account Browser (WebContentsView)',
-            show: false, // 先不显示，等待加载完成
-            titleBarStyle: 'default',
-            frame: true,
-            // ✅ 修复开发者工具问题 - 确保窗口足够大
             minWidth: 800,
             minHeight: 600,
             simpleFullscreen: false,
             fullscreenable: true,
-            resizable: true,
-            minimizable: true,
-            maximizable: true,
             closable: true
-        });
+        };
+
+        // 根据模式设置特定配置
+        let modeSpecificConfig: Partial<Electron.BrowserWindowConstructorOptions> = {};
+
+        switch (mode) {
+            case 'headless':
+                modeSpecificConfig = {
+                    show: false,
+                    skipTaskbar: true,
+                    frame: false,
+                    resizable: false,
+                    minimizable: false,
+                    maximizable: false,
+                    focusable: false,
+                    titleBarStyle: 'hidden'
+                };
+                break;
+
+            case 'background':
+                modeSpecificConfig = {
+                    show: false,
+                    skipTaskbar: false,  // 保留任务栏图标但隐藏
+                    frame: true,
+                    resizable: true,
+                    minimizable: true,
+                    maximizable: true,
+                    focusable: true,
+                    titleBarStyle: 'default'
+                };
+                break;
+
+            case 'normal':
+            default:
+                modeSpecificConfig = {
+                    show: false, // 先不显示，等待ready-to-show
+                    skipTaskbar: false,
+                    frame: true,
+                    resizable: true,
+                    minimizable: true,
+                    maximizable: true,
+                    focusable: true,
+                    titleBarStyle: 'default'
+                };
+                break;
+        }
+
+        // 合并配置
+        const windowConfig = { ...baseConfig, ...modeSpecificConfig };
+
+        this.mainWindow = new BrowserWindow(windowConfig);
+
+        // 将窗口传给 HeadlessManager 进行模式配置
+        this.headlessManager.setMainWindow(this.mainWindow);
+
         this.mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-            // 让外部链接在默认浏览器中打开
             require('electron').shell.openExternal(url);
             return { action: 'deny' };
         });
 
-        // ✅ 开发者工具专门处理
-        if (process.env.NODE_ENV === 'development') {
-            // 在窗口加载完成后打开开发者工具，确保不被遮挡
+        // 开发者工具处理（只在normal模式下自动打开）
+        if (process.env.NODE_ENV === 'development' && mode === 'normal') {
             this.mainWindow.webContents.once('did-finish-load', () => {
-                // 延迟打开开发者工具，确保界面加载完成
                 setTimeout(() => {
                     this.mainWindow?.webContents.openDevTools({
-                        mode: 'detach' // ✅ 关键：使用独立窗口模式
+                        mode: 'detach'
                     });
                 }, 1000);
             });
         }
-        // 修复：使用正确的HTML文件路径
+
+        // 加载HTML文件的逻辑保持不变
         const htmlPath = path.join(__dirname, '../renderer/index.html');
         console.log('Loading HTML from:', htmlPath);
 
-        // 检查文件是否存在
         if (require('fs').existsSync(htmlPath)) {
             this.mainWindow.loadFile(htmlPath);
         } else {
             console.error('HTML file not found at:', htmlPath);
-            // 尝试备用路径
             const backupPath = path.join(__dirname, '../../src/renderer/index.html');
             if (require('fs').existsSync(backupPath)) {
                 console.log('Using backup path:', backupPath);
                 this.mainWindow.loadFile(backupPath);
             } else {
                 console.error('Backup HTML file also not found at:', backupPath);
-                // 创建一个临时的HTML内容
                 this.mainWindow.loadURL('data:text/html,<h1>请先运行 npm run build 编译项目</h1><p>WebContentsView 版本</p>');
             }
         }
 
-        // 窗口加载完成后显示
+        // 窗口加载完成后的处理
         this.mainWindow.once('ready-to-show', () => {
-            this.mainWindow?.show();
-            console.log('✅ Main window loaded and shown');
+            if (mode === 'normal') {
+                this.mainWindow?.show();
+                console.log('✅ Main window loaded and shown');
+            } else {
+                console.log(`✅ Main window loaded in ${mode} mode (hidden)`);
+            }
         });
 
-        // 开发模式下打开开发者工具
-        if (process.env.NODE_ENV === 'development') {
-            this.mainWindow.webContents.openDevTools();
+
+        // 设置菜单（只在normal模式）
+        if (mode === 'normal') {
+            this.createMenu();
         }
 
-        // 设置菜单
-        this.createMenu();
-
         // 窗口关闭事件
+        this.mainWindow.on('close', (event) => {
+            const mode = this.headlessManager.getMode();
+
+            if (mode === 'background') {
+                // background 模式下，关闭窗口 = 隐藏窗口，不退出应用
+                console.log('📱 Background模式: 窗口关闭 → 隐藏到后台');
+                event.preventDefault(); // 阻止默认的关闭行为
+                this.mainWindow?.hide();
+
+                // 可选：显示提示
+                this.showBackgroundModeNotification();
+
+            } else if (mode === 'headless') {
+                // headless 模式下，不应该有窗口关闭事件，但如果有就退出
+                console.log('🔇 Headless模式: 应用退出');
+                // 不阻止，让应用正常退出
+
+            } else {
+                // normal 模式下，关闭窗口 = 退出应用
+                console.log('👁️ Normal模式: 应用退出');
+                // 不阻止，让应用正常退出
+            }
+        });
+
+        // 保留原有的 closed 事件处理
         this.mainWindow.on('closed', () => {
             this.mainWindow = null;
         });
-
         // 优化窗口渲染
         this.mainWindow.webContents.on('did-finish-load', () => {
-            console.log('✅ Main window content loaded');
+            console.log(`✅ Main window content loaded (${mode} mode)`);
         });
     }
-
+    private showBackgroundModeNotification(): void {
+        try {
+            const { Notification } = require('electron');
+            if (Notification.isSupported()) {
+                new Notification({
+                    title: 'Multi-Account Browser',
+                    body: '应用已隐藏到后台运行\n双击托盘图标可重新显示',
+                    icon: path.join(__dirname, '../../assets/icon.png') // 如果有图标
+                }).show();
+            }
+        } catch (error) {
+            console.log('💡 应用已隐藏到后台，双击托盘图标可重新显示');
+        }
+    }
     private createMenu(): void {
         const template: any[] = [
             {
@@ -428,6 +515,224 @@ class MultiAccountBrowser {
                 return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
             }
         });
+        // 获取当前浏览器模式
+        ipcMain.handle('get-browser-mode', async () => {
+            try {
+                const mode = this.headlessManager.getMode();
+                return {
+                    success: true,
+                    data: {
+                        mode: mode,
+                        isHidden: this.headlessManager.isHidden(),
+                        isHeadless: this.headlessManager.isHeadlessMode(),
+                        isBackground: this.headlessManager.isBackgroundMode(),
+                        canShow: mode !== 'headless',
+                        timestamp: new Date().toISOString()
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to get browser mode'
+                };
+            }
+        });
+
+        // 显示主窗口
+        ipcMain.handle('show-window', async () => {
+            try {
+                const mode = this.headlessManager.getMode();
+
+                if (mode === 'headless') {
+                    return {
+                        success: false,
+                        error: 'Cannot show window in headless mode'
+                    };
+                }
+
+                this.headlessManager.showWindow();
+                return {
+                    success: true,
+                    message: 'Window shown successfully'
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to show window'
+                };
+            }
+        });
+
+        // 隐藏主窗口
+        ipcMain.handle('hide-window', async () => {
+            try {
+                this.headlessManager.hideWindow();
+                return {
+                    success: true,
+                    message: 'Window hidden successfully'
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to hide window'
+                };
+            }
+        });
+
+        // 切换浏览器模式
+        ipcMain.handle('switch-browser-mode', async (event, newMode: string) => {
+            try {
+                // 严格的模式验证
+                const validModes = ['normal', 'headless', 'background'] as const;
+                type BrowserMode = typeof validModes[number];
+
+                if (!validModes.includes(newMode as BrowserMode)) {
+                    return {
+                        success: false,
+                        error: `Invalid mode: ${newMode}. Valid modes are: ${validModes.join(', ')}`
+                    };
+                }
+
+                const currentMode = this.headlessManager.getMode();
+
+                if (currentMode === newMode) {
+                    return {
+                        success: true,
+                        message: `Already in ${newMode} mode`,
+                        data: {
+                            currentMode: currentMode,
+                            previousMode: currentMode
+                        }
+                    };
+                }
+
+                // 执行模式切换
+                await this.headlessManager.switchMode(newMode as BrowserMode);
+
+                return {
+                    success: true,
+                    message: `Successfully switched from ${currentMode} to ${newMode} mode`,
+                    data: {
+                        currentMode: this.headlessManager.getMode(),
+                        previousMode: currentMode
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to switch browser mode'
+                };
+            }
+        });
+
+        // 临时显示窗口（仅 background 模式）
+        ipcMain.handle('show-window-temporarily', async (event, duration: number = 5000) => {
+            try {
+                const mode = this.headlessManager.getMode();
+
+                // 验证参数
+                if (typeof duration !== 'number' || duration <= 0 || duration > 300000) {
+                    return {
+                        success: false,
+                        error: 'Duration must be a positive number between 1 and 300000 (5 minutes)'
+                    };
+                }
+
+                if (mode === 'headless') {
+                    return {
+                        success: false,
+                        error: 'Cannot show window temporarily in headless mode'
+                    };
+                }
+
+                if (mode === 'normal') {
+                    return {
+                        success: false,
+                        error: 'Window is already visible in normal mode'
+                    };
+                }
+
+                await this.headlessManager.showTemporarily(duration);
+
+                return {
+                    success: true,
+                    message: `Window will be shown temporarily for ${duration}ms`,
+                    data: {
+                        duration: duration,
+                        mode: mode
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to show window temporarily'
+                };
+            }
+        });
+
+        // 获取窗口状态
+        ipcMain.handle('get-window-status', async () => {
+            try {
+                const mode = this.headlessManager.getMode();
+                const isVisible = this.mainWindow?.isVisible() || false;
+                const isMinimized = this.mainWindow?.isMinimized() || false;
+                const isMaximized = this.mainWindow?.isMaximized() || false;
+                const isFocused = this.mainWindow?.isFocused() || false;
+
+                return {
+                    success: true,
+                    data: {
+                        mode: mode,
+                        isVisible: isVisible,
+                        isMinimized: isMinimized,
+                        isMaximized: isMaximized,
+                        isFocused: isFocused,
+                        isHidden: this.headlessManager.isHidden(),
+                        bounds: this.mainWindow?.getBounds() || null,
+                        timestamp: new Date().toISOString()
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to get window status'
+                };
+            }
+        });
+
+        // 获取支持的模式列表
+        ipcMain.handle('get-supported-modes', async () => {
+            try {
+                return {
+                    success: true,
+                    data: {
+                        modes: [
+                            {
+                                name: 'normal',
+                                description: '正常模式 - 窗口可见，完整功能',
+                                features: ['visible', 'interactive', 'devtools', 'menu']
+                            },
+                            {
+                                name: 'background',
+                                description: '后台模式 - 窗口隐藏但可调出',
+                                features: ['hidden', 'api-controllable', 'tray-icon', 'switchable']
+                            },
+                            {
+                                name: 'headless',
+                                description: '无界面模式 - 完全隐藏，纯API',
+                                features: ['completely-hidden', 'api-only', 'server-mode']
+                            }
+                        ],
+                        currentMode: this.headlessManager.getMode()
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to get supported modes'
+                };
+            }
+        });
     }
 
     private async initialize(): Promise<void> {
@@ -479,24 +784,12 @@ class MultiAccountBrowser {
                 await this.apiServer.start(3409);
                 console.log('✅ API 服务器启动成功: http://localhost:3409');
 
-                // 创建一个示例标签页用于测试（仅开发模式）
-                if (process.env.NODE_ENV === 'development') {
-                    setTimeout(async () => {
-                        try {
-                            const tabId = await this.tabManager.createAccountTab(
-                                '测试账号-WebContentsView',
-                                '微信视频号',
-                                'https://channels.weixin.qq.com'
-                            );
-                            await this.tabManager.switchToTab(tabId);
-                            console.log('✅ Test tab created successfully with WebContentsView');
-                        } catch (error) {
-                            console.error('Failed to create test tab:', error);
-                        }
-                    }, 2000);
+                // 只在normal模式下设置开发者工具
+                const mode = this.headlessManager.getMode();
+                if (mode === 'normal') {
+                    this.setupDeveloperTools();
                 }
-                this.setupDeveloperTools();
-                console.log('🎉 Multi-Account Browser 初始化完成');
+                this.logInitializationComplete(mode);
             } catch (error) {
                 console.error('❌ 初始化过程中发生错误:', error);
 
@@ -513,10 +806,55 @@ class MultiAccountBrowser {
             }
         }
     }
+    private logInitializationComplete(mode: string): void {
+        console.log(`🎉 Multi-Account Browser 初始化完成 (${mode} 模式)`);
+
+        switch (mode) {
+            case 'headless':
+                console.log('🔇 无界面模式 - 可用功能:');
+                console.log('   - API调用: http://localhost:3409');
+                console.log('   - 创建标签页: POST /api/account/create');
+                console.log('   - 账号验证等后台任务');
+                break;
+
+            case 'background':
+                console.log('📱 后台模式 - 可用功能:');
+                console.log('   - API调用: http://localhost:3409');
+                console.log('   - 双击托盘图标显示界面');
+                console.log('   - 可通过API控制窗口显示/隐藏');
+                break;
+
+            case 'normal':
+            default:
+                console.log('👁️ 正常模式 - 可用功能:');
+                console.log('   - 界面操作: 创建、切换、管理标签页');
+                console.log('   - API调用: http://localhost:3409');
+                console.log('   - 开发者工具和调试功能');
+                break;
+        }
+
+        console.log('📖 使用提示:');
+        console.log('   - 创建标签页: 通过界面或 API');
+        console.log('   - 账号登录: 加载 Cookie 文件');
+        console.log('   - 自动化任务: 使用插件系统');
+    }
     private setupAppEvents(): void {
         app.on('window-all-closed', () => {
-            if (process.platform !== 'darwin') {
-                app.quit();
+            const mode = this.headlessManager.getMode();
+
+            if (mode === 'background') {
+                // background 模式下，即使所有窗口关闭也不退出应用
+                console.log('📱 Background模式: 所有窗口已关闭，但应用继续在后台运行');
+
+                // 可选：显示提示
+                if (process.platform !== 'darwin') {
+                    this.showBackgroundModeNotification();
+                }
+            } else {
+                // normal 和 headless 模式下的正常处理
+                if (process.platform !== 'darwin') {
+                    app.quit();
+                }
             }
         });
 
@@ -557,6 +895,9 @@ class MultiAccountBrowser {
                     console.log('🔌 销毁插件系统...');
                     await this.automationEngine.getPluginManager().destroyAllPlugins();
                 }
+                // 新增：清理 HeadlessManager
+                console.log('🔇 清理 HeadlessManager...');
+                this.headlessManager.destroy();
 
                 console.log('✅ 清理完成，应用程序退出');
 
@@ -590,6 +931,17 @@ class MultiAccountBrowser {
     }
 
     async start(): Promise<void> {
+        const mode = this.headlessManager.getMode();
+        console.log(`🚀 Multi-Account Browser 启动中...`);
+        console.log(`📱 检测到启动模式: ${mode}`);
+
+        if (mode === 'headless') {
+            console.log('🔇 无界面模式 - 窗口完全隐藏，仅API可用');
+        } else if (mode === 'background') {
+            console.log('📱 后台模式 - 窗口隐藏但可调出查看');
+        } else {
+            console.log('👁️ 正常模式 - 窗口正常显示');
+        }
         this.setupAppEvents();
         await this.initialize();
     }

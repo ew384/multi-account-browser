@@ -4,6 +4,7 @@ import { TabManager } from './TabManager';
 import { CreateAccountRequest, ExecuteScriptRequest, NavigateRequest, APIResponse } from '../types';
 import * as path from 'path';
 import { AutomationEngine } from './automation/AutomationEngine';
+import { HeadlessManager } from './HeadlessManager';
 import {
     UploadParams,
     LoginResult,
@@ -16,13 +17,14 @@ export class APIServer {
     private server: any;
     private automationEngine: AutomationEngine;
     private tabManager: TabManager;  // 🔥 保留 tabManager 用于底层操作
-
+    private headlessManager: HeadlessManager;
     // 🔥 活跃队列映射 (对应 Python 的 active_queues)
     private activeQueues: Map<string, NodeJS.EventEmitter> = new Map();
 
     constructor(automationEngine: AutomationEngine, tabManager: TabManager) {
         this.automationEngine = automationEngine;
         this.tabManager = tabManager;  // 🔥 保留 tabManager 引用
+        this.headlessManager = HeadlessManager.getInstance();
         this.app = express();
         this.setupMiddleware();
         this.setupRoutes();
@@ -1403,7 +1405,349 @@ export class APIServer {
                 });
             }
         });
+        this.app.get('/api/mode/status', (req, res) => {
+            try {
+                const mode = this.headlessManager.getMode();
+                res.json({
+                    success: true,
+                    data: {
+                        mode: mode,
+                        isHidden: this.headlessManager.isHidden(),
+                        isHeadless: this.headlessManager.isHeadlessMode(),
+                        isBackground: this.headlessManager.isBackgroundMode(),
+                        canShow: mode !== 'headless',
+                        timestamp: new Date().toISOString()
+                    }
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to get browser mode'
+                });
+            }
+        });
 
+        // 切换浏览器模式
+        this.app.post('/api/mode/switch', async (req, res) => {
+            try {
+                const { mode: newMode } = req.body;
+
+                // 严格的模式验证
+                const validModes = ['normal', 'headless', 'background'] as const;
+                type BrowserMode = typeof validModes[number];
+
+                if (!validModes.includes(newMode as BrowserMode)) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Invalid mode: ${newMode}. Valid modes are: ${validModes.join(', ')}`
+                    });
+                }
+
+                const currentMode = this.headlessManager.getMode();
+
+                if (currentMode === newMode) {
+                    return res.json({
+                        success: true,
+                        message: `Already in ${newMode} mode`,
+                        data: {
+                            currentMode: currentMode,
+                            previousMode: currentMode
+                        }
+                    });
+                }
+
+                // 执行模式切换
+                await this.headlessManager.switchMode(newMode as BrowserMode);
+
+                res.json({
+                    success: true,
+                    message: `Successfully switched from ${currentMode} to ${newMode} mode`,
+                    data: {
+                        currentMode: this.headlessManager.getMode(),
+                        previousMode: currentMode
+                    }
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to switch browser mode'
+                });
+            }
+        });
+
+        // 显示主窗口
+        this.app.post('/api/window/show', (req, res) => {
+            try {
+                const mode = this.headlessManager.getMode();
+
+                if (mode === 'headless') {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Cannot show window in headless mode'
+                    });
+                }
+
+                this.headlessManager.showWindow();
+                res.json({
+                    success: true,
+                    message: 'Window shown successfully'
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to show window'
+                });
+            }
+        });
+
+        // 隐藏主窗口
+        this.app.post('/api/window/hide', (req, res) => {
+            try {
+                this.headlessManager.hideWindow();
+                res.json({
+                    success: true,
+                    message: 'Window hidden successfully'
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to hide window'
+                });
+            }
+        });
+
+        // 临时显示窗口（仅 background 模式）
+        this.app.post('/api/window/show-temp', async (req, res) => {
+            try {
+                const { duration = 5000 } = req.body;
+                const mode = this.headlessManager.getMode();
+
+                // 验证参数
+                if (typeof duration !== 'number' || duration <= 0 || duration > 300000) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Duration must be a positive number between 1 and 300000 (5 minutes)'
+                    });
+                }
+
+                if (mode === 'headless') {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Cannot show window temporarily in headless mode'
+                    });
+                }
+
+                if (mode === 'normal') {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Window is already visible in normal mode'
+                    });
+                }
+
+                await this.headlessManager.showTemporarily(duration);
+
+                res.json({
+                    success: true,
+                    message: `Window will be shown temporarily for ${duration}ms`,
+                    data: {
+                        duration: duration,
+                        mode: mode
+                    }
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to show window temporarily'
+                });
+            }
+        });
+
+        // 获取窗口状态
+        this.app.get('/api/window/status', (req, res) => {
+            try {
+                const mode = this.headlessManager.getMode();
+
+                res.json({
+                    success: true,
+                    data: {
+                        mode: mode,
+                        isHidden: this.headlessManager.isHidden(),
+                        canShow: mode !== 'headless',
+                        timestamp: new Date().toISOString()
+                    }
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to get window status'
+                });
+            }
+        });
+
+        // 获取支持的模式列表
+        this.app.get('/api/modes', (req, res) => {
+            try {
+                res.json({
+                    success: true,
+                    data: {
+                        modes: [
+                            {
+                                name: 'normal',
+                                description: '正常模式 - 窗口可见，完整功能',
+                                features: ['visible', 'interactive', 'devtools', 'menu']
+                            },
+                            {
+                                name: 'background',
+                                description: '后台模式 - 窗口隐藏但可调出',
+                                features: ['hidden', 'api-controllable', 'tray-icon', 'switchable']
+                            },
+                            {
+                                name: 'headless',
+                                description: '无界面模式 - 完全隐藏，纯API',
+                                features: ['completely-hidden', 'api-only', 'server-mode']
+                            }
+                        ],
+                        currentMode: this.headlessManager.getMode()
+                    }
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to get supported modes'
+                });
+            }
+        });
+
+        // 🔥 新增：Headless Tab 管理 API
+
+        // 获取所有 headless tabs
+        this.app.get('/api/tabs/headless', (req, res) => {
+            try {
+                const headlessTabs = this.tabManager.getHeadlessTabs();
+                const serializableTabs = headlessTabs.map(tab => ({
+                    id: tab.id,
+                    accountName: tab.accountName,
+                    platform: tab.platform,
+                    loginStatus: tab.loginStatus,
+                    url: tab.url,
+                    cookieFile: tab.cookieFile,
+                    isHeadless: tab.isHeadless,
+                    isVisible: tab.isVisible
+                }));
+
+                res.json({
+                    success: true,
+                    data: {
+                        tabs: serializableTabs,
+                        count: serializableTabs.length
+                    }
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to get headless tabs'
+                });
+            }
+        });
+
+        // 获取所有可见 tabs
+        this.app.get('/api/tabs/visible', (req, res) => {
+            try {
+                const visibleTabs = this.tabManager.getVisibleTabs();
+                const serializableTabs = visibleTabs.map(tab => ({
+                    id: tab.id,
+                    accountName: tab.accountName,
+                    platform: tab.platform,
+                    loginStatus: tab.loginStatus,
+                    url: tab.url,
+                    cookieFile: tab.cookieFile,
+                    isHeadless: tab.isHeadless,
+                    isVisible: tab.isVisible
+                }));
+
+                res.json({
+                    success: true,
+                    data: {
+                        tabs: serializableTabs,
+                        count: serializableTabs.length
+                    }
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to get visible tabs'
+                });
+            }
+        });
+
+        // 创建 headless tab
+        this.app.post('/api/tabs/create-headless', async (req, res) => {
+            try {
+                const { accountName, platform, initialUrl } = req.body;
+
+                if (!accountName || !platform) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'accountName and platform are required'
+                    });
+                }
+
+                const tabId = await this.tabManager.createHeadlessTab(accountName, platform, initialUrl);
+
+                res.json({
+                    success: true,
+                    data: {
+                        tabId: tabId,
+                        accountName: accountName,
+                        platform: platform,
+                        mode: 'headless'
+                    }
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to create headless tab'
+                });
+            }
+        });
+
+        // 将 tab 转为可见
+        this.app.post('/api/tabs/:tabId/make-visible', async (req, res) => {
+            try {
+                const { tabId } = req.params;
+
+                await this.tabManager.makeTabVisible(tabId);
+
+                res.json({
+                    success: true,
+                    message: `Tab ${tabId} is now visible`
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to make tab visible'
+                });
+            }
+        });
+
+        // 将 tab 转为 headless
+        this.app.post('/api/tabs/:tabId/make-headless', async (req, res) => {
+            try {
+                const { tabId } = req.params;
+
+                await this.tabManager.makeTabHeadless(tabId);
+
+                res.json({
+                    success: true,
+                    message: `Tab ${tabId} is now headless`
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Failed to make tab headless'
+                });
+            }
+        });
         // 调试接口 - 强制更新边界
         this.app.post('/api/debug/update-bounds', (req, res) => {
             try {
@@ -1455,10 +1799,22 @@ export class APIServer {
         return new Promise((resolve, reject) => {
             try {
                 this.server = this.app.listen(port, () => {
+                    const mode = this.headlessManager.getMode();
                     console.log(`🚀 API Server running on http://localhost:${port}`);
+                    console.log(`📱 Current mode: ${mode}`);
                     console.log(`📋 Available endpoints:`);
                     console.log(`   GET  /api/health - Health check`);
                     console.log(`   GET  /api/info - Server info`);
+                    console.log(`   GET  /api/mode/status - Get current mode`);
+                    console.log(`   POST /api/mode/switch - Switch mode`);
+                    console.log(`   POST /api/window/show - Show window`);
+                    console.log(`   POST /api/window/hide - Hide window`);
+                    console.log(`   POST /api/window/show-temp - Show temporarily`);
+                    console.log(`   GET  /api/window/status - Get window status`);
+                    console.log(`   GET  /api/modes - Get supported modes`);
+                    console.log(`   GET  /api/tabs/headless - Get headless tabs`);
+                    console.log(`   GET  /api/tabs/visible - Get visible tabs`);
+                    console.log(`   POST /api/tabs/create-headless - Create headless tab`);
                     console.log(`   GET  /api/accounts - Get all accounts`);
                     console.log(`   GET  /api/account/:tabId - Get account details`);
                     console.log(`   GET  /api/account/active - Get active account`);

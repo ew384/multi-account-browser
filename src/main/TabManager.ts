@@ -2,8 +2,8 @@ import { WebContentsView, BrowserWindow, Session } from 'electron';
 import { SessionManager } from './SessionManager';
 import { CookieManager } from './CookieManager';
 import { AccountTab } from '../types';
+import { HeadlessManager } from './HeadlessManager';
 
-import { app } from 'electron'
 import { AccountStorage } from './plugins/login/base/AccountStorage';
 
 import * as fs from 'fs';
@@ -19,6 +19,7 @@ export class TabManager {
     private mainWindow: BrowserWindow;
     private sessionManager: SessionManager;
     private cookieManager: CookieManager;
+    private headlessManager: HeadlessManager;
     // 标签页标题缓存
     private tabTitles: Map<string, string> = new Map();
     private tabFavicons: Map<string, string> = new Map();
@@ -32,6 +33,7 @@ export class TabManager {
         this.mainWindow = mainWindow;
         this.sessionManager = sessionManager;
         this.cookieManager = new CookieManager();
+        this.headlessManager = HeadlessManager.getInstance();
         this.setupWindowEvents();
         this.loadStealthScript();
     }
@@ -416,7 +418,14 @@ export class TabManager {
         }
     }
 
-    async createAccountTab(accountName: string, platform: string, initialUrl?: string): Promise<string> {
+    async createAccountTab(accountName: string, platform: string, initialUrl?: string, headless: boolean = false): Promise<string> {
+        const isGlobalHidden = this.headlessManager.isHidden();
+        const finalHeadless = headless || isGlobalHidden;
+
+        if (isGlobalHidden) {
+            console.log(`🔇 浏览器处于${this.headlessManager.getMode()}模式，创建隐藏tab`);
+        }
+
         const timestamp = Date.now();
         const tabId = `${platform}-${accountName.replace(/[^a-zA-Z0-9]/g, '_')}-${timestamp}`;
 
@@ -432,20 +441,20 @@ export class TabManager {
                     nodeIntegration: false,
                     contextIsolation: true,
                     sandbox: false,
-                    webSecurity: false, // 🔥 关键：禁用以提升加载速度
-                    allowRunningInsecureContent: true, // 🔥 允许混合内容
+                    webSecurity: false,
+                    allowRunningInsecureContent: true,
                     backgroundThrottling: false,
                     v8CacheOptions: 'bypassHeatCheck',
                     plugins: false,
                     devTools: process.env.NODE_ENV === 'development',
-                    // 🔥 新增性能优化选项
                     experimentalFeatures: true,
                     enableBlinkFeatures: 'CSSContainerQueries',
-                    disableBlinkFeatures: 'AutomationControlled', // 隐藏自动化标识
-                    preload: undefined // 不加载预加载脚本
+                    disableBlinkFeatures: 'AutomationControlled',
+                    preload: undefined,
+                    // 🔥 新增：根据headless模式设置
+                    offscreen: finalHeadless,  // headless时启用离屏渲染
                 }
             });
-
 
             const tab: AccountTab = {
                 id: tabId,
@@ -454,7 +463,10 @@ export class TabManager {
                 session: session,
                 webContentsView: webContentsView,
                 loginStatus: 'unknown',
-                url: initialUrl || `https://channels.weixin.qq.com`
+                url: initialUrl || `https://channels.weixin.qq.com`,
+                // 🔥 新增：headless 相关字段
+                isHeadless: finalHeadless,
+                isVisible: !finalHeadless
             };
 
             this.tabs.set(tabId, tab);
@@ -490,9 +502,20 @@ export class TabManager {
                     console.warn(`Failed to re-inject tab_id after navigation:`, error);
                 }
             });
-            console.log(`✅ Tab created successfully: ${accountName} (${tabId})`);
-            console.log(`🔄 Auto-switching to new tab: ${accountName}`);
-            await this.switchToTab(tabId);
+            if (finalHeadless) {
+                // headless tab处理：移到屏幕外但保持运行
+                webContentsView.setBounds({
+                    x: -9999,
+                    y: -9999,
+                    width: 1200,  // 保持合理尺寸让页面脚本正常执行
+                    height: 800
+                });
+                console.log(`🔇 Created headless tab: ${accountName}`);
+            } else {
+                // 正常tab：自动切换显示
+                console.log(`🔄 Auto-switching to new tab: ${accountName}`);
+                await this.switchToTab(tabId);
+            }
             // 如果有初始URL，开始导航（非阻塞）
             if (this.stealthScript) {
                 try {
@@ -1280,7 +1303,21 @@ export class TabManager {
     async switchToTab(tabId: string): Promise<void> {
         const tab = this.tabs.get(tabId);
         if (!tab) throw new Error(`Tab ${tabId} not found`);
+        const mode = this.headlessManager.getMode();
+        if (mode === 'headless') {
+            console.log(`🚫 headless模式无法切换显示tab: ${tab.accountName}`);
+            return;
+        }
 
+        if (mode === 'background') {
+            console.log(`📱 background模式 - 切换tab但窗口可能隐藏: ${tab.accountName}`);
+        }
+
+        // 🔥 新增：检查tab级别的headless
+        if (tab.isHeadless) {
+            console.log(`❌ Cannot switch to headless tab: ${tab.accountName}`);
+            return;
+        }
         try {
             // 隐藏当前标签页 - 使用 WebContentsView 的方式
             if (this.activeTabId && this.activeTabId !== tabId) {
@@ -1388,13 +1425,21 @@ export class TabManager {
         try {
             // 如果是当前活动标签页，先移除显示
             if (this.activeTabId === tabId) {
-                this.mainWindow.contentView.removeChildView(tab.webContentsView);
+                if (!tab.isHeadless) {
+                    this.mainWindow.contentView.removeChildView(tab.webContentsView);
+                }
                 this.activeTabId = null;
 
                 // 自动切换到下一个标签页
-                const remainingTabs = Array.from(this.tabs.keys()).filter(id => id !== tabId);
-                if (remainingTabs.length > 0) {
-                    await this.switchToTab(remainingTabs[0]);
+                const remainingVisibleTabs = Array.from(this.tabs.keys())
+                    .filter(id => id !== tabId)
+                    .filter(id => {
+                        const remainingTab = this.tabs.get(id);
+                        return remainingTab && !remainingTab.isHeadless;
+                    });
+
+                if (remainingVisibleTabs.length > 0) {
+                    await this.switchToTab(remainingVisibleTabs[0]);
                 }
             }
 
@@ -1569,7 +1614,51 @@ export class TabManager {
         if (!this.activeTabId) return null;
         return this.tabs.get(this.activeTabId) || null;
     }
+    getHeadlessTabs(): AccountTab[] {
+        return Array.from(this.tabs.values()).filter(tab => tab.isHeadless);
+    }
 
+    // 🔥 新增：获取所有可见tabs
+    getVisibleTabs(): AccountTab[] {
+        return Array.from(this.tabs.values()).filter(tab => !tab.isHeadless);
+    }
+
+    // 🔥 新增：将headless tab转为正常tab
+    async makeTabVisible(tabId: string): Promise<void> {
+        const tab = this.tabs.get(tabId);
+        if (!tab || !tab.isHeadless) return;
+
+        tab.isHeadless = false;
+        tab.isVisible = true;
+
+        // 添加到可视区域并切换过去
+        this.mainWindow.contentView.addChildView(tab.webContentsView);
+        await this.switchToTab(tabId);
+
+        console.log(`👁️ Made tab visible: ${tab.accountName}`);
+    }
+
+    // 🔥 新增：将正常tab转为headless
+    async makeTabHeadless(tabId: string): Promise<void> {
+        const tab = this.tabs.get(tabId);
+        if (!tab || tab.isHeadless) return;
+
+        // 从可视区域移除
+        this.mainWindow.contentView.removeChildView(tab.webContentsView);
+
+        tab.isHeadless = true;
+        tab.isVisible = false;
+
+        // 移到屏幕外但保持运行
+        tab.webContentsView.setBounds({ x: -9999, y: -9999, width: 1200, height: 800 });
+
+        console.log(`🔇 Made tab headless: ${tab.accountName}`);
+    }
+
+    // 🔥 新增：创建headless tab的便捷方法
+    async createHeadlessTab(accountName: string, platform: string, initialUrl?: string): Promise<string> {
+        return await this.createAccountTab(accountName, platform, initialUrl, true);
+    }
     async saveCookies(tabId: string, cookieFilePath: string): Promise<void> {
         const tab = this.tabs.get(tabId);
         if (!tab) throw new Error(`Tab ${tabId} not found`);

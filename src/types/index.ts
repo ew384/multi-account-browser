@@ -7,6 +7,8 @@ export interface AccountTab {
     cookieFile?: string;
     loginStatus: 'logged_in' | 'logged_out' | 'unknown';
     url?: string;
+    isHeadless?: boolean;  // 标识是否为后台模式的 tab
+    isVisible?: boolean;   // 标识当前是否可见
 }
 
 export interface CookieData {

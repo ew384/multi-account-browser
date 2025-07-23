@@ -1,38 +1,21 @@
-.
-├── forge.config.js
-├── package.json
-├── README.md
-├── scripts
-│   ├── build.sh
-│   ├── copy-assets.js
-│   ├── dev.sh
-│   └── test.sh
-├── src
-│   ├── main
-│   │   ├── APIServer.ts
-│   │   ├── CookieManager.ts
-│   │   ├── main.ts
-│   │   ├── SessionManager.ts
-│   │   └── TabManager.ts
-│   ├── preload
-│   │   └── preload.ts
-│   ├── renderer
-│   │   ├── components
-│   │   │   ├── TabBar.ts
-│   │   │   └── TestPanel.ts
-│   │   ├── index.html
-│   │   ├── renderer.ts
-│   │   └── style.css
-│   └── types
-│       └── index.ts
-├── test
-│   ├── api-test.ts
-│   ├── isolation-test.ts
-│   └── sample-cookies
-├── test_python_integration.py
-├── tree.sh
-├── tsconfig.json
-├── xiaohongshu_cookies_test.py
-└── xiaohongshu_test.py
+生产模式启动
+bash# 正常模式
+npm start
 
-9 directories, 26 files
+# headless 模式
+npm run start:headless
+
+# background 模式  
+npm run start:background
+
+# 生产环境正常模式
+npm run start:production
+开发模式启动
+bash# 开发模式（自动编译 + 热重载）
+npm run dev
+
+# 开发模式 headless
+npm run dev:headless
+
+# 开发模式 background
+npm run dev:background
