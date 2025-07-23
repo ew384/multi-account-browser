@@ -156,13 +156,6 @@ export interface PluginLogin extends BasePlugin {
      */
     startLogin(params: LoginParams): Promise<LoginResult>;
 
-    /**
-     * 等待登录完成
-     * @param tabId 标签页ID
-     * @param userId 用户ID
-     * @returns 最终登录结果
-     */
-    waitForLogin(tabId: string, userId: string): Promise<LoginResult>;
 
     /**
      * 取消登录

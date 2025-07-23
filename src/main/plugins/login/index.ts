@@ -2,6 +2,8 @@
 // 登录插件统一导出和注册
 
 import { WeChatLogin } from './tencent/WeChatLogin';
+import { DouyinLogin } from './douyin/DouyinLogin';
+//import { XiaohongshuLogin } from './xiaohongshu/XiaohongshuLogin';
 import { PluginLogin } from '../../../types/pluginInterface';
 import { TabManager } from '../../TabManager';
 
@@ -12,7 +14,7 @@ export { WeChatLogin };
 export const LOGIN_PLUGINS = [
     WeChatLogin,
     // TODO: 添加其他登录插件
-    // DouyinLogin,
+    DouyinLogin,
     // XiaohongshuLogin,
     // KuaishouLogin,
 ];
@@ -20,7 +22,7 @@ export const LOGIN_PLUGINS = [
 // 🔥 按平台映射插件类
 export const LOGIN_PLUGIN_MAP: Record<string, typeof WeChatLogin> = {
     'wechat': WeChatLogin,
-    // 'douyin': DouyinLogin,
+    //'douyin': DouyinLogin,
     // 'xiaohongshu': XiaohongshuLogin,
     // 'kuaishou': KuaishouLogin,
 };
@@ -63,9 +65,6 @@ export async function testLoginPlugin(platform: string, tabManager: TabManager):
         console.log(`   插件名称: ${plugin.name}`);
         console.log(`   支持平台: ${plugin.platform}`);
         console.log(`   插件类型: ${plugin.type}`);
-
-        // 可以在这里添加更多测试逻辑
-        // 比如测试登录流程的各个步骤
 
         console.log(`✅ ${platform} 登录插件测试通过`);
         return true;

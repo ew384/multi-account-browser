@@ -1,4 +1,4 @@
-// src/main/plugins/login/tencent/WeChatLogin.ts
+// src/main/plugins/login/douyin/DouyinLogin.ts
 import {
     PluginLogin,
     LoginParams,
@@ -6,9 +6,9 @@ import {
     PluginType
 } from '../../../../types/pluginInterface';
 
-export class WeChatLogin implements PluginLogin {
-    public readonly platform = 'wechat';
-    public readonly name = '微信视频号登录';
+export class DouyinLogin implements PluginLogin {
+    public readonly platform = 'douyin';
+    public readonly name = '抖音视频号登录';
     public readonly type = PluginType.LOGIN;
 
     private tabManager!: any;  // TabManager 实例
@@ -21,7 +21,7 @@ export class WeChatLogin implements PluginLogin {
 
     async init(tabManager: any): Promise<void> {
         this.tabManager = tabManager;
-        console.log('✅ 微信视频号登录插件初始化完成');
+        console.log('✅ 抖音视频号登录插件初始化完成');
     }
 
     async destroy(): Promise<void> {
@@ -31,7 +31,7 @@ export class WeChatLogin implements PluginLogin {
             pending.reject(new Error('插件正在销毁'));
         }
         this.pendingLogins.clear();
-        console.log('🧹 微信视频号登录插件已销毁');
+        console.log('🧹 抖音视频号登录插件已销毁');
     }
 
     /**
@@ -39,18 +39,18 @@ export class WeChatLogin implements PluginLogin {
      */
     async startLogin(params: LoginParams): Promise<LoginResult> {
         try {
-            console.log(`🔐 开始微信视频号登录流程: ${params.userId}`);
+            console.log(`🔐 开始抖音视频号登录流程: ${params.userId}`);
 
             // 创建标签页
             const tabId = await this.tabManager.createAccountTab(
-                `微信登录_${params.userId}`,
-                'wechat',
-                'https://channels.weixin.qq.com'
+                `抖音登录_${params.userId}`,
+                'douyin',
+                'https://creator.douyin.com/'
             );
 
-            console.log(`📱 微信登录标签页已创建: ${tabId}`);
+            console.log(`📱 抖音登录标签页已创建: ${tabId}`);
 
-            // 🔥 等待页面加载并获取二维码（复用 Python 验证的逻辑）
+
             const qrCodeUrl = await this.getQRCode(tabId);
 
             if (!qrCodeUrl) {
@@ -61,7 +61,7 @@ export class WeChatLogin implements PluginLogin {
                 };
             }
 
-            console.log(`🔍 微信登录二维码已找到`);
+            console.log(`🔍 抖音登录二维码已找到`);
 
             return {
                 success: true,
@@ -70,7 +70,7 @@ export class WeChatLogin implements PluginLogin {
             };
 
         } catch (error) {
-            console.error('❌ 微信登录启动失败:', error);
+            console.error('❌ 抖音登录启动失败:', error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : '登录启动失败'
@@ -78,6 +78,22 @@ export class WeChatLogin implements PluginLogin {
         }
     }
 
+    /**
+     * 🔥 等待登录完成 - 简化为只返回基础信息
+     */
+    async waitForLogin(tabId: string, userId: string): Promise<LoginResult> {
+        // 🔥 插件不再处理等待逻辑，直接返回成功，让 AutomationEngine 调用 Processor 处理
+        console.log(`✅ 抖音登录插件完成，等待后续处理: ${userId}`);
+
+        return {
+            success: true,
+            tabId: tabId
+        };
+    }
+
+    /**
+     * 🔥 取消登录
+     */
     async cancelLogin(tabId: string): Promise<void> {
         try {
             // 找到对应的等待中登录
@@ -104,26 +120,29 @@ export class WeChatLogin implements PluginLogin {
 
             // 关闭标签页
             await this.tabManager.closeTab(tabId);
-            console.log(`🚫 微信登录已取消: ${tabId}`);
+            console.log(`🚫 抖音登录已取消: ${tabId}`);
 
         } catch (error) {
             console.error('❌ 取消登录失败:', error);
         }
     }
 
+    /**
+     * 🔥 获取二维码（复用 Python 验证的逻辑）
+     */
     private async getQRCode(tabId: string): Promise<string | null> {
-        console.log('🔍 查找微信登录二维码...');
+        console.log('🔍 查找抖音登录二维码...');
 
         const qrCodeScript = `
             (function() {
                 // 🔥 使用 Python 验证的选择器：iframe img
-                const element = document.querySelector('iframe img');
+                const element = document.querySelector('img[name="二维码"]');
                 if (element && element.src) {
-                    console.log('找到微信二维码:', element.src);
+                    console.log('找到抖音二维码:', element.src);
                     return element.src;
                 }
                 
-                console.log('未找到微信二维码');
+                console.log('未找到抖音二维码');
                 return null;
             })()
         `;
