@@ -1,4 +1,4 @@
-// src/main/plugins/login/douyin/DouyinLogin.ts
+// src/main/plugins/login/xiaohongshu/XiaohongshuLogin.ts
 import {
     PluginLogin,
     LoginParams,
@@ -6,9 +6,9 @@ import {
     PluginType
 } from '../../../../types/pluginInterface';
 
-export class DouyinLogin implements PluginLogin {
-    public readonly platform = 'douyin';
-    public readonly name = '抖音登录';
+export class XiaohongshuLogin implements PluginLogin {
+    public readonly platform = 'xiaohongshu';
+    public readonly name = '小红书登录';
     public readonly type = PluginType.LOGIN;
 
     private tabManager!: any;  // TabManager 实例
@@ -21,7 +21,7 @@ export class DouyinLogin implements PluginLogin {
 
     async init(tabManager: any): Promise<void> {
         this.tabManager = tabManager;
-        console.log('✅ 抖音登录插件初始化完成');
+        console.log('✅ 小红书登录插件初始化完成');
     }
 
     async destroy(): Promise<void> {
@@ -31,7 +31,7 @@ export class DouyinLogin implements PluginLogin {
             pending.reject(new Error('插件正在销毁'));
         }
         this.pendingLogins.clear();
-        console.log('🧹 抖音登录插件已销毁');
+        console.log('🧹 小红书登录插件已销毁');
     }
 
     /**
@@ -39,16 +39,16 @@ export class DouyinLogin implements PluginLogin {
      */
     async startLogin(params: LoginParams): Promise<LoginResult> {
         try {
-            console.log(`🔐 开始抖音登录流程: ${params.userId}`);
+            console.log(`🔐 开始小红书登录流程: ${params.userId}`);
 
             // 创建标签页
             const tabId = await this.tabManager.createAccountTab(
-                `抖音登录_${params.userId}`,
-                'douyin',
-                'https://creator.douyin.com/'
+                `小红书登录_${params.userId}`,
+                'xiaohongshu',
+                'https://creator.xiaohongshu.com/'
             );
 
-            console.log(`📱 抖音登录标签页已创建: ${tabId}`);
+            console.log(`📱 小红书登录标签页已创建: ${tabId}`);
 
 
             const qrCodeUrl = await this.getQRCode(tabId);
@@ -61,7 +61,7 @@ export class DouyinLogin implements PluginLogin {
                 };
             }
 
-            console.log(`🔍 抖音登录二维码已找到`);
+            console.log(`🔍 小红书登录二维码已找到`);
 
             return {
                 success: true,
@@ -70,7 +70,7 @@ export class DouyinLogin implements PluginLogin {
             };
 
         } catch (error) {
-            console.error('❌ 抖音登录启动失败:', error);
+            console.error('❌ 小红书登录启动失败:', error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : '登录启动失败'
@@ -108,7 +108,7 @@ export class DouyinLogin implements PluginLogin {
 
             // 关闭标签页
             await this.tabManager.closeTab(tabId);
-            console.log(`🚫 抖音登录已取消: ${tabId}`);
+            console.log(`🚫 小红书登录已取消: ${tabId}`);
 
         } catch (error) {
             console.error('❌ 取消登录失败:', error);
@@ -119,18 +119,19 @@ export class DouyinLogin implements PluginLogin {
      * 🔥 获取二维码（复用 Python 验证的逻辑）
      */
     private async getQRCode(tabId: string): Promise<string | null> {
-        console.log('🔍 查找抖音登录二维码...');
+        console.log('🔍 查找小红书登录二维码...');
 
         const qrCodeScript = `
             (function() {
                 // 🔥 使用 Python 验证的选择器：iframe img
-                const element = document.querySelector('img[name="二维码"]');
+                document.querySelector("img.css-wemwzq").click();
+                const element = document.querySelector('img:nth-of-type(2)');
                 if (element && element.src) {
-                    console.log('找到抖音二维码:', element.src);
+                    console.log('找到小红书二维码:', element.src);
                     return element.src;
                 }
                 
-                console.log('未找到抖音二维码');
+                console.log('未找到小红书二维码');
                 return null;
             })()
         `;

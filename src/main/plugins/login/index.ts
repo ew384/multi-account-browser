@@ -3,28 +3,28 @@
 
 import { WeChatLogin } from './tencent/WeChatLogin';
 import { DouyinLogin } from './douyin/DouyinLogin';
-//import { XiaohongshuLogin } from './xiaohongshu/XiaohongshuLogin';
+import { XiaohongshuLogin } from './xiaohongshu/XiaohongshuLogin';
+import { KuaishouLogin } from './kuaishou/KuaishouLogin';
 import { PluginLogin } from '../../../types/pluginInterface';
 import { TabManager } from '../../TabManager';
-
+type LoginPluginConstructor = new () => PluginLogin;
 // 🔥 导出所有登录插件类
-export { WeChatLogin };
+export { WeChatLogin, DouyinLogin, XiaohongshuLogin };
 
 // 🔥 登录插件配置数组
 export const LOGIN_PLUGINS = [
     WeChatLogin,
-    // TODO: 添加其他登录插件
     DouyinLogin,
-    // XiaohongshuLogin,
-    // KuaishouLogin,
+    XiaohongshuLogin,
+    KuaishouLogin,
 ];
 
 // 🔥 按平台映射插件类
-export const LOGIN_PLUGIN_MAP: Record<string, typeof WeChatLogin> = {
+export const LOGIN_PLUGIN_MAP: Record<string, LoginPluginConstructor> = {
     'wechat': WeChatLogin,
-    //'douyin': DouyinLogin,
-    // 'xiaohongshu': XiaohongshuLogin,
-    // 'kuaishou': KuaishouLogin,
+    'douyin': DouyinLogin,
+    'xiaohongshu': XiaohongshuLogin,
+    'kuaishou': KuaishouLogin,
 };
 
 // 🔥 获取支持的登录平台列表
@@ -33,7 +33,7 @@ export function getSupportedLoginPlatforms(): string[] {
 }
 
 // 🔥 根据平台获取插件类
-export function getLoginPluginClass(platform: string): typeof WeChatLogin | null {
+export function getLoginPluginClass(platform: string): LoginPluginConstructor | null {
     return LOGIN_PLUGIN_MAP[platform] || null;
 }
 
