@@ -2,26 +2,29 @@
 // 上传插件统一导出和注册
 
 import { WeChatVideoUploader } from './tencent/main';
+import { DouyinVideoUploader } from './douyin/main';
+import { XiaoHongShuVideoUploader } from './xiaohongshu/main';
+import { KuaiShouVideoUploader } from './kuaishou/main'
 import { PluginUploader } from '../../../types/pluginInterface';
 import { TabManager } from '../../TabManager';
 
 // 🔥 导出所有上传插件类
-export { WeChatVideoUploader };
+export { WeChatVideoUploader, DouyinVideoUploader, XiaoHongShuVideoUploader, KuaiShouVideoUploader };
 
 // 🔥 上传插件配置数组
 export const UPLOADER_PLUGINS = [
     WeChatVideoUploader,
-    // DouyinUploader,
-    // XiaohongshuUploader,
-    // KuaishouUploader,
+    DouyinVideoUploader,
+    XiaoHongShuVideoUploader,
+    KuaiShouVideoUploader,
 ];
 
 // 🔥 按平台映射插件类
 export const UPLOADER_PLUGIN_MAP: Record<string, any> = {
     'wechat': WeChatVideoUploader,
-    // 'douyin': DouyinUploader,
-    // 'xiaohongshu': XiaohongshuUploader,
-    // 'kuaishou': KuaishouUploader,
+    'douyin': DouyinVideoUploader,
+    'xiaohongshu': XiaoHongShuVideoUploader,
+    'kuaishou': KuaiShouVideoUploader,
 };
 
 // 🔥 获取支持的上传平台列表
