@@ -5,9 +5,7 @@ import { CreateAccountRequest, ExecuteScriptRequest, NavigateRequest, APIRespons
 import * as path from 'path';
 import { AutomationEngine } from './automation/AutomationEngine';
 import { HeadlessManager } from './HeadlessManager';
-import {
-    BatchUploadRequest,
-} from '../types/pluginInterface';
+
 import { Config } from './config/Config';
 import { SocialAutomationAPI } from './apis/SocialAutomationAPI';
 export class APIServer {
@@ -21,14 +19,19 @@ export class APIServer {
         this.automationEngine = automationEngine;
         this.tabManager = tabManager;  // 🔥 保留 tabManager 引用
         this.headlessManager = HeadlessManager.getInstance();
-        this.socialAPI = new SocialAutomationAPI(automationEngine, tabManager);
+        this.socialAPI = new SocialAutomationAPI(automationEngine);
         this.app = express();
         this.setupMiddleware();
         this.setupRoutes();
     }
 
     private setupMiddleware(): void {
-        this.app.use(cors());
+        this.app.use(cors({
+            origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8080'],
+            credentials: true,
+            methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+            allowedHeaders: ['Content-Type', 'Authorization']
+        }));
         this.app.use(express.json({ limit: '50mb' }));
         this.app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 

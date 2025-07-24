@@ -1,7 +1,7 @@
 // src/main/apis/SocialAutomationAPI.ts
 import express from 'express';
 import { AutomationEngine } from '../automation/AutomationEngine';
-import { TabManager } from '../TabManager';
+//import { TabManager } from '../TabManager';
 import { AccountStorage } from '../plugins/login/base/AccountStorage';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -10,12 +10,12 @@ import { Config } from '../config/Config';
 export class SocialAutomationAPI {
     private router: express.Router;
     private automationEngine: AutomationEngine;
-    private tabManager: TabManager;
 
-    constructor(automationEngine: AutomationEngine, tabManager: TabManager) {
+
+    constructor(automationEngine: AutomationEngine) {
         this.router = express.Router();
         this.automationEngine = automationEngine;
-        this.tabManager = tabManager;
+
         this.setupRoutes();
     }
 
