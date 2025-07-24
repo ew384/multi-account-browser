@@ -9,18 +9,19 @@ import {
     BatchUploadRequest,
 } from '../types/pluginInterface';
 import { Config } from './config/Config';
-
+import { SocialAutomationAPI } from './apis/SocialAutomationAPI';
 export class APIServer {
     private app: express.Application;
     private server: any;
     private automationEngine: AutomationEngine;
     private tabManager: TabManager;  // 🔥 保留 tabManager 用于底层操作
     private headlessManager: HeadlessManager;
-
+    private socialAPI: SocialAutomationAPI;
     constructor(automationEngine: AutomationEngine, tabManager: TabManager) {
         this.automationEngine = automationEngine;
         this.tabManager = tabManager;  // 🔥 保留 tabManager 引用
         this.headlessManager = HeadlessManager.getInstance();
+        this.socialAPI = new SocialAutomationAPI(automationEngine, tabManager);
         this.app = express();
         this.setupMiddleware();
         this.setupRoutes();
@@ -31,6 +32,14 @@ export class APIServer {
         this.app.use(express.json({ limit: '50mb' }));
         this.app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+        // 🔥 新增：文件上传中间件（用于 /uploadSave）
+        const multer = require('multer');
+        const upload = multer({
+            storage: multer.memoryStorage(),
+            limits: { fileSize: 1024 * 1024 * 1024 * 4 } // 4GB限制
+        });
+        this.app.use('/uploadSave', upload.single('file'));
+
         // 请求日志
         this.app.use((req, res, next) => {
             console.log(`📡 API请求: ${req.method} ${req.path}`);
@@ -38,14 +47,18 @@ export class APIServer {
         });
     }
     private setupRoutes(): void {
-        // 🔥 登录接口 - 对应 Python 的 /login
+        // 🔥 第一优先级：前端兼容路由（使用 SocialAutomationAPI）
+        this.app.use('/', this.socialAPI.getRouter());
+
+        // 🔥 第二优先级：特殊处理的API（SSE登录）
+        this.setupSpecialRoutes();
+
+        // 🔥 第三优先级：系统级API和Tab管理API
+        this.setupSystemAndTabRoutes();
+    }
+    private setupSpecialRoutes(): void {
+        // 🔥 SSE登录接口（需要特殊流处理，保留在APIServer）
         this.app.get('/login', this.handleLoginSSE.bind(this));
-
-        // 🔥 视频发布接口 - 对应 Python 的 /postVideo
-        this.app.post('/postVideo', this.handlePostVideo.bind(this));
-
-        // 其他现有接口...
-        this.setupOtherRoutes();
     }
     private handleLoginSSE(req: express.Request, res: express.Response): void {
         const type = req.query.type as string;
@@ -155,156 +168,8 @@ export class APIServer {
             }
         }, 300000);
     }
-    /**
-     * 🔥 视频发布接口
-     * 对应 Python: @app.route('/postVideo', methods=['POST'])
-     */
-    private async handlePostVideo(req: express.Request, res: express.Response): Promise<void> {
-        try {
-            const {
-                fileList = [],
-                accountList = [],
-                type: typeVal,
-                title,
-                tags,
-                category,
-                enableTimer,
-                videosPerDay,
-                dailyTimes,
-                startDays
-            } = req.body;
 
-            console.log(`📤 接收到视频发布请求:`);
-            console.log(`   文件数: ${fileList.length}`);
-            console.log(`   账号数: ${accountList.length}`);
-            console.log(`   平台类型: ${typeVal}`);
-
-            // 验证必要参数
-            if (!fileList || !Array.isArray(fileList) || fileList.length === 0) {
-                res.status(400).json({
-                    success: false,
-                    error: '文件列表不能为空'
-                });
-                return;
-            }
-
-            if (!accountList || !Array.isArray(accountList) || accountList.length === 0) {
-                res.status(400).json({
-                    success: false,
-                    error: '账号列表不能为空'
-                });
-                return;
-            }
-
-            // 平台类型映射
-            const platformMap: Record<string, string> = {
-                '1': 'xiaohongshu',
-                '2': 'wechat',
-                '3': 'douyin',
-                '4': 'kuaishou'
-            };
-
-            const platform = platformMap[typeVal];
-            if (!platform) {
-                res.status(400).json({
-                    success: false,
-                    error: `不支持的平台类型: ${typeVal}`
-                });
-                return;
-            }
-
-            // 检查平台是否支持上传
-            if (!this.automationEngine.isPlatformSupported(platform)) {
-                res.status(400).json({
-                    success: false,
-                    error: `平台 ${platform} 暂不支持视频上传功能`
-                });
-                return;
-            }
-
-            // 🔥 构造批量上传请求
-            const batchRequest: BatchUploadRequest = {
-                platform,
-                files: fileList,
-                accounts: accountList.map((account: any) => ({
-                    cookieFile: account.cookieFile || account.filePath,
-                    platform: platform,
-                    accountName: account.userName || account.accountName,
-                    accountId: account.accountId,
-                    followersCount: account.followersCount,
-                    videosCount: account.videosCount,
-                    avatar: account.avatar,
-                    bio: account.bio
-                })),
-                params: {
-                    title: title || '默认标题',
-                    tags: Array.isArray(tags) ? tags : (tags ? [tags] : []),
-                    category: category === 0 ? undefined : category,
-                    enableOriginal: true,
-                    addToCollection: false,
-                    // 🔥 定时发布相关参数
-                    publishDate: enableTimer ? this.calculatePublishDate(videosPerDay, dailyTimes, startDays) : undefined
-                }
-            };
-
-            // 🔥 执行批量上传
-            const uploadResults = await this.automationEngine.batchUpload(batchRequest);
-
-            // 统计结果
-            const successCount = uploadResults.filter(r => r.success).length;
-            const failedCount = uploadResults.length - successCount;
-
-            console.log(`📊 批量上传完成: 成功 ${successCount}, 失败 ${failedCount}`);
-
-            res.json({
-                success: true,
-                message: `批量上传完成: 成功 ${successCount}, 失败 ${failedCount}`,
-                results: uploadResults,
-                summary: {
-                    total: uploadResults.length,
-                    success: successCount,
-                    failed: failedCount,
-                    platform: platform
-                }
-            });
-
-        } catch (error) {
-            console.error(`❌ 视频发布接口错误:`, error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : '服务器内部错误'
-            });
-        }
-    }
-
-
-    /**
-     * 🔥 计算发布时间
-     * 对应 Python 的定时发布逻辑
-     */
-    private calculatePublishDate(videosPerDay?: number, dailyTimes?: string[], startDays?: number): Date | undefined {
-        if (!videosPerDay || !dailyTimes || !Array.isArray(dailyTimes)) {
-            return undefined;
-        }
-
-        try {
-            const now = new Date();
-            const startDate = new Date(now.getTime() + (startDays || 0) * 24 * 60 * 60 * 1000);
-
-            // 使用第一个时间点作为发布时间
-            const timeStr = dailyTimes[0] || '09:00';
-            const [hours, minutes] = timeStr.split(':').map(Number);
-
-            startDate.setHours(hours, minutes, 0, 0);
-
-            return startDate;
-        } catch (error) {
-            console.warn(`⚠️ 计算发布时间失败:`, error);
-            return undefined;
-        }
-    }
-    private setupOtherRoutes(): void {
-
+    private setupSystemAndTabRoutes(): void {
         this.app.post('/api/automation/get-account-info', async (req, res) => {
             try {
                 const { tabId, platform } = req.body;
