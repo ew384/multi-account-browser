@@ -25,7 +25,7 @@ export interface UploadParams {
     filePath: string;          // 视频文件路径
     title: string;             // 视频标题
     tags: string[];            // 标签数组，如 ['生活', '分享']
-
+    thumbnailPath?: string;     // 封面文件路径 
     // 可选参数
     publishDate?: Date;        // 定时发布时间
     enableOriginal?: boolean;  // 是否启用原创声明

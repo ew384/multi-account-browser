@@ -6,11 +6,7 @@ import * as path from 'path';
 import { AutomationEngine } from './automation/AutomationEngine';
 import { HeadlessManager } from './HeadlessManager';
 import {
-    UploadParams,
-    LoginResult,
-    LoginStatus,
     BatchUploadRequest,
-    UploadResult
 } from '../types/pluginInterface';
 import { Config } from './config/Config';
 
