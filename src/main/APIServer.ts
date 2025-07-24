@@ -16,8 +16,6 @@ export class APIServer {
     private automationEngine: AutomationEngine;
     private tabManager: TabManager;  // 🔥 保留 tabManager 用于底层操作
     private headlessManager: HeadlessManager;
-    // 🔥 活跃队列映射 (对应 Python 的 active_queues)
-    private activeQueues: Map<string, NodeJS.EventEmitter> = new Map();
 
     constructor(automationEngine: AutomationEngine, tabManager: TabManager) {
         this.automationEngine = automationEngine;
@@ -41,13 +39,7 @@ export class APIServer {
     }
     private setupRoutes(): void {
         // 🔥 登录接口 - 对应 Python 的 /login
-        this.app.get('/login', this.handleLogin.bind(this));
-
-        // 🔥 登录状态查询接口 (SSE)
-        this.app.get('/login/status/:id', this.handleLoginStatus.bind(this));
-
-        // 🔥 取消登录接口
-        this.app.post('/login/cancel', this.handleCancelLogin.bind(this));
+        this.app.get('/login', this.handleLoginSSE.bind(this));
 
         // 🔥 视频发布接口 - 对应 Python 的 /postVideo
         this.app.post('/postVideo', this.handlePostVideo.bind(this));
@@ -55,27 +47,39 @@ export class APIServer {
         // 其他现有接口...
         this.setupOtherRoutes();
     }
-    /**
-     * 🔥 登录接口
-     * 对应 Python: @app.route('/login')
-     */
-    private async handleLogin(req: express.Request, res: express.Response): Promise<void> {
+    private handleLoginSSE(req: express.Request, res: express.Response): void {
+        const type = req.query.type as string;
+        const id = (req.query.id as string) || `session_${Date.now()}`;
+
+        console.log(`🔐 SSE登录请求: type=${type}, id=${id}`);
+
+        // 验证参数
+        if (!type) {
+            res.write(`data: 500\n\n`);
+            res.end();
+            return;
+        }
+
+        // 设置SSE响应头
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*'
+        });
+
+        // 连接断开处理
+        req.on('close', () => {
+            console.log(`📡 SSE连接断开: ${id}`);
+        });
+
+        // 立即启动登录流程
+        this.startLoginAndStream(type, id, res);
+    }
+
+    private async startLoginAndStream(type: string, id: string, res: express.Response) {
         try {
-            const type = req.query.type as string;
-            const id = (req.query.id as string) || `session_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-
-            console.log(`🔐 接收到登录请求: type=${type}, id=${id}`);
-
-            // 验证参数
-            if (!type) {
-                res.status(400).json({
-                    success: false,
-                    error: '缺少必要参数: type'
-                });
-                return;
-            }
-
-            // 平台类型映射 (对应 Python 的类型编号)
+            // 平台类型映射
             const platformMap: Record<string, string> = {
                 '1': 'xiaohongshu',
                 '2': 'wechat',
@@ -85,146 +89,72 @@ export class APIServer {
 
             const platform = platformMap[type];
             if (!platform) {
-                res.status(400).json({
-                    success: false,
-                    error: `不支持的平台类型: ${type}`
-                });
+                res.write(`data: 500\n\n`);
+                res.end();
                 return;
             }
 
-            // 检查平台是否支持登录
-            if (!this.automationEngine.isLoginSupported(platform)) {
-                res.status(400).json({
-                    success: false,
-                    error: `平台 ${platform} 暂不支持登录功能`
-                });
-                return;
-            }
-
-            // 🔥 启动登录流程
+            console.log(`🚀 启动登录: ${platform}`);
             const loginResult = await this.automationEngine.startLogin(platform, id);
 
             if (loginResult.success && loginResult.qrCodeUrl) {
-                // 创建事件发射器用于状态通知
-                const { EventEmitter } = require('events');
-                const statusEmitter = new EventEmitter();
-                this.activeQueues.set(id, statusEmitter);
+                // 发送二维码URL
+                res.write(`data: ${loginResult.qrCodeUrl}\n\n`);
 
-                // 🔥 启动后台监听登录完成
-                this.monitorLoginCompletion(id, platform);
-
-                res.json({
-                    success: true,
-                    qrCodeUrl: loginResult.qrCodeUrl,
-                    message: '二维码已生成，请使用手机扫码登录'
-                });
+                // 监听登录完成 - 需要新的方法
+                this.monitorLoginCompletionSSE(id, platform, res);
             } else {
-                res.status(500).json({
-                    success: false,
-                    error: loginResult.error || '登录启动失败'
-                });
-            }
-
-        } catch (error) {
-            console.error(`❌ 登录接口错误:`, error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : '服务器内部错误'
-            });
-        }
-    }
-
-    /**
-     * 🔥 登录状态查询接口 (SSE)
-     * 对应 Python 的 SSE 机制
-     */
-    private handleLoginStatus(req: express.Request, res: express.Response): void {
-        const id = req.params.id;
-
-        console.log(`📡 建立登录状态连接: ${id}`);
-
-        // 设置 SSE 响应头
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Cache-Control'
-        });
-
-        // 获取状态发射器
-        const statusEmitter = this.activeQueues.get(id);
-        if (!statusEmitter) {
-            res.write(`data: {"status": "404", "message": "登录会话不存在"}\n\n`);
-            res.end();
-            return;
-        }
-
-        // 监听状态变化
-        const statusHandler = (status: string, data?: any) => {
-            const response = {
-                status,
-                timestamp: new Date().toISOString(),
-                ...data
-            };
-            res.write(`data: ${JSON.stringify(response)}\n\n`);
-
-            // 如果登录完成（成功或失败），关闭连接
-            if (status === '200' || status === '500') {
+                res.write(`data: 500\n\n`);
                 res.end();
-                this.activeQueues.delete(id);
             }
-        };
-
-        statusEmitter.on('status', statusHandler);
-
-        // 连接断开时清理
-        req.on('close', () => {
-            console.log(`📡 登录状态连接断开: ${id}`);
-            statusEmitter.removeListener('status', statusHandler);
-        });
-
-        // 发送初始状态
-        res.write(`data: {"status": "pending", "message": "等待登录中..."}\n\n`);
-    }
-
-    /**
-     * 🔥 取消登录接口
-     */
-    private async handleCancelLogin(req: express.Request, res: express.Response): Promise<void> {
-        try {
-            const { id } = req.body;
-
-            if (!id) {
-                res.status(400).json({
-                    success: false,
-                    error: '缺少参数: id'
-                });
-                return;
-            }
-
-            const success = await this.automationEngine.cancelLogin(id);
-
-            // 通知状态变化
-            const statusEmitter = this.activeQueues.get(id);
-            if (statusEmitter) {
-                statusEmitter.emit('status', '500', { message: '用户取消登录' });
-            }
-
-            res.json({
-                success,
-                message: success ? '登录已取消' : '取消登录失败'
-            });
-
         } catch (error) {
-            console.error(`❌ 取消登录错误:`, error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : '服务器内部错误'
-            });
+            console.error(`❌ 登录启动失败:`, error);
+            res.write(`data: 500\n\n`);
+            res.end();
         }
     }
 
+    // 新增：专门为SSE的监听方法
+    private async monitorLoginCompletionSSE(userId: string, platform: string, res: express.Response): Promise<void> {
+        const checkInterval = setInterval(async () => {
+            try {
+                const loginStatus = this.automationEngine.getLoginStatus(userId);
+
+                if (!loginStatus) {
+                    clearInterval(checkInterval);
+                    res.write(`data: 500\n\n`);
+                    res.end();
+                    return;
+                }
+
+                if (loginStatus.status === 'completed') {
+                    clearInterval(checkInterval);
+                    res.write(`data: 200\n\n`);
+                    res.end();
+                } else if (loginStatus.status === 'failed' || loginStatus.status === 'cancelled') {
+                    clearInterval(checkInterval);
+                    res.write(`data: 500\n\n`);
+                    res.end();
+                }
+
+            } catch (error) {
+                console.error(`❌ 登录状态检查错误:`, error);
+                clearInterval(checkInterval);
+                res.write(`data: 500\n\n`);
+                res.end();
+            }
+        }, 2000);
+
+        // 5分钟超时
+        setTimeout(() => {
+            clearInterval(checkInterval);
+            const loginStatus = this.automationEngine.getLoginStatus(userId);
+            if (loginStatus && loginStatus.status === 'pending') {
+                res.write(`data: 500\n\n`);
+                res.end();
+            }
+        }, 300000);
+    }
     /**
      * 🔥 视频发布接口
      * 对应 Python: @app.route('/postVideo', methods=['POST'])
@@ -347,70 +277,6 @@ export class APIServer {
         }
     }
 
-    /**
-     * 🔥 监听登录完成状态
-     * 对应 Python 的后台监听逻辑
-     */
-    private async monitorLoginCompletion(userId: string, platform: string): Promise<void> {
-        const statusEmitter = this.activeQueues.get(userId);
-        if (!statusEmitter) return;
-
-        try {
-            // 轮询检查登录状态
-            const checkInterval = setInterval(async () => {
-                try {
-                    const loginStatus = this.automationEngine.getLoginStatus(userId);
-
-                    if (!loginStatus) {
-                        clearInterval(checkInterval);
-                        statusEmitter.emit('status', '500', { message: '登录会话丢失' });
-                        return;
-                    }
-
-                    if (loginStatus.status === 'completed') {
-                        clearInterval(checkInterval);
-                        statusEmitter.emit('status', '200', {
-                            message: '登录成功',
-                            accountInfo: loginStatus
-                        });
-                    } else if (loginStatus.status === 'failed') {
-                        clearInterval(checkInterval);
-                        statusEmitter.emit('status', '500', {
-                            message: '登录失败',
-                            error: '登录过程中发生错误'
-                        });
-                    } else if (loginStatus.status === 'cancelled') {
-                        clearInterval(checkInterval);
-                        statusEmitter.emit('status', '500', { message: '登录已取消' });
-                    }
-
-                } catch (error) {
-                    console.error(`❌ 登录状态检查错误:`, error);
-                    clearInterval(checkInterval);
-                    statusEmitter.emit('status', '500', {
-                        message: '状态检查失败',
-                        error: error instanceof Error ? error.message : '未知错误'
-                    });
-                }
-            }, 2000); // 每2秒检查一次
-
-            // 设置超时（5分钟）
-            setTimeout(() => {
-                clearInterval(checkInterval);
-                const loginStatus = this.automationEngine.getLoginStatus(userId);
-                if (loginStatus && loginStatus.status === 'pending') {
-                    statusEmitter.emit('status', '500', { message: '登录超时' });
-                }
-            }, 300000); // 5分钟超时
-
-        } catch (error) {
-            console.error(`❌ 监听登录完成失败:`, error);
-            statusEmitter.emit('status', '500', {
-                message: '监听失败',
-                error: error instanceof Error ? error.message : '未知错误'
-            });
-        }
-    }
 
     /**
      * 🔥 计算发布时间
