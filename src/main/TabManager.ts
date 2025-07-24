@@ -1202,14 +1202,16 @@ export class TabManager {
      * 获取所有标签页（包含显示信息）
      */
     getAllTabsWithDisplayInfo(): Array<AccountTab & { displayTitle: string; displayFavicon?: string }> {
-        return Array.from(this.tabs.values()).map(tab => {
-            const displayInfo = this.getTabDisplayInfo(tab.id);
-            return {
-                ...tab,
-                displayTitle: displayInfo.title,
-                displayFavicon: displayInfo.favicon
-            };
-        });
+        return Array.from(this.tabs.values())
+            .filter(tab => !tab.isHeadless)
+            .map(tab => {
+                const displayInfo = this.getTabDisplayInfo(tab.id);
+                return {
+                    ...tab,
+                    displayTitle: displayInfo.title,
+                    displayFavicon: displayInfo.favicon
+                };
+            });
     }
     async loadAccountCookies(tabId: string, cookieFilePath: string): Promise<void> {
         const tab = this.tabs.get(tabId);
