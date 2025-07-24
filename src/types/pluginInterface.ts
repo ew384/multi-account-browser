@@ -172,13 +172,11 @@ export interface PluginLogin extends BasePlugin {
 }
 
 /**
- * 验证器插件接口（未来扩展用）
+ * 验证器插件接口
  */
 export interface PluginValidator extends BasePlugin {
     readonly type: PluginType.VALIDATOR;
-
     validateCookie(cookieFile: string): Promise<boolean>;
-    extractAccountInfo(cookieFile: string): Promise<AccountInfo | null>;
 }
 export interface PluginProcessor {
     readonly name: string;
