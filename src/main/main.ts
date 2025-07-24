@@ -379,10 +379,11 @@ class MultiAccountBrowser {
         // 获取所有标签页 - 修复序列化问题
         ipcMain.handle('get-all-tabs', async () => {
             try {
-                const tabs = this.tabManager.getAllTabs();
+                const allTabs = this.tabManager.getAllTabs();
+                const visibleTabs = allTabs.filter(tab => !tab.isHeadless);
 
                 // 将 AccountTab 对象转换为可序列化的对象
-                const serializableTabs = tabs.map(tab => ({
+                const serializableTabs = visibleTabs.map(tab => ({
                     id: tab.id,
                     accountName: tab.accountName,
                     platform: tab.platform,
