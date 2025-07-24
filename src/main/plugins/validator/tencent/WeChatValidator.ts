@@ -58,7 +58,4 @@ export class WeChatValidator implements PluginValidator {
         }
     }
 
-    async extractAccountInfo(cookieFile: string) {
-        return null; // 暂不实现
-    }
 }

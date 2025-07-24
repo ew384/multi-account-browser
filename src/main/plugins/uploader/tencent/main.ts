@@ -1,7 +1,7 @@
 // multi-account-browser/src/main/plugins/uploader/tencent/main.ts
 import { PluginUploader, UploadParams, PluginType } from '../../../../types/pluginInterface';
 import { TabManager } from '../../../TabManager';
-import { LoginCompleteProcessor } from '../../processor/LoginCompleteProcessor'
+
 export class WeChatVideoUploader implements PluginUploader {
     public readonly type = PluginType.UPLOADER;
     public readonly platform = 'wechat';

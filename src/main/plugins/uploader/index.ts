@@ -17,7 +17,7 @@ export const UPLOADER_PLUGINS = [
 ];
 
 // 🔥 按平台映射插件类
-export const UPLOADER_PLUGIN_MAP: Record<string, typeof WeChatVideoUploader> = {
+export const UPLOADER_PLUGIN_MAP: Record<string, any> = {
     'wechat': WeChatVideoUploader,
     // 'douyin': DouyinUploader,
     // 'xiaohongshu': XiaohongshuUploader,
@@ -30,7 +30,7 @@ export function getSupportedUploadPlatforms(): string[] {
 }
 
 // 🔥 根据平台获取插件类
-export function getUploaderPluginClass(platform: string): typeof WeChatVideoUploader | null {
+export function getUploaderPluginClass(platform: string): any | null {
     return UPLOADER_PLUGIN_MAP[platform] || null;
 }
 

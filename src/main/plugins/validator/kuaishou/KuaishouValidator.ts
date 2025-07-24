@@ -55,7 +55,4 @@ export class KuaishouValidator implements PluginValidator {
         }
     }
 
-    async extractAccountInfo(cookieFile: string) {
-        return null;
-    }
 }

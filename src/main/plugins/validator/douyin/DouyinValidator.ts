@@ -53,7 +53,4 @@ export class DouyinValidator implements PluginValidator {
         }
     }
 
-    async extractAccountInfo(cookieFile: string) {
-        return null;
-    }
 }

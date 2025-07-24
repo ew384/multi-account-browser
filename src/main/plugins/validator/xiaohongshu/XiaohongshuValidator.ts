@@ -51,7 +51,4 @@ export class XiaohongshuValidator implements PluginValidator {
         }
     }
 
-    async extractAccountInfo(cookieFile: string) {
-        return null;
-    }
 }
