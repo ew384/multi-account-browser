@@ -979,8 +979,6 @@ export class TabManager {
                     console.error(`   Line: ${result.line}, Column: ${result.column}`);
                     console.error(`   Stack: ${result.stack}`);
 
-                    // 可以选择是否继续执行后续脚本
-                    // 这里选择继续执行，但记录错误
                 } else {
                     console.warn(`⚠️ Init script ${i + 1} returned unexpected result for ${tab.accountName}:`, result);
                 }
@@ -1006,7 +1004,7 @@ export class TabManager {
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
         }
-
+        this.injectedTabs.add(tabId);
         console.log(`🎉 All init scripts processing completed for ${tab.accountName}`);
     }
 
@@ -1119,7 +1117,6 @@ export class TabManager {
                 console.warn(`获取页面图标失败: ${error}`);
             }
 
-            await this.updateLoginStatus(tab.id);
         });
 
         // 处理新窗口 - 防止弹出窗口影响主界面
@@ -1508,58 +1505,6 @@ export class TabManager {
         }
     }
 
-    private async updateLoginStatus(tabId: string): Promise<void> {
-        const tab = this.tabs.get(tabId);
-        if (!tab) return;
-
-        try {
-            const loginCheckPromise = tab.webContentsView.webContents.executeJavaScript(`
-            (function() {
-              try {
-                const indicators = {
-                  hasUserAvatar: !!document.querySelector('.avatar, .user-avatar, .profile-avatar'),
-                  hasUserName: !!document.querySelector('.username, .user-name, .nickname'),
-                  hasLoginButton: !!document.querySelector('.login-btn, .sign-in, .登录'),
-                  hasLogoutButton: !!document.querySelector('.logout, .sign-out, .退出'),
-                  currentUrl: window.location.href,
-                  title: document.title
-                };
-                return indicators;
-              } catch (e) {
-                return {
-                  hasUserAvatar: false,
-                  hasUserName: false,
-                  hasLoginButton: false,
-                  hasLogoutButton: false,
-                  currentUrl: window.location.href,
-                  title: document.title,
-                  error: e.message
-                };
-              }
-            })()
-          `);
-
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Login status check timeout')), 5000);
-            });
-
-            const indicators = await Promise.race([loginCheckPromise, timeoutPromise]) as any;
-
-            if (indicators.hasUserAvatar || indicators.hasUserName || indicators.hasLogoutButton) {
-                tab.loginStatus = 'logged_in';
-            } else if (indicators.hasLoginButton) {
-                tab.loginStatus = 'logged_out';
-            } else {
-                tab.loginStatus = 'unknown';
-            }
-
-            console.log(`🔍 Login status for ${tab.accountName}: ${tab.loginStatus}`);
-
-        } catch (error) {
-            console.warn(`⚠️ Failed to check login status for ${tab.accountName}:`, error instanceof Error ? error.message : 'Unknown error');
-            tab.loginStatus = 'unknown';
-        }
-    }
 
     getAllTabs(): AccountTab[] {
         return Array.from(this.tabs.values());

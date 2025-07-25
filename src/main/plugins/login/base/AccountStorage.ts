@@ -1028,27 +1028,26 @@ export class AccountStorage {
     /**
      * 🔥 更新账号验证状态
      */
-    static async updateValidationStatus(
-        cookieFile: string,
-        isValid: boolean,
-        validationTime: string
-    ): Promise<boolean> {
+    static async updateValidationStatus(cookieFile: string, isValid: boolean, validationTime: string): Promise<boolean> {
         try {
             const db = await this.getDatabase();
+
+            // 使用 path.basename 提取文件名
+            const fileName = path.basename(cookieFile);
 
             const result = await db.run(`
                 UPDATE user_info 
                 SET status = ?, last_check_time = ?
                 WHERE filePath = ?
-            `, [isValid ? 1 : 0, validationTime, cookieFile]);
+            `, [isValid ? 1 : 0, validationTime, fileName]);
 
             await db.close();
 
             if (result.changes && result.changes > 0) {
-                console.log(`✅ 验证状态已更新: ${cookieFile} -> ${isValid ? '有效' : '无效'}`);
+                console.log(`✅ 验证状态已更新: ${fileName} -> ${isValid ? '有效' : '无效'}`);
                 return true;
             } else {
-                console.warn(`⚠️ 未找到要更新的账号: ${cookieFile}`);
+                console.warn(`⚠️ 未找到要更新的账号: ${fileName}`);
                 return false;
             }
 

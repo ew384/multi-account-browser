@@ -759,11 +759,11 @@ export class AutomationEngine {
 
             const isValid = await validator.validateCookie(cookieFile);
 
-            // 2. 统一处理数据库更新（AutomationEngine的职责）
+            // 2. 统一处理数据库更新
             const currentTime = new Date().toISOString();
             await AccountStorage.updateValidationStatus(cookieFile, isValid, currentTime);
 
-            console.log(`${isValid ? '✅' : '❌'} ${platform} Cookie验证${isValid ? '成功' : '失败'}: ${path.basename(cookieFile)}`);
+            console.log(`${platform} Cookie验证${isValid ? '有效' : '无效'}${isValid ? '✅' : '❌'}: ${path.basename(cookieFile)}`);
             return isValid;
 
         } catch (error) {
