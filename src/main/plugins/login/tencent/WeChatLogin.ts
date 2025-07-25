@@ -113,21 +113,38 @@ export class WeChatLogin implements PluginLogin {
 
     private async getQRCode(tabId: string): Promise<string | null> {
         console.log('🔍 查找微信登录二维码...');
-
+        await new Promise(resolve => setTimeout(resolve, 10000));
         const qrCodeScript = `
             (function() {
-                // 🔥 使用 Python 验证的选择器：iframe img
-                const element = document.querySelector('iframe img');
-                if (element && element.src) {
-                    console.log('找到微信二维码:', element.src);
-                    return element.src;
-                }
-                
-                console.log('未找到微信二维码');
-                return null;
+                return new Promise((resolve) => {
+                    let attempts = 0;
+                    const maxAttempts = 20;
+                    
+                    const checkQRCode = () => {
+                        // 🔥 修改：直接选择有 qrcode class 的 img
+                        const img = document.querySelector('img.qrcode');
+                        
+                        if (img && img.src && img.src.startsWith('data:image/png;base64')) {
+                            console.log('✅ 找到微信二维码:', img.src.substring(0, 50) + '...');
+                            resolve(img.src);
+                            return;
+                        }
+                        
+                        attempts++;
+                        if (attempts >= maxAttempts) {
+                            console.log('❌ 超时未找到微信二维码');
+                            resolve(null);
+                            return;
+                        }
+                        
+                        console.log('尝试 ' + attempts + '/' + maxAttempts + ': 等待二维码加载...');
+                        setTimeout(checkQRCode, 500);
+                    };
+                    
+                    checkQRCode();
+                });
             })()
         `;
-
         // 🔥 等待二维码出现，最多尝试 20 次
         let attempts = 0;
         while (attempts < 20) {

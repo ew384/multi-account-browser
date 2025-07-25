@@ -55,13 +55,15 @@ export class LoginCompleteProcessor implements PluginProcessor {
             // 2. 提取账号信息（通过插件管理器）
             const accountInfo = await this.extractAccountInfo(params.platform, params.tabId);
 
+            const realAccountName = accountInfo?.accountName || params.userId;
+
             // 3. 下载头像（如果有）
             let localAvatarPath: string | null = null;
-            if (accountInfo?.avatar) {
+            if (accountInfo?.avatar && realAccountName) {  // 🔥 确保账号名称存在
                 localAvatarPath = await this.downloadAvatar(
                     params.tabId,
                     accountInfo.avatar,
-                    accountInfo.accountName,
+                    realAccountName,  // 🔥 使用确保非 undefined 的值
                     params.platform
                 );
 
@@ -74,7 +76,8 @@ export class LoginCompleteProcessor implements PluginProcessor {
             const cookiePath = await this.saveCookieFile(
                 params.tabId,
                 params.userId,
-                params.platform
+                params.platform,
+                realAccountName  // 🔥 使用确保非 undefined 的值
             );
 
             if (!cookiePath) {
@@ -83,12 +86,11 @@ export class LoginCompleteProcessor implements PluginProcessor {
 
             // 5. 保存到数据库
             const platformType = AccountStorage.getPlatformType(params.platform);
-
             // 🔥 构造用于数据库保存的账号信息
             const dbAccountInfo: AccountInfo = {
                 platform: params.platform,
                 cookieFile: path.basename(cookiePath),
-                accountName: accountInfo?.accountName || params.userId,
+                accountName: realAccountName,  // 使用真实账号名
                 accountId: accountInfo?.accountId,
                 followersCount: accountInfo?.followersCount,
                 videosCount: accountInfo?.videosCount,
@@ -99,7 +101,7 @@ export class LoginCompleteProcessor implements PluginProcessor {
             };
 
             const success = await AccountStorage.saveAccountToDatabase(
-                params.userId,
+                realAccountName,  // 🔥 使用真实账号名而不是临时ID
                 platformType,
                 cookiePath,
                 dbAccountInfo
@@ -175,16 +177,18 @@ export class LoginCompleteProcessor implements PluginProcessor {
     private async saveCookieFile(
         tabId: string,
         userId: string,
-        platform: string
+        platform: string,
+        realAccountName?: string  // 🔥 新增参数
     ): Promise<string | null> {
         try {
             // 确保Cookie目录存在
             await fs.promises.mkdir(Config.COOKIE_DIR, { recursive: true });
 
-            // 生成Cookie文件名
+            // 🔥 使用真实账号名或临时用户ID
+            const accountName = realAccountName || userId;
             const timestamp = Date.now();
-            const sanitizedUserId = userId.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '_');
-            const filename = `${platform}_${sanitizedUserId}_${timestamp}.json`;
+            const sanitizedAccountName = accountName.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '_');
+            const filename = `${platform}_${sanitizedAccountName}_${timestamp}.json`;
             const cookiePath = path.join(Config.COOKIE_DIR, filename);
 
             // 保存Cookie

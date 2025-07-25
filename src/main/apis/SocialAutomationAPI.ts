@@ -27,6 +27,7 @@ export class SocialAutomationAPI {
         this.setupUploadRoutes();
         this.setupValidationRoutes();
         this.setupAutomationRoutes();
+        this.router.get('/assets/avatar/:platform/:accountName/:filename', this.handleGetAvatar.bind(this));
     }
 
     private setupAccountRoutes(): void {
@@ -138,14 +139,14 @@ export class SocialAutomationAPI {
      */
     private async handleUpdateUserinfo(req: express.Request, res: express.Response): Promise<void> {
         try {
-            const { id, type, userName } = req.body;
+            const { id, type, userName, filePath, status } = req.body;
 
             if (!id) {
                 this.sendResponse(res, 400, '账号ID不能为空', null);
                 return;
             }
 
-            const result = await AccountStorage.updateUserinfo({ id, type, userName });
+            const result = await AccountStorage.updateUserinfo({ id, type, userName, filePath, status });
 
             if (result.success) {
                 this.sendResponse(res, 200, result.message, result.data);
@@ -186,7 +187,32 @@ export class SocialAutomationAPI {
             this.sendResponse(res, 500, 'add account failed', null);
         }
     }
+    private async handleGetAvatar(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const { platform, accountName, filename } = req.params;
 
+            // 防止路径穿越攻击
+            if (platform.includes('..') || accountName.includes('..') || filename.includes('..')) {
+                res.status(400).json({ error: 'Invalid path' });
+                return;
+            }
+
+            const avatarPath = path.join(Config.AVATAR_DIR, platform, accountName, filename);
+
+            // 检查文件是否存在
+            if (!fs.existsSync(avatarPath)) {
+                res.status(404).json({ error: 'Avatar not found' });
+                return;
+            }
+
+            // 发送文件
+            res.sendFile(path.resolve(avatarPath));
+
+        } catch (error) {
+            console.error('❌ 获取头像失败:', error);
+            res.status(500).json({ error: 'Get avatar failed' });
+        }
+    }
     // ==================== 分组管理相关处理方法 ====================
 
     /**

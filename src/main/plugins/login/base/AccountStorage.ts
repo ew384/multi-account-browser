@@ -297,7 +297,7 @@ export class AccountStorage {
 
             const accounts = await db.all(`
             SELECT id, type, filePath, userName, status, last_check_time, check_interval,
-            account_id, real_name, followers_count, videos_count, bio, avatar_url, local_avatar
+                   account_id, real_name, followers_count, videos_count, bio, avatar_url, local_avatar
             FROM user_info
         `);
 
@@ -306,24 +306,36 @@ export class AccountStorage {
             const results = [];
 
             for (const row of accounts) {
-                const { id: user_id, type: type_val, filePath: file_path, userName: user_name, status } = row;
+                const {
+                    id: user_id,
+                    type: type_val,
+                    filePath: file_path,
+                    userName: user_name,
+                    status,
+                    account_id,
+                    real_name,
+                    followers_count,
+                    videos_count,
+                    bio,
+                    avatar_url,
+                    local_avatar
+                } = row;
 
                 // 构建前端期望的账号格式（不进行验证，只返回数据库状态）
                 const account = {
                     id: user_id,
                     type: type_val,
                     filePath: file_path,
-                    name: user_name,
                     userName: user_name,
                     platform: PLATFORM_TYPE_MAP[type_val] || '未知',
                     status: status === 1 ? '正常' : '异常',
-                    avatar: row.local_avatar || row.avatar_url || '/default-avatar.png',  // ← 使用真实头像路径
-                    // 可选：添加其他账号信息
-                    accountId: row.account_id,
-                    realName: row.real_name,
-                    followersCount: row.followers_count,
-                    videosCount: row.videos_count,
-                    bio: row.bio
+                    avatar: local_avatar || avatar_url || '/default-avatar.png',  // 使用真实头像路径
+                    // 账号详细信息
+                    accountId: account_id,
+                    realName: real_name,
+                    followersCount: followers_count,
+                    videosCount: videos_count,
+                    bio: bio
                 };
 
                 results.push(account);
@@ -345,25 +357,38 @@ export class AccountStorage {
 
             const accounts = await db.all(`
             SELECT u.id, u.type, u.filePath, u.userName, u.status, u.group_id, 
-            u.last_check_time, u.check_interval,
-            u.account_id, u.real_name, u.followers_count, u.videos_count, 
-            u.bio, u.avatar_url, u.local_avatar,
-            g.name as group_name, g.color as group_color, g.icon as group_icon
+                   u.last_check_time, u.check_interval,
+                   u.account_id, u.real_name, u.followers_count, u.videos_count, 
+                   u.bio, u.avatar_url, u.local_avatar,
+                   g.name as group_name, g.color as group_color, g.icon as group_icon
             FROM user_info u
             LEFT JOIN account_groups g ON u.group_id = g.id
-            `);
+        `);
 
             await db.close();
 
-            const currentTime = new Date();
             const results = [];
 
             for (const row of accounts) {
                 const {
-                    id: user_id, type: type_val, filePath: file_path, userName: user_name,
-                    status, group_id, last_check_time, check_interval,
-                    account_id, real_name, followers_count, videos_count, bio, avatar_url, local_avatar,
-                    group_name, group_color, group_icon
+                    id: user_id,
+                    type: type_val,
+                    filePath: file_path,
+                    userName: user_name,
+                    status,
+                    group_id,
+                    last_check_time,
+                    check_interval,
+                    account_id,
+                    real_name,
+                    followers_count,
+                    videos_count,
+                    bio,
+                    avatar_url,
+                    local_avatar,
+                    group_name,
+                    group_color,
+                    group_icon
                 } = row;
 
                 // 构建前端期望的账号格式（含分组信息）
@@ -371,17 +396,16 @@ export class AccountStorage {
                     id: user_id,
                     type: type_val,
                     filePath: file_path,
-                    name: user_name,
                     userName: user_name,
                     platform: PLATFORM_TYPE_MAP[type_val] || '未知',
                     status: status === 1 ? '正常' : '异常',
-                    avatar: local_avatar || avatar_url || '/default-avatar.png',
+                    avatar: local_avatar || avatar_url || '/default-avatar.png',  // 使用真实头像路径
                     // 分组相关字段
                     group_id: group_id,
                     group_name: group_name,
                     group_color: group_color,
                     group_icon: group_icon,
-                    // 账号信息字段
+                    // 账号详细信息字段
                     accountId: account_id,
                     realName: real_name,
                     followersCount: followers_count,
@@ -440,9 +464,15 @@ export class AccountStorage {
     /**
      * 🔥 更新账号信息 - 对应 Python 的 updateUserinfo
      */
-    static async updateUserinfo(updateData: { id: number, type?: number, userName?: string }): Promise<{ success: boolean, message: string, data?: any }> {
+    static async updateUserinfo(updateData: {
+        id: number,
+        type?: number,
+        userName?: string,
+        filePath?: string,  // 🔥 新增 filePath 参数
+        status?: number
+    }): Promise<{ success: boolean, message: string, data?: any }> {
         try {
-            const { id: user_id, type, userName } = updateData;
+            const { id: user_id, type, userName, filePath, status } = updateData;
 
             if (!user_id) {
                 return {
@@ -467,6 +497,15 @@ export class AccountStorage {
                 updateValues.push(userName);
             }
 
+            // 🔥 新增 filePath 更新
+            if (filePath !== undefined) {
+                updateFields.push('filePath = ?');
+                updateValues.push(filePath);
+            }
+            if (status !== undefined) {  // 🔥 添加这个条件
+                updateFields.push('status = ?');
+                updateValues.push(status);
+            }
             if (updateFields.length === 0) {
                 await db.close();
                 return {
@@ -1247,7 +1286,7 @@ export class AccountStorage {
      * 🔥 保存完整账号信息到数据库（改进版）
      */
     static async saveAccountToDatabase(
-        userId: string,
+        accountName: string,  // 🔥 改为使用真实账号名
         platformType: number,
         cookieFile: string,
         accountInfo?: AccountInfo
@@ -1266,10 +1305,10 @@ export class AccountStorage {
                 `, [
                     platformType,
                     path.basename(cookieFile),
-                    userId,
+                    accountName,  // 🔥 使用真实账号名
                     1,
                     accountInfo.accountId || null,
-                    accountInfo.accountName || userId,
+                    accountInfo.accountName || accountName,
                     accountInfo.followersCount || null,
                     accountInfo.videosCount || null,
                     accountInfo.bio || null,
@@ -1286,11 +1325,11 @@ export class AccountStorage {
                 `, [
                     platformType,
                     path.basename(cookieFile),
-                    userId,
+                    accountName,  // 🔥 使用真实账号名
                     1
                 ]);
 
-                console.log(`⚠️ 仅保存基础登录信息: ${userId}`);
+                console.log(`⚠️ 仅保存基础登录信息: ${accountName}`);
             }
 
             await db.close();
@@ -1301,7 +1340,6 @@ export class AccountStorage {
             return false;
         }
     }
-
     /**
      * 🔥 获取指定分组的账号列表
      */

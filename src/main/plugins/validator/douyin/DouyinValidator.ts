@@ -31,10 +31,17 @@ export class DouyinValidator implements PluginValidator {
 
             // 检查是否有登录按钮
             const hasLoginButton = await this.tabManager.executeScript(tabId, `
-                !!(document.querySelector('text="手机号登录"') || 
-                   document.querySelector('text="扫码登录"') ||
-                   document.textContent.includes('手机号登录') ||
-                   document.textContent.includes('扫码登录'))
+                (function() {
+                    try {
+                        const bodyText = document.body.textContent || '';
+                        return bodyText.includes('手机号登录') || 
+                            bodyText.includes('扫码登录') ||
+                            bodyText.includes('请登录');
+                    } catch (error) {
+                        console.error('检查登录状态出错:', error);
+                        return true; // 出错时假设需要登录
+                    }
+                })()
             `);
 
             return !hasLoginButton; // 没有登录按钮 = Cookie有效
