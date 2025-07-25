@@ -173,12 +173,12 @@ export class PluginManager {
             key: key
         });
 
-        console.log(`🔍 当前注册的所有插件:`, [...this.plugins.entries()].map(([k, v]) => ({
-            key: k,
-            name: v.name,
-            platform: v.platform,
-            type: v.type
-        })));
+        //console.log(`🔍 当前注册的所有插件:`, [...this.plugins.entries()].map(([k, v]) => ({
+        //    key: k,
+        //    name: v.name,
+        //    platform: v.platform,
+        //    type: v.type
+        //})));
 
         const plugin = this.plugins.get(key) as T;
         console.log(`🔍 查找结果:`, {

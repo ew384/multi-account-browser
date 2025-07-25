@@ -20,6 +20,7 @@ export class TabManager {
     private sessionManager: SessionManager;
     private cookieManager: CookieManager;
     private headlessManager: HeadlessManager;
+    private injectedTabs: Set<string> = new Set();
     // 标签页标题缓存
     private tabTitles: Map<string, string> = new Map();
     private tabFavicons: Map<string, string> = new Map();
@@ -409,7 +410,7 @@ export class TabManager {
                 session: session,
                 webContentsView: webContentsView,
                 loginStatus: 'unknown',
-                url: initialUrl || `https://channels.weixin.qq.com`,
+                url: initialUrl,
                 // 🔥 新增：headless 相关字段
                 isHeadless: finalHeadless,
                 isVisible: !finalHeadless
@@ -466,7 +467,7 @@ export class TabManager {
             if (this.stealthScript) {
                 try {
                     await this.addInitScript(tabId, this.stealthScript);
-                    console.log(`🛡️ 反检测脚本已注入: ${accountName}`);
+                    console.log(`📜 反检测脚本已添加到队列: ${accountName}`);
                 } catch (error) {
                     console.warn(`⚠️ 反检测脚本注入失败 for ${accountName}:`, error);
                 }
@@ -821,6 +822,11 @@ export class TabManager {
 
 
     private async injectInitScripts(tabId: string): Promise<void> {
+        if (this.injectedTabs.has(tabId)) {
+            console.log(`⚠️ Init scripts already injected for ${tabId}, skipping...`);
+            return;
+        }
+
         const scripts = this.initScripts.get(tabId);
         if (!scripts || scripts.length === 0) return;
 
@@ -1405,7 +1411,8 @@ export class TabManager {
 
             this.tabs.delete(tabId);
             this.sessionManager.deleteSession(tabId);
-
+            this.injectedTabs.delete(tabId);
+            this.initScripts.delete(tabId);
             console.log(`🗑️ Closed tab: ${tab.accountName}`);
         } catch (error) {
             console.error(`❌ Failed to close tab ${tabId}:`, error);

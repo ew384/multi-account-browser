@@ -15,12 +15,7 @@ export class XiaohongshuValidator implements PluginValidator {
     async validateCookie(cookieFile: string): Promise<boolean> {
         let tabId: string | null = null;
         try {
-            tabId = await this.tabManager.createHeadlessTab(
-                `xiaohongshu_validator_${Date.now()}`,
-                'xiaohongshu',
-                'https://creator.xiaohongshu.com/creator-micro/content/upload'
-            );
-
+            tabId = await this.tabManager.createHeadlessTab('validator', 'xiaohongshu', 'https://creator.xiaohongshu.com/creator-micro/content/upload');
             await this.tabManager.loadAccountCookies(tabId, cookieFile);
             await this.tabManager.navigateTab(tabId, 'https://creator.xiaohongshu.com/creator-micro/content/upload');
 

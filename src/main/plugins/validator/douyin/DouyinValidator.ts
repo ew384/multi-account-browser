@@ -15,11 +15,7 @@ export class DouyinValidator implements PluginValidator {
     async validateCookie(cookieFile: string): Promise<boolean> {
         let tabId: string | null = null;
         try {
-            tabId = await this.tabManager.createHeadlessTab(
-                `douyin_validator_${Date.now()}`,
-                'douyin',
-                'https://creator.douyin.com/creator-micro/content/upload'
-            );
+            tabId = await this.tabManager.createHeadlessTab('validator', 'douyin', 'https://creator.douyin.com/creator-micro/content/upload');
 
             await this.tabManager.loadAccountCookies(tabId, cookieFile);
             await this.tabManager.navigateTab(tabId, 'https://creator.douyin.com/creator-micro/content/upload');

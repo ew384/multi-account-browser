@@ -15,45 +15,38 @@ export class WeChatValidator implements PluginValidator {
 
     async validateCookie(cookieFile: string): Promise<boolean> {
         let tabId: string | null = null;
+
         try {
-            // 创建headless tab
-            tabId = await this.tabManager.createHeadlessTab(
-                `wechat_validator_${Date.now()}`,
-                'wechat',
-                'https://channels.weixin.qq.com/platform/post/create'
-            );
+            tabId = await this.tabManager.createHeadlessTab('validator', 'wechat');
 
-            // 加载Cookie
             await this.tabManager.loadAccountCookies(tabId, cookieFile);
-
-            // 导航到验证页面
             await this.tabManager.navigateTab(tabId, 'https://channels.weixin.qq.com/platform/post/create');
 
-            // 等待"微信小店"元素，5秒超时
-            const found = await this.tabManager.waitForElement(
-                tabId,
-                'div.title-name',
-                5000
-            );
+            // 等待页面加载完成
+            await new Promise(resolve => setTimeout(resolve, 3000));
 
-            // 如果找到元素，检查是否包含"微信小店"文本
-            if (found) {
-                const hasText = await this.tabManager.executeScript(tabId, `
-                    document.querySelector('div.title-name')?.textContent?.includes('微信小店') || false
-                `);
-                // 找到"微信小店" = Cookie失效
-                return !hasText;
+            // 检查是否存在包含"微信小店"的元素
+            const hasWeixinStore = await this.tabManager.executeScript(tabId, `
+                Array.from(document.querySelectorAll('div.title-name'))
+                    .some(el => el.textContent && el.textContent.includes('微信小店'))
+            `) as boolean;
+
+            if (hasWeixinStore) {
+                console.error("[+] cookie 失效");
+                return false;
+            } else {
+                console.log("[+] cookie 有效");
+                return true;
             }
-
-            // 找不到元素 = Cookie有效
-            return true;
 
         } catch (error) {
             console.error('微信Cookie验证失败:', error);
             return false;
         } finally {
             if (tabId) {
-                await this.tabManager.closeTab(tabId);
+                await this.tabManager.closeTab(tabId).catch(err =>
+                    console.warn('关闭tab失败:', err)
+                );
             }
         }
     }
