@@ -123,14 +123,12 @@ export class DouyinLogin implements PluginLogin {
 
         const qrCodeScript = `
             (function() {
-                // 🔥 使用 Python 验证的选择器：iframe img
-                const element = document.querySelector('img[name="二维码"]');
+                const element = document.querySelector('img[aria-label="二维码"]');
                 if (element && element.src) {
-                    console.log('找到抖音二维码:', element.src);
+                    console.log('✅ 找到抖音二维码 (aria-label):', element.src);
                     return element.src;
                 }
-                
-                console.log('未找到抖音二维码');
+                console.log('❌ 未找到抖音二维码 (aria-label)');
                 return null;
             })()
         `;

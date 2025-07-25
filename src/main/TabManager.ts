@@ -374,7 +374,7 @@ export class TabManager {
         }
 
         const timestamp = Date.now();
-        const tabId = `${platform}-${accountName.replace(/[^a-zA-Z0-9]/g, '_')}-${timestamp}`;
+        const tabId = `${platform}-${timestamp}`;
 
         try {
             console.log(`🚀 Initializing tab for ${accountName} on ${platform}...`);

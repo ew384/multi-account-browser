@@ -296,7 +296,8 @@ export class AccountStorage {
             const db = await this.getDatabase();
 
             const accounts = await db.all(`
-            SELECT id, type, filePath, userName, status, last_check_time, check_interval 
+            SELECT id, type, filePath, userName, status, last_check_time, check_interval,
+            account_id, real_name, followers_count, videos_count, bio, avatar_url, local_avatar
             FROM user_info
         `);
 
@@ -316,7 +317,13 @@ export class AccountStorage {
                     userName: user_name,
                     platform: PLATFORM_TYPE_MAP[type_val] || '未知',
                     status: status === 1 ? '正常' : '异常',
-                    avatar: '/default-avatar.png'
+                    avatar: row.local_avatar || row.avatar_url || '/default-avatar.png',  // ← 使用真实头像路径
+                    // 可选：添加其他账号信息
+                    accountId: row.account_id,
+                    realName: row.real_name,
+                    followersCount: row.followers_count,
+                    videosCount: row.videos_count,
+                    bio: row.bio
                 };
 
                 results.push(account);
@@ -337,11 +344,13 @@ export class AccountStorage {
             const db = await this.getDatabase();
 
             const accounts = await db.all(`
-                SELECT u.id, u.type, u.filePath, u.userName, u.status, u.group_id, 
-                       u.last_check_time, u.check_interval, 
-                       g.name as group_name, g.color as group_color, g.icon as group_icon
-                FROM user_info u
-                LEFT JOIN account_groups g ON u.group_id = g.id
+            SELECT u.id, u.type, u.filePath, u.userName, u.status, u.group_id, 
+            u.last_check_time, u.check_interval,
+            u.account_id, u.real_name, u.followers_count, u.videos_count, 
+            u.bio, u.avatar_url, u.local_avatar,
+            g.name as group_name, g.color as group_color, g.icon as group_icon
+            FROM user_info u
+            LEFT JOIN account_groups g ON u.group_id = g.id
             `);
 
             await db.close();
@@ -353,6 +362,7 @@ export class AccountStorage {
                 const {
                     id: user_id, type: type_val, filePath: file_path, userName: user_name,
                     status, group_id, last_check_time, check_interval,
+                    account_id, real_name, followers_count, videos_count, bio, avatar_url, local_avatar,
                     group_name, group_color, group_icon
                 } = row;
 
@@ -365,12 +375,18 @@ export class AccountStorage {
                     userName: user_name,
                     platform: PLATFORM_TYPE_MAP[type_val] || '未知',
                     status: status === 1 ? '正常' : '异常',
-                    avatar: '/default-avatar.png',
+                    avatar: local_avatar || avatar_url || '/default-avatar.png',
                     // 分组相关字段
                     group_id: group_id,
                     group_name: group_name,
                     group_color: group_color,
-                    group_icon: group_icon
+                    group_icon: group_icon,
+                    // 账号信息字段
+                    accountId: account_id,
+                    realName: real_name,
+                    followersCount: followers_count,
+                    videosCount: videos_count,
+                    bio: bio
                 };
 
                 results.push(account);
