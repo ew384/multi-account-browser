@@ -115,35 +115,74 @@ export class WeChatLogin implements PluginLogin {
         console.log('🔍 查找微信登录二维码...');
         await new Promise(resolve => setTimeout(resolve, 10000));
         const qrCodeScript = `
-            (function() {
-                return new Promise((resolve) => {
-                    let attempts = 0;
-                    const maxAttempts = 20;
+            new Promise((resolve) => {
+                let attempts = 0;
+                const maxAttempts = 30;
+                
+                const checkIframe = () => {
+                    console.log('🔍 查找iframe (' + (attempts + 1) + '/' + maxAttempts + ')');
                     
-                    const checkQRCode = () => {
-                        // 🔥 修改：直接选择有 qrcode class 的 img
-                        const img = document.querySelector('img.qrcode');
-                        
-                        if (img && img.src && img.src.startsWith('data:image/png;base64')) {
-                            console.log('✅ 找到微信二维码:', img.src.substring(0, 50) + '...');
-                            resolve(img.src);
-                            return;
-                        }
-                        
+                    // 查找iframe元素
+                    const iframe = document.querySelector('iframe.display');
+                    if (!iframe) {
+                        console.log('❌ 未找到iframe');
                         attempts++;
                         if (attempts >= maxAttempts) {
-                            console.log('❌ 超时未找到微信二维码');
+                            resolve(null);
+                            return;
+                        }
+                        setTimeout(checkIframe, 1000);
+                        return;
+                    }
+                    
+                    console.log('✅ 找到iframe:', iframe.src);
+                    
+                    try {
+                        // 🔥 尝试访问iframe内容
+                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                        
+                        if (!iframeDoc) {
+                            console.log('❌ 无法访问iframe内容 (跨域限制)');
                             resolve(null);
                             return;
                         }
                         
-                        console.log('尝试 ' + attempts + '/' + maxAttempts + ': 等待二维码加载...');
-                        setTimeout(checkQRCode, 500);
-                    };
+                        // 在iframe内查找二维码
+                        const qrSelectors = [
+                            'img.qrcode',
+                            '.qrcode-wrap img',
+                            '.qrcode-area img',
+                            'img[src^="data:image/png;base64"]'
+                        ];
+                        
+                        for (const selector of qrSelectors) {
+                            const img = iframeDoc.querySelector(selector);
+                            if (img && img.src && img.src.startsWith('data:image/png;base64') && img.src.length > 1000) {
+                                console.log('✅ 在iframe中找到二维码');
+                                resolve(img.src);
+                                return;
+                            }
+                        }
+                        
+                        console.log('⏳ iframe内容已加载但未找到二维码');
+                        
+                    } catch (error) {
+                        console.log('❌ 访问iframe失败:', error.message);
+                        resolve(null);
+                        return;
+                    }
                     
-                    checkQRCode();
-                });
-            })()
+                    attempts++;
+                    if (attempts >= maxAttempts) {
+                        resolve(null);
+                        return;
+                    }
+                    
+                    setTimeout(checkIframe, 1000);
+                };
+                
+                checkIframe();
+            })
         `;
         // 🔥 等待二维码出现，最多尝试 20 次
         let attempts = 0;
