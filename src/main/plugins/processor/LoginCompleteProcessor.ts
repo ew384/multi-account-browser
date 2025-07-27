@@ -51,7 +51,7 @@ export class LoginCompleteProcessor implements PluginProcessor {
             }
 
             console.log(`✅ ${params.platform} 登录成功，URL 已变化: ${params.userId}`);
-
+            await new Promise(resolve => setTimeout(resolve, 5000));
             // 2. 提取账号信息（通过插件管理器）
             const accountInfo = await this.extractAccountInfo(params.platform, params.tabId);
 

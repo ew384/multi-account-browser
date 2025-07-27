@@ -595,8 +595,7 @@ export class TabManager {
             // 🔥 获取当前页面的URL，用于在webview中重新加载
             const currentUrl = tab.webContentsView.webContents.getURL();
             console.log('🔧 Current page URL:', currentUrl);
-            const partitionName = `persist:${accountName}`;
-            const devtoolsSession = session.fromPartition(partitionName);
+            const devtoolsSession = tab.session
 
             // 📥 3. 加载 cookie 到 devtools 的 session
             await this.cookieManager.loadCookiesToSession(devtoolsSession, cookieFilePath)
@@ -615,7 +614,7 @@ export class TabManager {
                 },
                 autoHideMenuBar: true
             });
-
+            const webviewPartition = `persist:${tabId}`;
             // 🔥 创建包含webview的HTML页面
             const webviewHTML = `
             <!DOCTYPE html>
@@ -707,7 +706,7 @@ export class TabManager {
                     <webview 
                         id="webview" 
                         src="${currentUrl || 'about:blank'}"
-                        partition="persist:devtools-${tabId}"
+                        partition="${webviewPartition}"
                         webpreferences="contextIsolation=false, nodeIntegration=false, devTools=true"
                         style="width: 100%; height: 100%;">
                     </webview>

@@ -6,7 +6,7 @@ import * as path from 'path';
 import { AutomationEngine } from './automation/AutomationEngine';
 import { HeadlessManager } from './HeadlessManager';
 
-import { Config } from './config/Config';
+
 import { SocialAutomationAPI } from './apis/SocialAutomationAPI';
 export class APIServer {
     private app: express.Application;

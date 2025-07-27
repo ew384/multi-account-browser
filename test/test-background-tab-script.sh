@@ -1,6 +1,7 @@
 #!/bin/bash 
 API_BASE="http://localhost:3409"
-COOKIE_FILE="/home/endian/.config/multi-account-browser/cookiesFile/1753175548839_3sqsl9dkmu7.json"
+COOKIE_FILE="/home/endian/.config/multi-account-browser/cookiesFile/wechat_用户_1753501967974_1753501987629.json"
+COOKIE_FILE="/Users/endian/Library/Application\ Support/multi-account-browser/cookiesFile/wechat_用户_1753501967974_1753501987629.json"
 ACCOUNT_NAME="微信测试账号"
 PLATFORM="wechat"
 INITIAL_URL="https://channels.weixin.qq.com"

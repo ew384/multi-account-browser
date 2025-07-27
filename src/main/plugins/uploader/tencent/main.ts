@@ -577,6 +577,7 @@ export class WeChatVideoUploader implements PluginUploader {
             console.warn(`⚠️ 原创声明失败: ${result.error}`);
         }
     }
+
     async getAccountInfo(tabId: string): Promise<any> {
         const extractScript = `
         (function extractWechatFinderInfo() {
@@ -584,25 +585,21 @@ export class WeChatVideoUploader implements PluginUploader {
                 // 提取头像URL
                 const avatarImg = document.querySelector('.finder-info-container .avatar');
                 const avatar = avatarImg ? avatarImg.src : null;
-                
                 // 提取账号名称
                 const accountNameEl = document.querySelector('.finder-nickname');
                 const accountName = accountNameEl ? accountNameEl.textContent.trim() : null;
-                
                 // 提取视频号ID
                 const accountIdEl = document.querySelector('.finder-uniq-id');
                 const accountId = accountIdEl ? accountIdEl.textContent.trim() : null;
-                
                 // 提取视频数和关注者数
                 const infoNums = document.querySelectorAll('.finder-info-num');
                 let videosCount = null;
                 let followersCount = null;
-                
+                // 根据页面结构，第一个是视频数，第二个是关注者数
                 if (infoNums.length >= 2) {
                     videosCount = infoNums[0].textContent.trim();
                     followersCount = infoNums[1].textContent.trim();
                 }
-                
                 // 解析数字的辅助函数
                 function parseNumber(value) {
                     if (!value) return 0;
@@ -614,26 +611,42 @@ export class WeChatVideoUploader implements PluginUploader {
                     }
                     return parseInt(cleanValue) || 0;
                 }
-                
                 // 标准化数据
-                return {
-                    platform: 'wechat',
+                const normalizedData = {
+                    platform: 'wechat_finder',
                     accountName: accountName,
                     accountId: accountId,
                     followersCount: parseNumber(followersCount),
                     videosCount: parseNumber(videosCount),
                     avatar: avatar,
-                    bio: null,
+                    bio: null, // 当前页面没有个人简介信息
                     extractedAt: new Date().toISOString(),
                 };
+                console.log('提取的原始数据:', {
+                    accountName,
+                    accountId,
+                    avatar,
+                    videosCount,
+                    followersCount
+                });
+                console.log('标准化后的数据:', normalizedData);
+
+                return normalizedData;
             } catch (error) {
                 console.error('提取数据时出错:', error);
                 return null;
             }
         })()
         `;
-        const result = await this.tabManager.executeScript(tabId, extractScript);
-        return result;
+        
+        try {
+            const result = await this.tabManager.executeScript(tabId, extractScript);
+            console.log(`📊 WeChatVideoUploader.getAccountInfo 执行结果:`, result);
+            return result;
+        } catch (error) {
+            console.error(`❌ WeChatVideoUploader.getAccountInfo 执行失败:`, error);
+            return null;
+        }
     }
 }
 
