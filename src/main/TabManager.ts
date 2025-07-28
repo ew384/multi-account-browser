@@ -418,6 +418,7 @@ export class TabManager {
 
             this.tabs.set(tabId, tab);
             this.setupWebContentsViewEvents(tab);
+            /*
             webContentsView.webContents.once('did-finish-load', async () => {
                 try {
                     await webContentsView.webContents.executeJavaScript(`
@@ -449,6 +450,7 @@ export class TabManager {
                     console.warn(`Failed to re-inject tab_id after navigation:`, error);
                 }
             });
+            */
             if (finalHeadless) {
                 // headless tab处理：移到屏幕外但保持运行
                 webContentsView.setBounds({

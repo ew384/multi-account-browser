@@ -1030,6 +1030,82 @@ export class AccountStorage {
             return false;
         }
     }
+    /**
+     * 🔥 获取最近上传的视频文件 - 对应 Python 的 get_recent_uploads
+     */
+    static async getRecentUploads(): Promise<{ success: boolean, message: string, data?: any }> {
+        try {
+            const recentVideos: any[] = [];
+
+            // 检查目录是否存在
+            if (!(await this.fileExists(Config.VIDEO_DIR))) {
+                return {
+                    success: true,
+                    message: "success",
+                    data: []
+                };
+            }
+
+            // 扫描 videoFile 目录
+            const files = await fs.promises.readdir(Config.VIDEO_DIR);
+
+            for (const filename of files) {
+                const filePath = path.join(Config.VIDEO_DIR, filename);
+
+                try {
+                    const stat = await fs.promises.stat(filePath);
+
+                    // 检查是否为文件且为视频格式
+                    if (stat.isFile() && this.isVideoFile(filename)) {
+                        // 生成唯一ID (使用文件名和修改时间的hash)
+                        const hashInput = filename + stat.mtime.getTime().toString();
+                        const id = this.generateSimpleHash(hashInput);
+
+                        recentVideos.push({
+                            id: id,
+                            filename: filename,
+                            filesize: Math.round((stat.size / (1024 * 1024)) * 100) / 100, // MB
+                            upload_time: stat.mtime.toISOString(),
+                            file_path: filename // 只存文件名，因为都在videoFile目录
+                        });
+                    }
+                } catch (statError) {
+                    console.warn(`⚠️ 获取文件状态失败: ${filename}:`, statError);
+                    continue;
+                }
+            }
+
+            // 按修改时间倒序排列（最新的在前面）
+            recentVideos.sort((a, b) => new Date(b.upload_time).getTime() - new Date(a.upload_time).getTime());
+
+            return {
+                success: true,
+                message: "success",
+                data: recentVideos
+            };
+
+        } catch (error) {
+            console.error('❌ 获取最近上传文件失败:', error);
+            return {
+                success: false,
+                message: `获取最近上传文件失败: ${error instanceof Error ? error.message : 'unknown error'}`,
+                data: null
+            };
+        }
+    }
+
+    /**
+     * 🔥 生成简单hash - 用于生成文件ID
+     */
+    private static generateSimpleHash(input: string): string {
+        let hash = 0;
+        for (let i = 0; i < input.length; i++) {
+            const char = input.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // 转换为32位整数
+        }
+        return Math.abs(hash).toString();
+    }
 
     /**
      * 🔥 删除物理文件

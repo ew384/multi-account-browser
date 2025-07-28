@@ -51,9 +51,11 @@ export class SocialAutomationAPI {
     private setupMaterialRoutes(): void {
         // 素材管理API
         this.router.get('/getFiles', this.handleGetFiles.bind(this));
+        this.router.post('/upload', this.handleUpload.bind(this));
         this.router.post('/uploadSave', this.handleUploadSave.bind(this));
         this.router.get('/deleteFile', this.handleDeleteFile.bind(this));
         this.router.get('/getFile', this.handleGetFile.bind(this));
+        this.router.get('/getRecentUploads', this.handleGetRecentUploads.bind(this));
     }
 
     private setupUploadRoutes(): void {
@@ -364,7 +366,39 @@ export class SocialAutomationAPI {
             this.sendResponse(res, 500, 'get files failed', null);
         }
     }
+    /**
+     * 🔥 上传文件 - 对应 Python 的 upload
+     */
+    private async handleUpload(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            if (!(req as any).file) {
+                this.sendResponse(res, 200, 'No file part in the request', null);
+                return;
+            }
 
+            const file = (req as any).file;
+            if (!file.originalname) {
+                this.sendResponse(res, 200, 'No selected file', null);
+                return;
+            }
+
+            // 生成唯一文件名
+            const finalFilename = AccountStorage.generateUniqueFilename(file.originalname);
+            const filepath = path.join(Config.VIDEO_DIR, finalFilename);
+
+            // 确保目录存在
+            await AccountStorage.ensureVideoDirectoryExists();
+
+            // 保存文件到指定位置
+            await fs.promises.writeFile(filepath, file.buffer);
+
+            this.sendResponse(res, 200, 'File uploaded successfully', finalFilename);
+
+        } catch (error) {
+            console.error('❌ 上传失败:', error);
+            this.sendResponse(res, 200, String(error), null);
+        }
+    }
     /**
      * 🔥 上传保存素材文件 - 对应 Python 的 upload_save
      */
@@ -490,7 +524,24 @@ export class SocialAutomationAPI {
             res.status(500).json({ error: 'get file failed' });
         }
     }
+    /**
+     * 🔥 获取最近上传的视频文件 - 对应 Python 的 get_recent_uploads
+     */
+    private async handleGetRecentUploads(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const result = await AccountStorage.getRecentUploads();
 
+            if (result.success) {
+                this.sendResponse(res, 200, result.message, result.data);
+            } else {
+                this.sendResponse(res, 500, result.message, null);
+            }
+
+        } catch (error) {
+            console.error('❌ 获取最近上传文件失败:', error);
+            this.sendResponse(res, 500, `获取最近上传文件失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
+        }
+    }
     // ==================== 视频发布相关处理方法 ====================
 
     /**
