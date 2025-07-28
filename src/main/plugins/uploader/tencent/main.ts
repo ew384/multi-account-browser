@@ -66,17 +66,37 @@ export class WeChatVideoUploader implements PluginUploader {
     // 🔥 使用 TabManager 的流式上传
     private async uploadFile(filePath: string, tabId: string): Promise<void> {
         console.log('📤 上传文件到微信视频号...');
+
+        // 🔥 步骤1：等待wujie-app元素
         console.log('⏳ 等待页面wujie-app元素加载完成...');
         const elementReady = await this.tabManager.waitForElement(tabId, 'wujie-app', 30000);
-
         if (!elementReady) {
             throw new Error('页面wujie-app元素加载超时');
         }
+        console.log('✅ wujie-app元素已加载');
 
-        console.log('✅ wujie-app元素已加载，开始上传文件');
+        // 🔥 步骤2：等待Shadow DOM准备好（新增）
+        console.log('⏳ 等待Shadow DOM完全准备...');
+        const shadowReady = await this.waitForShadowDOMReady(tabId);
+        if (!shadowReady) {
+            throw new Error('Shadow DOM准备超时');
+        }
+        console.log('✅ Shadow DOM已准备好');
 
-        // 🔥 参考Python：再等待0.1秒让页面稳定
+        // 🔥 步骤3：等待文件输入框出现（新增）
+        console.log('⏳ 等待文件输入框准备...');
+        const inputReady = await this.waitForFileInput(tabId);
+        if (!inputReady) {
+            throw new Error('文件输入框准备超时');
+        }
+        console.log('✅ 文件输入框已准备好');
+
+        // 🔥 步骤4：参考Python的稳定等待
+        console.log('⏳ 稳定等待0.1秒...');
         await new Promise(resolve => setTimeout(resolve, 100));
+
+        // 🔥 步骤5：开始文件上传
+        console.log('🚀 开始流式文件上传...');
         const success = await this.tabManager.setInputFilesStreaming(
             tabId,
             'input[type="file"]',
@@ -90,6 +110,91 @@ export class WeChatVideoUploader implements PluginUploader {
 
         if (!success) {
             throw new Error('文件上传失败');
+        }
+
+        console.log('✅ 流式上传完成');
+    }
+
+    // 🔥 新增：等待Shadow DOM准备好
+    private async waitForShadowDOMReady(tabId: string): Promise<boolean> {
+        const waitScript = `
+            new Promise((resolve) => {
+                const timeout = 15000; // 15秒超时
+                const startTime = Date.now();
+                
+                const checkShadow = () => {
+                    if (Date.now() - startTime > timeout) {
+                        console.log('❌ Shadow DOM等待超时');
+                        resolve(false);
+                        return;
+                    }
+                    
+                    const wujieIframe = document.querySelector('.wujie_iframe');
+                    if (wujieIframe && wujieIframe.shadowRoot) {
+                        const shadowDoc = wujieIframe.shadowRoot;
+                        // 检查Shadow DOM是否有实际内容
+                        if (shadowDoc.body && shadowDoc.body.children.length > 0) {
+                            console.log('✅ Shadow DOM已准备好，内容已加载');
+                            resolve(true);
+                            return;
+                        }
+                    }
+                    
+                    setTimeout(checkShadow, 200);
+                };
+                
+                checkShadow();
+            })
+        `;
+
+        try {
+            const result = await this.tabManager.executeScript(tabId, waitScript);
+            return Boolean(result);
+        } catch (error) {
+            console.error('❌ 等待Shadow DOM失败:', error);
+            return false;
+        }
+    }
+
+    // 🔥 新增：等待文件输入框准备好
+    private async waitForFileInput(tabId: string): Promise<boolean> {
+        const waitScript = `
+            new Promise((resolve) => {
+                const timeout = 10000; // 10秒超时
+                const startTime = Date.now();
+                
+                const checkInput = () => {
+                    if (Date.now() - startTime > timeout) {
+                        console.log('❌ 文件输入框等待超时');
+                        resolve(false);
+                        return;
+                    }
+                    
+                    const wujieIframe = document.querySelector('.wujie_iframe');
+                    if (wujieIframe && wujieIframe.shadowRoot) {
+                        const shadowDoc = wujieIframe.shadowRoot;
+                        const fileInput = shadowDoc.querySelector('input[type="file"]');
+                        
+                        if (fileInput) {
+                            console.log('✅ 文件输入框已找到');
+                            resolve(true);
+                            return;
+                        }
+                    }
+                    
+                    setTimeout(checkInput, 200);
+                };
+                
+                checkInput();
+            })
+        `;
+
+        try {
+            const result = await this.tabManager.executeScript(tabId, waitScript);
+            return Boolean(result);
+        } catch (error) {
+            console.error('❌ 等待文件输入框失败:', error);
+            return false;
         }
     }
 
@@ -385,16 +490,24 @@ export class WeChatVideoUploader implements PluginUploader {
     }
     private async verifyUploadStarted(tabId: string): Promise<boolean> {
         console.log('验证上传是否开始...');
+        console.log('⏳ 等待5秒让页面和文件处理完全加载...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
         const verifyScript = `
         (function() {
             try {
-                await new Promise(resolve => setTimeout(resolve, 5000));
-                const shadowm = document.querySelector('.wujie_iframe');
-                if (!shadowm || !shadowm.shadowRoot) {
+                console.log('🔍 开始验证上传状态...');
+                
+                // 检查Shadow DOM
+                const shadowHost = document.querySelector('.wujie_iframe');
+                if (!shadowHost || !shadowHost.shadowRoot) {
+                    console.log('⚠️ Shadow DOM 未找到或未准备好');
                     return { started: false, reason: 'no shadow DOM' };
                 }
                 
-                const shadowDoc = shadowm.shadowRoot;
+                const shadowDoc = shadowHost.shadowRoot;
+                
+                // 检查文件输入框
                 const fileInput = shadowDoc.querySelector('input[type="file"]');
                 const fileCount = fileInput ? fileInput.files.length : 0;
                 
@@ -402,19 +515,34 @@ export class WeChatVideoUploader implements PluginUploader {
                 const hasVideo = !!shadowDoc.querySelector('video');
                 const hasProgress = !!shadowDoc.querySelector('.progress');
                 const hasLoading = !!shadowDoc.querySelector('[class*="loading"]');
+                const hasUploadText = shadowDoc.body ? shadowDoc.body.textContent.includes('上传中') : false;
+                
+                // 检查删除按钮（表示文件已加载）
+                const hasDeleteBtn = !!shadowDoc.querySelector('.delete-btn, [class*="delete"]');
+                
+                const details = {
+                    fileCount: fileCount,
+                    hasVideo: hasVideo,
+                    hasProgress: hasProgress,
+                    hasLoading: hasLoading,
+                    hasUploadText: hasUploadText,
+                    hasDeleteBtn: hasDeleteBtn
+                };
+                
+                console.log('📊 上传状态检查:', details);
+                
+                // 判断上传是否开始
+                const started = fileCount > 0 || hasVideo || hasProgress || hasLoading || hasUploadText || hasDeleteBtn;
                 
                 return {
-                    started: fileCount > 0 || hasVideo || hasProgress || hasLoading,
-                    details: {
-                        fileCount: fileCount,
-                        hasVideo: hasVideo,
-                        hasProgress: hasProgress,
-                        hasLoading: hasLoading
-                    }
+                    started: started,
+                    details: details,
+                    reason: started ? 'upload indicators found' : 'no upload indicators'
                 };
                 
             } catch (e) {
-                return { started: false, reason: e.message };
+                console.error('❌ 验证脚本执行失败:', e);
+                return { started: false, reason: e.message, stack: e.stack };
             }
         })()
         `;
