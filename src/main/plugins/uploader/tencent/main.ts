@@ -66,6 +66,17 @@ export class WeChatVideoUploader implements PluginUploader {
     // 🔥 使用 TabManager 的流式上传
     private async uploadFile(filePath: string, tabId: string): Promise<void> {
         console.log('📤 上传文件到微信视频号...');
+        console.log('⏳ 等待页面wujie-app元素加载完成...');
+        const elementReady = await this.tabManager.waitForElement(tabId, 'wujie-app', 30000);
+
+        if (!elementReady) {
+            throw new Error('页面wujie-app元素加载超时');
+        }
+
+        console.log('✅ wujie-app元素已加载，开始上传文件');
+
+        // 🔥 参考Python：再等待0.1秒让页面稳定
+        await new Promise(resolve => setTimeout(resolve, 100));
         const success = await this.tabManager.setInputFilesStreaming(
             tabId,
             'input[type="file"]',
@@ -377,6 +388,7 @@ export class WeChatVideoUploader implements PluginUploader {
         const verifyScript = `
         (function() {
             try {
+                await new Promise(resolve => setTimeout(resolve, 5000));
                 const shadowm = document.querySelector('.wujie_iframe');
                 if (!shadowm || !shadowm.shadowRoot) {
                     return { started: false, reason: 'no shadow DOM' };
