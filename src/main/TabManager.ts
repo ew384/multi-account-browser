@@ -3,7 +3,7 @@ import { SessionManager } from './SessionManager';
 import { CookieManager } from './CookieManager';
 import { AccountTab } from '../types';
 import { HeadlessManager } from './HeadlessManager';
-
+import { Config } from './config/Config';
 import { AccountStorage } from './plugins/login/base/AccountStorage';
 
 import * as fs from 'fs';
@@ -1222,7 +1222,13 @@ export class TabManager {
         if (!tab) throw new Error(`Tab ${tabId} not found`);
 
         try {
-            await this.cookieManager.loadCookiesToSession(tab.session, cookieFilePath);
+            const fullCookiePath = path.join(Config.COOKIE_DIR, cookieFilePath);
+            console.log(`🔍 准备加载Cookie:`);
+            console.log(`   cookieFilePath: ${cookieFilePath}`);
+            console.log(`   完整路径: ${fullCookiePath}`);
+            console.log(`   文件是否存在: ${fs.existsSync(fullCookiePath)}`);
+
+            await this.cookieManager.loadCookiesToSession(tab.session, fullCookiePath);  // 🔥 传递完整路径
             tab.cookieFile = cookieFilePath;
             console.log(`🍪 Loaded cookies for tab: ${tab.accountName}`);
 

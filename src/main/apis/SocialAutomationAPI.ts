@@ -603,9 +603,9 @@ export class SocialAutomationAPI {
                 platform,
                 files: fileList,
                 accounts: accountList.map((account: any) => ({
-                    cookieFile: account.cookieFile || account.filePath,
+                    cookieFile: account.filePath,  // 🔥 关键修改：使用filePath作为cookieFile
                     platform: platform,
-                    accountName: account.userName || account.accountName,
+                    accountName: account.accountName,  // 🔥 修改：直接使用accountName
                     accountId: account.accountId,
                     followersCount: account.followersCount,
                     videosCount: account.videosCount,

@@ -14,6 +14,7 @@ import {
 } from '../../types/pluginInterface';
 import { PluginType, PluginUploader, PluginLogin, PluginValidator } from '../../types/pluginInterface';
 import * as path from 'path';
+import * as fs from 'fs';
 export class AutomationEngine {
     private tabManager: TabManager;
     private pluginManager: PluginManager;
@@ -222,14 +223,9 @@ export class AutomationEngine {
      */
     async batchUpload(request: BatchUploadRequest): Promise<UploadResult[]> {
         try {
-            console.log(`🚀 开始批量上传: ${request.platform} 平台`);
+            console.log(`🚀 开始批量上传`);
             console.log(`   文件数: ${request.files.length}`);
             console.log(`   账号数: ${request.accounts.length}`);
-
-            const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, request.platform);
-            if (!uploader) {
-                throw new Error(`不支持的平台: ${request.platform}`);
-            }
 
             const results: UploadResult[] = [];
             let successCount = 0;
@@ -239,14 +235,74 @@ export class AutomationEngine {
             for (const file of request.files) {
                 for (const account of request.accounts) {
                     try {
-                        console.log(`📤 上传: ${file} -> ${account.accountName}`);
+                        // 🔥 关键修改：从账号信息中获取平台类型
+                        let accountPlatform = '';
+                        let cookieFile = '';
+                        let accountName = '';
+
+                        if (typeof account === 'string') {
+                            // 如果account是字符串（filePath），从文件名解析平台和账号名
+                            cookieFile = account;
+                            const fileName = path.basename(account, '.json');
+                            const parts = fileName.split('_');
+
+                            if (parts.length >= 2) {
+                                const platformPrefix = parts[0]; // douyin, wechat等
+                                accountName = parts.slice(1, -1).join('_');
+
+                                // 🔥 映射文件前缀到平台名
+                                const platformMap: Record<string, string> = {
+                                    'douyin': 'douyin',
+                                    'wechat': 'wechat',
+                                    'kuaishou': 'kuaishou',
+                                    'xiaohongshu': 'xiaohongshu'
+                                };
+
+                                accountPlatform = platformMap[platformPrefix] || request.platform;
+                            } else {
+                                accountPlatform = request.platform;
+                                accountName = 'unknown';
+                            }
+                        } else {
+                            // 🔥 修正：使用AccountInfo接口的正确属性名
+                            accountPlatform = account.platform || request.platform;
+                            cookieFile = account.cookieFile || `${account.accountName}.json`;
+                            accountName = account.accountName || 'unknown';
+                        }
+
+                        console.log(`📤 上传: ${file} -> ${accountName} (${accountPlatform}平台)`);
+
+                        // 🔥 动态获取对应平台的uploader
+                        const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, accountPlatform);
+                        if (!uploader) {
+                            throw new Error(`不支持的平台: ${accountPlatform}`);
+                        }
+                        console.log(`🔍 准备上传参数:`);
+                        console.log(`   cookieFile: ${cookieFile}`);
+                        console.log(`   完整路径: ${path.join(Config.COOKIE_DIR, cookieFile)}`);
+                        console.log(`   文件是否存在: ${require('fs').existsSync(path.join(Config.COOKIE_DIR, cookieFile))}`);
+
+                        // 构造单次上传参数
+                        let fullFilePath: string;
+                        if (path.isAbsolute(file)) {
+                            // 如果已经是绝对路径，直接使用
+                            fullFilePath = file;
+                        } else {
+                            // 如果是文件名，构造完整路径
+                            fullFilePath = path.join(Config.VIDEO_DIR, file);
+                        }
+
+                        console.log(`🔍 视频文件路径处理:`);
+                        console.log(`   原始file: ${file}`);
+                        console.log(`   完整路径: ${fullFilePath}`);
+                        console.log(`   文件是否存在: ${fs.existsSync(fullFilePath)}`);
 
                         // 构造单次上传参数
                         const uploadParams: UploadParams = {
                             ...request.params,
-                            cookieFile: account.cookieFile || `${account.accountName}.json`,
-                            platform: request.platform,
-                            filePath: file
+                            cookieFile: cookieFile,
+                            platform: accountPlatform,
+                            filePath: fullFilePath  // 🔥 使用完整路径
                         };
 
                         // 执行上传
@@ -255,17 +311,17 @@ export class AutomationEngine {
                         results.push({
                             success,
                             file: file,
-                            account: account.accountName,
-                            platform: request.platform,
+                            account: accountName,
+                            platform: accountPlatform, // 🔥 记录实际使用的平台
                             uploadTime: new Date().toISOString()
                         });
 
                         if (success) {
                             successCount++;
-                            console.log(`✅ 成功: ${file} -> ${account.accountName}`);
+                            console.log(`✅ 成功: ${file} -> ${accountName} (${accountPlatform})`);
                         } else {
                             failedCount++;
-                            console.log(`❌ 失败: ${file} -> ${account.accountName}`);
+                            console.log(`❌ 失败: ${file} -> ${accountName} (${accountPlatform})`);
                         }
 
                     } catch (error) {
@@ -276,12 +332,16 @@ export class AutomationEngine {
                             success: false,
                             error: errorMsg,
                             file: file,
-                            account: account.accountName,
-                            platform: request.platform,
+                            account: typeof account === 'string' ?
+                                path.basename(account, '.json').split('_').slice(1, -1).join('_') :
+                                account.accountName,  // 🔥 修正：使用accountName
+                            platform: typeof account === 'string' ?
+                                path.basename(account, '.json').split('_')[0] :
+                                (account.platform || request.platform),
                             uploadTime: new Date().toISOString()
                         });
 
-                        console.error(`❌ 上传异常: ${file} -> ${account.accountName}:`, errorMsg);
+                        console.error(`❌ 上传异常: ${file} -> ${typeof account === 'string' ? account : account.accountName}:`, errorMsg);  // 🔥 修正：使用accountName
                     }
 
                     // 🔥 添加间隔，避免请求过快
@@ -297,7 +357,6 @@ export class AutomationEngine {
             throw error;
         }
     }
-
     /**
      * 🔥 新增：批量账号登录
      * @param requests 登录请求列表 [{platform: 'wechat', userId: 'user1'}, ...]
