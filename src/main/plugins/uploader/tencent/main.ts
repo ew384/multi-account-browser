@@ -275,7 +275,7 @@ export class WeChatVideoUploader implements PluginUploader {
         })()
         `;
 
-        const result = await this.tabManager.executeScript(tabId, titleTagScript); // 🔥 改动：使用传入的tabId
+        const result = await this.tabManager.executeScript(tabId, titleTagScript);
         if (!result) {
             throw new Error('标题标签填写失败');
         }

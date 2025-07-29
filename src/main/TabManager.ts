@@ -530,6 +530,11 @@ export class TabManager {
                         const tabCookieName = path.basename(tabCookieFile);
                         if (tabCookieName === cookieIdentifier) {
                             console.log(`🔄 Reusing existing tab: ${tab.id} (Cookie match: ${cookieIdentifier})`);
+                            const currentUrl = tab.webContentsView.webContents.getURL();
+                            if (currentUrl !== initialUrl) {
+                                console.log(`🔗 Tab URL mismatch, navigating from ${currentUrl} to ${initialUrl}`);
+                                await this.navigateTab(tab.id, initialUrl);
+                            }
                             return tab.id;
                         }
                     } else {
@@ -1012,6 +1017,9 @@ export class TabManager {
     private setupWebContentsViewEvents(tab: AccountTab): void {
         const webContents = tab.webContentsView.webContents;
         let lastLoggedUrl = '';
+        webContents.setUserAgent(
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        );
         // 防止 WebContentsView 影响主窗口
         webContents.on('before-input-event', (event, input) => {
             // 阻止某些可能影响主窗口的快捷键
@@ -1157,10 +1165,7 @@ export class TabManager {
             }
         });
 
-        // 设置用户代理
-        webContents.setUserAgent(
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        );
+
     }
     /**
      * 通知前端标题更新
@@ -1448,66 +1453,32 @@ export class TabManager {
 
             const webContents = tab.webContentsView.webContents;
 
-            // 预加载优化
-            webContents.setUserAgent(
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            );
             webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
                 // 快速拒绝不必要的权限请求
                 callback(false);
             });
-            const navigationPromise = new Promise<void>((resolve, reject) => {
-                let resolved = false;
-                let loadingTimer: NodeJS.Timeout;
+            await webContents.loadURL(url);
 
-                const cleanup = () => {
-                    if (resolved) return;
-                    resolved = true;
-                    if (loadingTimer) clearTimeout(loadingTimer);
-                    webContents.removeListener('did-finish-load', onLoad);
-                    webContents.removeListener('did-fail-load', onFailure);
-                    webContents.removeListener('did-navigate', onNavigate);
-                };
-
+            // 简单等待页面稳定
+            await new Promise((resolve) => {
                 const onLoad = () => {
-                    cleanup();
-                    console.log(`✅ Fast navigation completed for ${tab.accountName}`);
-                    resolve();
+                    webContents.removeListener('did-finish-load', onLoad);
+                    console.log(`✅ Navigation completed for ${tab.accountName}`);
+                    resolve(void 0);
                 };
 
-                const onNavigate = (event: any, navigationUrl: string) => {
-                    console.log(`🔄 Fast redirect for ${tab.accountName}: ${navigationUrl}`);
-                    tab.url = navigationUrl;
-                    // 🔥 减少重定向等待时间
-                    if (loadingTimer) clearTimeout(loadingTimer);
-                    loadingTimer = setTimeout(() => {
-                        cleanup();
-                        resolve();
-                    }, 3000); // 减少到3秒
-                };
-
-                const onFailure = (event: any, errorCode: number, errorDescription: string) => {
-                    cleanup();
-                    console.log(`ℹ️ Navigation handled for ${tab.accountName}: ${errorDescription}`);
-                    resolve(); // 不抛错，继续执行
-                };
                 webContents.once('did-finish-load', onLoad);
-                webContents.once('did-fail-load', onFailure);
-                webContents.on('did-navigate', onNavigate);
 
-                // 减少超时时间，但增加智能判断
-                loadingTimer = setTimeout(() => {
-                    cleanup();
+                // 3秒超时保护
+                setTimeout(() => {
+                    webContents.removeListener('did-finish-load', onLoad);
                     console.log(`⏱️ Navigation timeout for ${tab.accountName}, continuing...`);
-                    resolve();
-                }, 5000); // 减少到10秒
+                    resolve(void 0);
+                }, 3000);
             });
 
-            await webContents.loadURL(url);
-            await navigationPromise;
-
         } catch (error) {
-            console.warn(`⚠️ Fast navigation issue for ${tab.accountName}:`, error instanceof Error ? error.message : error);
+            console.warn(`⚠️ Navigation issue for ${tab.accountName}:`, error instanceof Error ? error.message : error);
             tab.url = url;
         }
     }

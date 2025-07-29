@@ -31,7 +31,6 @@ curl -X POST http://localhost:3409/api/account/create \
   -d '{
     "accountName": "endian",
     "platform": "wechat",
-    "mac_cookieFile": "/Users/endian/Library/Application Support/multi-account-browser/cookiesFile/wechat_用户_1753501967974_1753501987629.json",
-    "cookieFile": "/home/endian/.config/multi-account-browser/cookiesFile/wechat_endian_1753665408744.json",
+    "cookieFile": "wechat_endian_1753665408744.json",
     "initialUrl": "https://channels.weixin.qq.com"
   }'

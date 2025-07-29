@@ -565,7 +565,6 @@ export class SocialAutomationAPI {
             console.log(`📤 接收到视频发布请求:`);
             console.log(`   文件数: ${fileList.length}`);
             console.log(`   账号数: ${accountList.length}`);
-            console.log(`   平台类型: ${typeVal}`);
 
             // 验证必要参数
             if (!fileList || !Array.isArray(fileList) || fileList.length === 0) {
@@ -603,9 +602,9 @@ export class SocialAutomationAPI {
                 platform,
                 files: fileList,
                 accounts: accountList.map((account: any) => ({
-                    cookieFile: account.filePath,  // 🔥 关键修改：使用filePath作为cookieFile
+                    cookieFile: account.filePath,
                     platform: platform,
-                    accountName: account.accountName,  // 🔥 修改：直接使用accountName
+                    accountName: account.accountName,
                     accountId: account.accountId,
                     followersCount: account.followersCount,
                     videosCount: account.videosCount,

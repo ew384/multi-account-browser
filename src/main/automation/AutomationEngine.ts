@@ -235,41 +235,14 @@ export class AutomationEngine {
             for (const file of request.files) {
                 for (const account of request.accounts) {
                     try {
+
                         // 🔥 关键修改：从账号信息中获取平台类型
                         let accountPlatform = '';
                         let cookieFile = '';
                         let accountName = '';
-
-                        if (typeof account === 'string') {
-                            // 如果account是字符串（filePath），从文件名解析平台和账号名
-                            cookieFile = account;
-                            const fileName = path.basename(account, '.json');
-                            const parts = fileName.split('_');
-
-                            if (parts.length >= 2) {
-                                const platformPrefix = parts[0]; // douyin, wechat等
-                                accountName = parts.slice(1, -1).join('_');
-
-                                // 🔥 映射文件前缀到平台名
-                                const platformMap: Record<string, string> = {
-                                    'douyin': 'douyin',
-                                    'wechat': 'wechat',
-                                    'kuaishou': 'kuaishou',
-                                    'xiaohongshu': 'xiaohongshu'
-                                };
-
-                                accountPlatform = platformMap[platformPrefix] || request.platform;
-                            } else {
-                                accountPlatform = request.platform;
-                                accountName = 'unknown';
-                            }
-                        } else {
-                            // 🔥 修正：使用AccountInfo接口的正确属性名
-                            accountPlatform = account.platform || request.platform;
-                            cookieFile = account.cookieFile || `${account.accountName}.json`;
-                            accountName = account.accountName || 'unknown';
-                        }
-
+                        accountPlatform = account.platform || request.platform;
+                        cookieFile = account.cookieFile || `${account.accountName}.json`;
+                        accountName = account.accountName || 'unknown';
                         console.log(`📤 上传: ${file} -> ${accountName} (${accountPlatform}平台)`);
 
                         // 🔥 动态获取对应平台的uploader
@@ -334,7 +307,7 @@ export class AutomationEngine {
                             file: file,
                             account: typeof account === 'string' ?
                                 path.basename(account, '.json').split('_').slice(1, -1).join('_') :
-                                account.accountName,  // 🔥 修正：使用accountName
+                                account.accountName,
                             platform: typeof account === 'string' ?
                                 path.basename(account, '.json').split('_')[0] :
                                 (account.platform || request.platform),
@@ -536,7 +509,7 @@ export class AutomationEngine {
                 try {
                     // 🔥 使用 AccountStorage 的静态方法
                     const platform = AccountStorage.getPlatformName(account.type);
-                    const cookieFile = path.join(Config.COOKIE_DIR, account.filePath);
+                    const cookieFile = account.filePath;
 
                     const isValid = await this.validateAccount(platform, cookieFile);
                     account.status = isValid ? '正常' : '异常';
@@ -592,7 +565,7 @@ export class AutomationEngine {
             for (const account of accounts) {
                 try {
                     const platform = AccountStorage.getPlatformName(account.type);
-                    const cookieFile = path.join(Config.COOKIE_DIR, account.filePath);
+                    const cookieFile = account.filePath;
 
                     const isValid = await this.validateAccount(platform, cookieFile);
                     account.status = isValid ? '正常' : '异常';
@@ -632,7 +605,7 @@ export class AutomationEngine {
 
             // 2. 调用验证插件进行验证
             const platform = AccountStorage.getPlatformName(account.type);
-            const cookieFile = path.join(Config.COOKIE_DIR, account.filePath);
+            const cookieFile = account.filePath;
 
             // 🔥 关键：调用已有的 validateAccount 方法（它会调用验证插件）
             const isValid = await this.validateAccount(platform, cookieFile);
@@ -702,7 +675,7 @@ export class AutomationEngine {
             for (const account of accounts) {
                 try {
                     const platform = AccountStorage.getPlatformName(account.type);
-                    const cookieFile = path.join(Config.COOKIE_DIR, account.filePath);
+                    const cookieFile = account.filePath;
 
                     // 🔥 调用验证插件
                     const isValid = await this.validateAccount(platform, cookieFile);
