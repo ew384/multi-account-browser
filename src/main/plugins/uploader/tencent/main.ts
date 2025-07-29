@@ -201,118 +201,59 @@ export class WeChatVideoUploader implements PluginUploader {
     private async addTitleAndTags(title: string, tags: string[], tabId: string): Promise<void> {
         console.log('📝 填写标题和标签...');
 
-        const titleTagScript = `
-        (async function() {
-            const title = ${JSON.stringify(title)};
-            const tags = ${JSON.stringify(tags)};
-            // 等待标题编辑器
-            let titleEditor = null;
-            for (let i = 0; i < 30; i++) {
-                titleEditor = document.querySelector("div.input-editor");
-                if (titleEditor) break;
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-
-            if (!titleEditor) {
-                throw new Error('未找到标题编辑器');
-            }
-
-            // 点击并聚焦
-            titleEditor.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            titleEditor.click();
-            titleEditor.focus();
-
-            // 清空并输入标题
-            titleEditor.innerText = '';
-            titleEditor.textContent = title;
-
-            // 触发输入事件
-            titleEditor.dispatchEvent(new Event('input', { bubbles: true }));
-            titleEditor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-
-            // 等待一下
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            // 输入标签
-            const tags = tags;
-            for (const tag of tags) {
-                // 创建键盘事件来输入标签
-                const hashEvent = new KeyboardEvent('keypress', { 
-                    key: '#',
-                    char: '#',
-                    charCode: 35,
-                    keyCode: 35,
-                    bubbles: true 
-                });
-                titleEditor.dispatchEvent(hashEvent);
-
-                // 输入标签文本
-                for (const char of tag) {
-                    const charEvent = new KeyboardEvent('keypress', { 
-                        key: char,
-                        char: char,
-                        charCode: char.charCodeAt(0),
-                        keyCode: char.charCodeAt(0),
-                        bubbles: true 
-                    });
-                    titleEditor.dispatchEvent(charEvent);
-                }
-
-                // 输入空格
-                const spaceEvent = new KeyboardEvent('keypress', { 
-                    key: ' ',
-                    char: ' ',
-                    charCode: 32,
-                    keyCode: 32,
-                    bubbles: true 
-                });
-                titleEditor.dispatchEvent(spaceEvent);
-
-                console.log('标签已输入:', '#' + tag);
-            }
-
-            return true;
-        })()
-        `;
+        const titleTagScript = `(async function() { try { console.log("开始填写短标题、描述和标签..."); const title = ${JSON.stringify(title)}; const tags = ${JSON.stringify(tags)}; const description = title; const wujieApp = document.querySelector("wujie-app"); if (!wujieApp || !wujieApp.shadowRoot) { return { success: false, error: "未找到Shadow DOM" }; } const shadowDoc = wujieApp.shadowRoot; const allInputs = shadowDoc.querySelectorAll("input[type=text], div[contenteditable], textarea"); let shortTitleInput = null; let descriptionEditor = null; for (let i = 0; i < allInputs.length; i++) { const input = allInputs[i]; const placeholder = input.placeholder || input.getAttribute("data-placeholder") || ""; if (placeholder.includes("6-16") || placeholder.includes("短标题") || placeholder.includes("标题")) { shortTitleInput = input; } else if (placeholder.includes("添加描述") || placeholder.includes("描述")) { descriptionEditor = input; } } if (shortTitleInput) { let finalTitle = title; if (finalTitle.length < 6) { const spacesToAdd = 6 - finalTitle.length; finalTitle = finalTitle + " ".repeat(spacesToAdd); console.log("短标题不足6字符，已自动补齐:", finalTitle, "(长度:" + finalTitle.length + ")"); } else { console.log("短标题长度符合要求:", finalTitle, "(长度:" + finalTitle.length + ")"); } shortTitleInput.scrollIntoView({ behavior: "smooth", block: "center" }); shortTitleInput.click(); shortTitleInput.focus(); await new Promise(resolve => setTimeout(resolve, 200)); if (shortTitleInput.tagName === "INPUT") { shortTitleInput.value = ""; shortTitleInput.value = finalTitle; shortTitleInput.dispatchEvent(new Event("input", { bubbles: true })); shortTitleInput.dispatchEvent(new Event("change", { bubbles: true })); } else { shortTitleInput.innerText = ""; shortTitleInput.textContent = finalTitle; shortTitleInput.dispatchEvent(new Event("input", { bubbles: true })); } console.log("短标题已填写:", finalTitle); } else { console.log("警告：未找到短标题输入框"); } await new Promise(resolve => setTimeout(resolve, 500)); if (descriptionEditor && tags.length > 0) { descriptionEditor.scrollIntoView({ behavior: "smooth", block: "center" }); descriptionEditor.click(); descriptionEditor.focus(); await new Promise(resolve => setTimeout(resolve, 200)); const contentWithTags = description + " " + tags.map(tag => "#" + tag).join(" "); if (descriptionEditor.tagName === "INPUT") { descriptionEditor.value = ""; descriptionEditor.value = contentWithTags; descriptionEditor.dispatchEvent(new Event("input", { bubbles: true })); descriptionEditor.dispatchEvent(new Event("change", { bubbles: true })); } else { descriptionEditor.innerText = ""; descriptionEditor.textContent = contentWithTags; descriptionEditor.dispatchEvent(new Event("input", { bubbles: true })); } console.log("描述和标签已填写:", contentWithTags); } else if (descriptionEditor) { console.log("只填写描述，无标签"); descriptionEditor.scrollIntoView({ behavior: "smooth", block: "center" }); descriptionEditor.click(); descriptionEditor.focus(); await new Promise(resolve => setTimeout(resolve, 200)); if (descriptionEditor.tagName === "INPUT") { descriptionEditor.value = ""; descriptionEditor.value = description; descriptionEditor.dispatchEvent(new Event("input", { bubbles: true })); descriptionEditor.dispatchEvent(new Event("change", { bubbles: true })); } else { descriptionEditor.innerText = ""; descriptionEditor.textContent = description; descriptionEditor.dispatchEvent(new Event("input", { bubbles: true })); } } return { success: true, shortTitleLength: shortTitleInput ? (shortTitleInput.value || shortTitleInput.textContent).length : 0 }; } catch (error) { console.error("填写失败:", error); return { success: false, error: error.message }; } })()`;
 
         const result = await this.tabManager.executeScript(tabId, titleTagScript);
-        if (!result) {
+        if (!result || !result.success) {
             throw new Error('标题标签填写失败');
         }
+
+        console.log('✅ 标题和标签填写完成，短标题长度:', result.shortTitleLength);
     }
     private async detectUploadStatusNoTimeout(tabId: string): Promise<void> {
         const startTime = Date.now();
-
         console.log("开始检测上传状态（无超时限制）");
 
         while (true) {
             try {
                 const elapsed = (Date.now() - startTime) / 1000;
 
-                // 检查发布按钮状态
+                // 🔥 修复：在Shadow DOM中检查发布按钮状态
                 const checkButtonScript = `
                 (function() {
-                    const button = document.querySelector('button[role="button"]');
-                    const buttons = document.querySelectorAll('button');
-                    
-                    for (const btn of buttons) {
-                        if (btn.textContent && btn.textContent.includes('发表')) {
-                            const buttonClass = btn.getAttribute('class') || '';
-                            return {
-                                found: true,
-                                disabled: buttonClass.includes('weui-desktop-btn_disabled') || btn.disabled
-                            };
+                    try {
+                        const wujieApp = document.querySelector('wujie-app');
+                        if (!wujieApp || !wujieApp.shadowRoot) {
+                            return { found: false, disabled: true, error: '未找到Shadow DOM' };
                         }
+                        
+                        const shadowDoc = wujieApp.shadowRoot;
+                        const buttons = shadowDoc.querySelectorAll('button');
+                        
+                        for (const btn of buttons) {
+                            const buttonText = btn.textContent.trim();
+                            if (buttonText.includes('发表')) {
+                                const isDisabled = btn.disabled || btn.className.includes('weui-desktop-btn_disabled');
+                                return {
+                                    found: true,
+                                    disabled: isDisabled,
+                                    buttonText: buttonText,
+                                    className: btn.className
+                                };
+                            }
+                        }
+                        
+                        return { found: false, disabled: true, error: '未找到发表按钮' };
+                    } catch (e) {
+                        return { found: false, disabled: true, error: e.message };
                     }
-                    
-                    return { found: false, disabled: true };
                 })()
                 `;
 
                 const result = await this.tabManager.executeScript(tabId, checkButtonScript);
 
                 if (result.found && !result.disabled) {
-                    console.log("✅ 上传完成!");
+                    console.log("✅ 发表按钮已激活，上传完成!");
                     break;
                 }
 
@@ -601,40 +542,51 @@ export class WeChatVideoUploader implements PluginUploader {
 
         const publishScript = `
         (async function() {
-            // 等待发布按钮激活
-            let publishButton = null;
-            for (let i = 0; i < 60; i++) {
-                const buttons = document.querySelectorAll('button');
+            try {
+                console.log('开始在Shadow DOM中查找发表按钮...');
+                
+                const wujieApp = document.querySelector('wujie-app');
+                if (!wujieApp || !wujieApp.shadowRoot) {
+                    throw new Error('未找到Shadow DOM');
+                }
+                
+                const shadowDoc = wujieApp.shadowRoot;
+                const buttons = shadowDoc.querySelectorAll('button');
+                
+                let publishButton = null;
                 for (const button of buttons) {
                     const buttonText = button.textContent.trim();
-                    if (buttonText.includes('发表') && !button.disabled && !button.classList.contains('disabled')) {
+                    if (buttonText.includes('发表') && !button.disabled && !button.className.includes('weui-desktop-btn_disabled')) {
                         publishButton = button;
                         break;
                     }
                 }
                 
-                if (publishButton) break;
+                if (!publishButton) {
+                    throw new Error('发布按钮未激活或未找到');
+                }
                 
-                console.log('等待发布按钮激活...', i + 1, '/ 60');
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                // 滚动到按钮并点击
+                publishButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                publishButton.focus();
+                await new Promise(resolve => setTimeout(resolve, 200));
+                
+                publishButton.click();
+                console.log('✅ 已点击发布按钮');
+                
+                return { success: true, buttonText: publishButton.textContent.trim() };
+                
+            } catch (error) {
+                console.error('点击发布失败:', error);
+                throw error;
             }
-
-            if (!publishButton) {
-                throw new Error('发布按钮未激活或未找到');
-            }
-
-            // 滚动到按钮并点击
-            publishButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            publishButton.focus();
-            publishButton.click();
-
-            console.log('✅ 已点击发布按钮');
-            return true;
         })()
         `;
 
         const result = await this.tabManager.executeScript(tabId, publishScript);
-        if (!result) {
+        if (!result || !result.success) {
             throw new Error('发布失败');
         }
     }

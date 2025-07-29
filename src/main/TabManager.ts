@@ -591,28 +591,17 @@ export class TabManager {
         }
 
         console.log('✅ Tab found:', tab.accountName);
-        const accountName = tab.accountName;
-        const cookieFilePath = path.join(__dirname, 'cookies', `${accountName}.json`);
-        await this.cookieManager.saveCookiesFromSession(tab.session, cookieFilePath);
+        const currentUrl = tab.webContentsView.webContents.getURL();
+
         try {
-            const { BrowserWindow, session } = require('electron');
+            const { BrowserWindow } = require('electron');
 
-            console.log('🔧 Creating DevTools using webview approach for Electron 37...');
+            console.log('🔧 使用最简化的 webview 方案...');
 
-            // 🔥 获取当前页面的URL，用于在webview中重新加载
-            const currentUrl = tab.webContentsView.webContents.getURL();
-            console.log('🔧 Current page URL:', currentUrl);
-            const devtoolsSession = tab.session;
+            // 🔥 获取 Cookie 字符串
+            const liveCookies = await tab.webContentsView.webContents.executeJavaScript(`document.cookie`);
+            console.log('🍪 获取到的 Cookie:', liveCookies);
 
-            // 📥 3. 加载 cookie 到 devtools 的 session
-            await this.cookieManager.loadCookiesToSession(devtoolsSession, cookieFilePath)
-            console.log('🔍 验证DevTools session中的Cookie...');
-            const loadedCookies = await devtoolsSession.cookies.get({});
-            console.log(`📊 DevTools session共有 ${loadedCookies.length} 个Cookie:`);
-            loadedCookies.forEach(cookie => {
-                console.log(`   - ${cookie.name}: ${cookie.value.substring(0, 20)}... (domain: ${cookie.domain})`);
-            });
-            // 🔥 创建包含webview的开发者工具窗口
             const devtools = new BrowserWindow({
                 width: 1400,
                 height: 900,
@@ -621,225 +610,184 @@ export class TabManager {
                 webPreferences: {
                     nodeIntegration: false,
                     contextIsolation: true,
-                    devTools: true,  // 这个窗口本身可以有开发者工具
-                    webviewTag: true, // 🔥 关键：启用webview标签
-                    session: tab.session,
+                    devTools: true,
+                    webviewTag: true,
                     webSecurity: false
                 },
                 autoHideMenuBar: true
             });
-            const webviewPartition = `persist:${tabId}`;
-            // 🔥 创建包含webview的HTML页面
+
+            // 🔥 最简化的 HTML - 避免复杂的 JavaScript 模板
             const webviewHTML = `
             <!DOCTYPE html>
             <html>
             <head>
                 <title>DevTools for ${tab.accountName}</title>
                 <style>
-                    body {
-                        margin: 0;
-                        padding: 0;
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        background: #1e1e1e;
-                        display: flex;
-                        flex-direction: column;
-                        height: 100vh;
-                    }
-                    .header {
-                        background: #2d2d30;
-                        color: #cccccc;
-                        padding: 8px 16px;
-                        border-bottom: 1px solid #3c3c3c;
-                        display: flex;
-                        align-items: center;
-                        justify-content: space-between;
-                        min-height: 40px;
-                    }
-                    .url-info {
-                        font-size: 12px;
-                        color: #9cdcfe;
-                        font-family: monospace;
-                    }
-                    .controls {
-                        display: flex;
-                        gap: 8px;
-                    }
-                    .btn {
-                        background: #0e639c;
-                        color: white;
-                        border: none;
-                        padding: 4px 12px;
-                        border-radius: 3px;
-                        cursor: pointer;
-                        font-size: 11px;
-                    }
-                    .btn:hover {
-                        background: #1177bb;
-                    }
-                    .container {
-                        flex: 1;
-                        display: flex;
-                        position: relative;
-                    }
-                    webview {
-                        flex: 1;
-                        border: none;
-                    }
-                    .status {
-                        position: absolute;
-                        top: 50%;
-                        left: 50%;
-                        transform: translate(-50%, -50%);
-                        color: #cccccc;
-                        text-align: center;
-                        pointer-events: none;
-                        z-index: 1000;
-                        background: rgba(45, 45, 48, 0.9);
-                        padding: 20px;
-                        border-radius: 8px;
-                        display: none;
-                    }
-                    .loading {
-                        display: block;
-                    }
+                    body { margin: 0; padding: 0; background: #1e1e1e; display: flex; flex-direction: column; height: 100vh; }
+                    .header { background: #2d2d30; color: #cccccc; padding: 8px 16px; display: flex; justify-content: space-between; min-height: 40px; }
+                    .controls { display: flex; gap: 8px; }
+                    .btn { background: #0e639c; color: white; border: none; padding: 4px 12px; border-radius: 3px; cursor: pointer; font-size: 11px; }
+                    .container { flex: 1; display: flex; position: relative; }
+                    webview { flex: 1; border: none; }
+                    .status { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #cccccc; text-align: center; z-index: 1000; background: rgba(45, 45, 48, 0.9); padding: 20px; border-radius: 8px; display: none; }
+                    .loading { display: block; }
+                    .debug { background: #2d2d30; color: #cccccc; padding: 4px 8px; font-size: 10px; font-family: monospace; max-height: 60px; overflow-y: auto; }
                 </style>
             </head>
             <body>
                 <div class="header">
-                    <div class="url-info">🛠️ DevTools for: ${currentUrl || 'about:blank'}</div>
+                    <div>🛠️ DevTools for: ${currentUrl}</div>
                     <div class="controls">
-                        <button class="btn" onclick="openDevTools()">打开开发者工具</button>
-                        <button class="btn" onclick="refreshPage()">刷新页面</button>
-                        <button class="btn" onclick="inspectMode()">检查元素</button>
+                        <button class="btn" onclick="openDevTools()">打开DevTools</button>
+                        <button class="btn" onclick="refreshPage()">刷新</button>
+                        <button class="btn" onclick="loadTarget()">加载目标页面</button>
                     </div>
                 </div>
                 <div class="container">
-                    <div id="status" class="status loading">
-                        正在加载页面...
-                    </div>
-                    <webview 
-                        id="webview" 
-                        src="${currentUrl || 'about:blank'}"
-                        partition="${webviewPartition}"
-                        webpreferences="contextIsolation=false, nodeIntegration=false, devTools=true"
-                        style="width: 100%; height: 100%;">
-                    </webview>
+                    <div id="status" class="status loading">正在初始化...</div>
+                    <webview id="webview" src="about:blank" webpreferences="contextIsolation=false, nodeIntegration=false, devTools=true" style="width: 100%; height: 100%;"></webview>
                 </div>
+                <div class="debug" id="debug">Debug: 初始化中...</div>
     
                 <script>
-                    console.log('DevTools webview container loaded');
-                    
                     const webview = document.getElementById('webview');
                     const status = document.getElementById('status');
+                    const debug = document.getElementById('debug');
                     
-                    // 🔥 webview事件监听
+                    // 🔥 简化：直接使用原始 Cookie 字符串
+                    const originalCookies = ${JSON.stringify(liveCookies)};
+                    const targetUrl = ${JSON.stringify(currentUrl)};
+                    
+                    let webviewReady = false;
+                    
+                    function log(msg) {
+                        const time = new Date().toLocaleTimeString();
+                        debug.textContent = '[' + time + '] ' + msg;
+                        console.log('🐛 ' + msg);
+                    }
+                    
+                    // 🔥 最简单的 Cookie 注入
+                    function injectCookies() {
+                        if (!originalCookies) {
+                            log('没有 Cookie 需要注入');
+                            return;
+                        }
+                        
+                        log('开始注入 Cookie...');
+                        
+                        // 🔥 使用最简单的方式
+                        const script = 'document.cookie = ' + JSON.stringify(originalCookies) + '; console.log("Cookie 已注入:", document.cookie);';
+                        
+                        webview.executeJavaScript(script).then(() => {
+                            log('Cookie 注入完成');
+                            // 验证注入结果
+                            setTimeout(() => {
+                                webview.executeJavaScript('document.cookie').then(cookies => {
+                                    const hasLogin = cookies.includes('sessionid') && cookies.includes('wxuin');
+                                    log('验证结果: ' + (hasLogin ? '登录成功' : '登录失败'));
+                                    console.log('🔍 注入后的 Cookie:', cookies);
+                                });
+                            }, 500);
+                        }).catch(err => {
+                            log('Cookie 注入失败: ' + err.message);
+                            console.error('❌ Cookie 注入失败:', err);
+                        });
+                    }
+                    
+                    // 加载目标页面
+                    function loadTarget() {
+                        if (!webviewReady) {
+                            log('Webview 未准备好');
+                            return;
+                        }
+                        
+                        log('加载目标页面...');
+                        
+                        // 🔥 简化流程：先注入 Cookie，再导航
+                        injectCookies();
+                        
+                        setTimeout(() => {
+                            webview.src = targetUrl;
+                            log('导航到: ' + targetUrl);
+                        }, 1000);
+                    }
+                    
+                    // 事件监听
                     webview.addEventListener('dom-ready', () => {
                         console.log('✅ Webview DOM ready');
+                        webviewReady = true;
                         status.style.display = 'none';
-                        webview.executeJavaScript(\`
-                        console.log('🍪 页面Cookie:', document.cookie);
-                        console.log('🔐 登录状态检查:', {
-                            cookies: document.cookie,
-                            localStorage: Object.keys(localStorage),
-                            sessionStorage: Object.keys(sessionStorage)
-                            });
-                        \`);
-                        // 🔥 自动打开开发者工具
+                        log('Webview 准备就绪');
+                        
+                        // 自动开始流程
                         setTimeout(() => {
-                            try {
-                                webview.openDevTools();
-                                console.log('✅ DevTools opened in webview');
-                            } catch (error) {
-                                console.error('❌ Failed to open DevTools:', error);
-                            }
+                            loadTarget();
                         }, 1000);
                     });
-    
-                    webview.addEventListener('did-start-loading', () => {
-                        console.log('🔄 Webview started loading');
-                        status.textContent = '正在加载页面...';
-                        status.style.display = 'block';
-                    });
-    
+                    
                     webview.addEventListener('did-finish-load', () => {
-                        console.log('✅ Webview finished loading');
-                        status.style.display = 'none';
+                        console.log('✅ 页面加载完成');
+                        log('页面加载完成');
+                        
+                        // 检查最终状态
+                        setTimeout(() => {
+                            webview.executeJavaScript('({ url: window.location.href, title: document.title, cookies: document.cookie })').then(result => {
+                                log('页面: ' + result.title + ', URL: ' + result.url);
+                                console.log('🔍 最终状态:', result);
+                                
+                                // 如果不是登录页面，自动打开 DevTools
+                                if (!result.url.includes('login.html')) {
+                                    setTimeout(() => {
+                                        openDevTools();
+                                    }, 1000);
+                                } else {
+                                    log('⚠️ 跳转到登录页面，请检查 Cookie');
+                                }
+                            }).catch(err => {
+                                log('状态检查失败: ' + err.message);
+                            });
+                        }, 1000);
                     });
-    
+                    
                     webview.addEventListener('did-fail-load', (event) => {
-                        console.error('❌ Webview failed to load:', event);
-                        status.textContent = '页面加载失败';
-                        status.style.display = 'block';
+                        log('页面加载失败: ' + (event.errorDescription || '未知错误'));
                     });
-    
-                    // 🔥 控制函数
+                    
+                    // 控制函数
                     function openDevTools() {
                         try {
                             webview.openDevTools();
-                            console.log('🛠️ DevTools opened manually');
+                            log('✅ DevTools 已打开');
                         } catch (error) {
-                            console.error('❌ Failed to open DevTools manually:', error);
-                            alert('无法打开开发者工具: ' + error.message);
+                            log('❌ DevTools 打开失败: ' + error.message);
                         }
                     }
-    
+                    
                     function refreshPage() {
                         webview.reload();
-                        console.log('🔄 Page refreshed');
+                        log('页面已刷新');
                     }
-    
-                    function inspectMode() {
-                        try {
-                            // 尝试启用检查模式
-                            webview.executeJavaScript(\`
-                                console.log('🔍 Inspect mode activated');
-                                document.addEventListener('click', function(e) {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    console.log('Element clicked:', e.target);
-                                    return false;
-                                }, true);
-                            \`);
-                            alert('检查模式已激活，点击页面元素查看信息');
-                        } catch (error) {
-                            console.error('❌ Failed to activate inspect mode:', error);
-                        }
-                    }
-    
-                    // 🔥 与原始标签页同步Cookie的功能
-                    function syncWithOriginalTab() {
-                        // 这里可以通过IPC与主进程通信，同步Cookie
-                        console.log('🔄 Syncing with original tab...');
-                    }
-    
-                    // 监听webview的导航事件
-                    webview.addEventListener('did-navigate', (event) => {
-                        console.log('🔗 Webview navigated to:', event.url);
-                        document.querySelector('.url-info').textContent = '🛠️ DevTools for: ' + event.url;
-                    });
-    
-                    console.log('🎉 DevTools container ready');
+                    
+                    log('脚本初始化完成');
                 </script>
             </body>
             </html>
             `;
 
-            // 🔥 加载webview HTML
             await devtools.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(webviewHTML)}`);
 
-            // 窗口关闭处理
             devtools.on('closed', () => {
                 console.log(`🔧 DevTools window closed for: ${tab.accountName}`);
             });
 
-            console.log('✅ WebView-based DevTools created successfully');
+            console.log('✅ 简化版 WebView DevTools 创建成功');
 
         } catch (error) {
-            console.error(`❌ Failed to create webview DevTools:`, error);
+            console.error(`❌ Failed to create DevTools:`, error);
             throw error;
         }
     }
-
 
     private async injectInitScripts(tabId: string): Promise<void> {
         if (this.injectedTabs.has(tabId)) {
