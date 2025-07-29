@@ -132,7 +132,7 @@ class MultiAccountBrowser {
                 nodeIntegration: false,
                 contextIsolation: true,
                 preload: path.join(__dirname, '../preload/preload.js'),
-                devTools: process.env.NODE_ENV === 'development',
+                devTools: true,//process.env.NODE_ENV === 'development',
                 webSecurity: false,
                 allowRunningInsecureContent: true,
                 experimentalFeatures: false,
@@ -347,8 +347,17 @@ class MultiAccountBrowser {
                         label: '开发者工具',
                         accelerator: 'F12',
                         click: () => {
-                            this.mainWindow?.webContents.openDevTools();
+                            // 确保开发者工具能正常打开
+                            if (this.mainWindow) {
+                                const webContents = this.mainWindow.webContents;
+                                if (webContents.isDevToolsOpened()) {
+                                    webContents.closeDevTools();
+                                } else {
+                                    webContents.openDevTools({ mode: 'detach' });
+                                }
+                            }
                         }
+
                     }
                 ]
             },

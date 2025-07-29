@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:*;">
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self' http://localhost:*;">
     <title>多账号浏览器 - Multi-Account Browser</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -78,7 +78,9 @@
             <!-- 无标签页时显示的欢迎信息 -->
             <div id="no-tabs-message" class="no-tabs-message" style="display: none;">
                 <div class="welcome-content">
-                    <div class="welcome-icon">🌐</div>
+                    <div class="welcome-icon">
+                        <img src="../../assets/icon.png" alt="Multi-Account Browser" class="welcome-icon-img">
+                    </div>
                     <h2>多账号浏览器</h2>
                     <p>点击 + 按钮创建第一个账号标签页</p>
                 </div>
@@ -142,30 +144,34 @@
                     <div class="cookie-actions">
                         <button class="btn btn-outline" onclick="handleCookieAction('load')">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                                <path
+                                    d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
                             </svg>
                             加载Cookie
                         </button>
                         <button class="btn btn-outline" onclick="handleCookieAction('save')">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z" />
+                                <path
+                                    d="M15,9H5V5H15M12,19A3,3 0 0,1 9,16A3,3 0 0,1 12,13A3,3 0 0,1 15,16A3,3 0 0,1 12,19M17,3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V7L17,3Z" />
                             </svg>
                             保存Cookie
                         </button>
                         <button class="btn btn-outline btn-warning" onclick="handleCookieAction('clear')">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" />
+                                <path
+                                    d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" />
                             </svg>
                             清除Cookie
                         </button>
                         <button class="btn btn-outline btn-primary" onclick="handleCookieAction('batch-load')">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                                <path
+                                    d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
                             </svg>
                             批量加载
                         </button>
                     </div>
-                    
+
                     <div class="cookie-info">
                         <h4>Cookie 管理说明</h4>
                         <ul>
@@ -174,7 +180,7 @@
                             <li><strong>清除Cookie:</strong> 删除当前标签页的所有 Cookie 和存储数据</li>
                             <li><strong>批量加载:</strong> 为多个标签页加载相同的 Cookie 文件</li>
                         </ul>
-                        
+
                         <div class="cookie-status" id="cookie-status">
                             <span class="status-label">当前标签页:</span>
                             <span class="status-value" id="current-tab-info">请选择一个标签页</span>

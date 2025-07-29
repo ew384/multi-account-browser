@@ -128,14 +128,13 @@ function createChromeTab(tab: TabData): HTMLElement {
 
     // 优先使用页面标题，备选使用账号名
     const displayTitle = tab.displayTitle || tab.accountName || 'New Tab';
-
-    // 图标：优先使用 favicon，备选使用默认图标
+    // 图标：优先使用 favicon，备选使用加载动画
     let iconContent = '';
     if (tab.displayFavicon) {
         iconContent = `<img src="${tab.displayFavicon}" alt="icon" style="width: 16px; height: 16px; border-radius: 2px;" 
-                       onerror="this.style.display='none'; this.parentElement.textContent='🌐';">`;
+                    onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\\'tab-loading-spinner\\'></div>';">`;
     } else {
-        iconContent = '🌐'; // 默认图标
+        iconContent = '<div class="tab-loading-spinner"></div>'; // 加载动画
     }
 
     tabElement.innerHTML = `

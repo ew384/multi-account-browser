@@ -31,6 +31,6 @@ curl -X POST http://localhost:3409/api/account/create \
   -d '{
     "accountName": "endian",
     "platform": "wechat",
-    "cookieFile": "wechat_endian_1753665408744.json",
+    "cookieFile": "wechat_endian_1753752408469.json",
     "initialUrl": "https://channels.weixin.qq.com"
   }'
