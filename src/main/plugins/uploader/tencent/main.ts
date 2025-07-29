@@ -203,6 +203,8 @@ export class WeChatVideoUploader implements PluginUploader {
 
         const titleTagScript = `
         (async function() {
+            const title = ${JSON.stringify(title)};
+            const tags = ${JSON.stringify(tags)};
             // 等待标题编辑器
             let titleEditor = null;
             for (let i = 0; i < 30; i++) {
@@ -222,19 +224,17 @@ export class WeChatVideoUploader implements PluginUploader {
 
             // 清空并输入标题
             titleEditor.innerText = '';
-            titleEditor.textContent = '${title}';
+            titleEditor.textContent = title;
 
             // 触发输入事件
             titleEditor.dispatchEvent(new Event('input', { bubbles: true }));
             titleEditor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 
-            console.log('标题已输入:', '${title}');
-
             // 等待一下
             await new Promise(resolve => setTimeout(resolve, 500));
 
             // 输入标签
-            const tags = ${JSON.stringify(tags)};
+            const tags = tags;
             for (const tag of tags) {
                 // 创建键盘事件来输入标签
                 const hashEvent = new KeyboardEvent('keypress', { 
@@ -532,7 +532,7 @@ export class WeChatVideoUploader implements PluginUploader {
                 console.log('📊 上传状态检查:', details);
                 
                 // 判断上传是否开始
-                const started = fileCount > 0 || hasVideo || hasProgress || hasLoading || hasUploadText || hasDeleteBtn;
+                const started = hasVideo || fileCount > 0 || hasProgress || hasLoading || hasUploadText || hasDeleteBtn;
                 
                 return {
                     started: started,

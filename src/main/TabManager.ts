@@ -602,10 +602,16 @@ export class TabManager {
             // 🔥 获取当前页面的URL，用于在webview中重新加载
             const currentUrl = tab.webContentsView.webContents.getURL();
             console.log('🔧 Current page URL:', currentUrl);
-            const devtoolsSession = tab.session
+            const devtoolsSession = tab.session;
 
             // 📥 3. 加载 cookie 到 devtools 的 session
             await this.cookieManager.loadCookiesToSession(devtoolsSession, cookieFilePath)
+            console.log('🔍 验证DevTools session中的Cookie...');
+            const loadedCookies = await devtoolsSession.cookies.get({});
+            console.log(`📊 DevTools session共有 ${loadedCookies.length} 个Cookie:`);
+            loadedCookies.forEach(cookie => {
+                console.log(`   - ${cookie.name}: ${cookie.value.substring(0, 20)}... (domain: ${cookie.domain})`);
+            });
             // 🔥 创建包含webview的开发者工具窗口
             const devtools = new BrowserWindow({
                 width: 1400,
@@ -617,6 +623,7 @@ export class TabManager {
                     contextIsolation: true,
                     devTools: true,  // 这个窗口本身可以有开发者工具
                     webviewTag: true, // 🔥 关键：启用webview标签
+                    session: tab.session,
                     webSecurity: false
                 },
                 autoHideMenuBar: true
@@ -729,7 +736,14 @@ export class TabManager {
                     webview.addEventListener('dom-ready', () => {
                         console.log('✅ Webview DOM ready');
                         status.style.display = 'none';
-                        
+                        webview.executeJavaScript(\`
+                        console.log('🍪 页面Cookie:', document.cookie);
+                        console.log('🔐 登录状态检查:', {
+                            cookies: document.cookie,
+                            localStorage: Object.keys(localStorage),
+                            sessionStorage: Object.keys(sessionStorage)
+                            });
+                        \`);
                         // 🔥 自动打开开发者工具
                         setTimeout(() => {
                             try {
@@ -1234,7 +1248,15 @@ export class TabManager {
         if (!tab) throw new Error(`Tab ${tabId} not found`);
 
         try {
-            const fullCookiePath = path.join(Config.COOKIE_DIR, cookieFilePath);
+            let fullCookiePath: string;
+
+            if (path.isAbsolute(cookieFilePath)) {
+                // 如果已经是绝对路径，直接使用
+                fullCookiePath = cookieFilePath;
+            } else {
+                // 如果是相对路径，才拼接 Config.COOKIE_DIR
+                fullCookiePath = path.join(Config.COOKIE_DIR, cookieFilePath);
+            }
             console.log(`🔍 准备加载Cookie:`);
             console.log(`   cookieFilePath: ${cookieFilePath}`);
             console.log(`   完整路径: ${fullCookiePath}`);
