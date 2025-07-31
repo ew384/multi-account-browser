@@ -1,7 +1,7 @@
 import { WebContentsView, BrowserWindow, Session } from 'electron';
 import { SessionManager } from './SessionManager';
 import { CookieManager } from './CookieManager';
-import { AccountTab } from '../types';
+import { AccountTab, TabLockInfo } from '../types';
 import { HeadlessManager } from './HeadlessManager';
 import { Config } from './config/Config';
 import { AccountStorage } from './plugins/login/base/AccountStorage';
@@ -13,6 +13,7 @@ interface AccountInfo {
     platform: string;
     platformType: number;
 }
+
 export class TabManager {
     private tabs: Map<string, AccountTab> = new Map();
     private activeTabId: string | null = null;
@@ -30,6 +31,12 @@ export class TabManager {
     private readonly TOP_OFFSET = 108; // 60px header + 48px tab-bar
     private initScripts: Map<string, string[]> = new Map();
     private stealthScript: string | null = null;
+    private readonly LOCK_PRIORITIES: Record<string, number> = {
+        'message': 100,         // 消息同步 - 最高优先级
+        'upload': 90,           // 视频发布
+        'monitor': 10,          // 监控任务
+        'temp': 1               // 临时锁定
+    };
     constructor(mainWindow: BrowserWindow, sessionManager: SessionManager) {
         this.mainWindow = mainWindow;
         this.sessionManager = sessionManager;
@@ -37,6 +44,95 @@ export class TabManager {
         this.headlessManager = HeadlessManager.getInstance();
         this.setupWindowEvents();
         this.loadStealthScript();
+    }
+    lockTab(tabId: string, owner: string, reason: string, priority?: number): boolean {
+        const tab = this.tabs.get(tabId);
+        if (!tab) {
+            console.error(`❌ Tab不存在: ${tabId}`);
+            return false;
+        }
+
+        const lockPriority = priority || this.LOCK_PRIORITIES[owner] || this.LOCK_PRIORITIES['temp'];
+
+        // 检查是否已被锁定
+        if (tab.isLocked && tab.lockInfo) {
+            // 比较优先级，高优先级可以抢占低优先级的锁
+            if (lockPriority <= tab.lockInfo.priority) {
+                console.warn(`⚠️ Tab已被更高优先级锁定: ${tab.accountName} (当前: ${tab.lockInfo.owner}, 尝试: ${owner})`);
+                return false;
+            } else {
+                console.log(`🔄 高优先级抢占锁: ${tab.accountName} (${tab.lockInfo.owner} -> ${owner})`);
+            }
+        }
+
+        // 🔥 直接设置到 AccountTab 接口字段
+        tab.lockInfo = {
+            owner: owner,
+            reason: reason,
+            lockTime: new Date().toISOString(),
+            priority: lockPriority
+        };
+        tab.isLocked = true;
+
+        console.log(`🔒 Tab已锁定: ${tab.accountName} by ${owner} - ${reason} (优先级: ${lockPriority})`);
+        return true;
+    }
+
+    unlockTab(tabId: string, owner: string): boolean {
+        const tab = this.tabs.get(tabId);
+        if (!tab) {
+            console.error(`❌ Tab不存在: ${tabId}`);
+            return false;
+        }
+
+        if (!tab.isLocked || !tab.lockInfo) {
+            console.warn(`⚠️ Tab未被锁定: ${tab.accountName}`);
+            return true;
+        }
+
+        // 检查锁定所有者
+        if (tab.lockInfo.owner !== owner) {
+            console.error(`❌ 无权解锁Tab: ${tab.accountName} (锁定者: ${tab.lockInfo.owner}, 尝试解锁: ${owner})`);
+            return false;
+        }
+
+        // 🔥 直接清理 AccountTab 接口字段
+        delete tab.lockInfo;
+        tab.isLocked = false;
+
+        console.log(`🔓 Tab已解锁: ${tab.accountName} by ${owner}`);
+        return true;
+    }
+
+    isTabAvailableForReuse(tab: AccountTab): boolean {
+        return !tab.isLocked;  // 🔥 直接使用接口字段
+    }
+
+    getTabLockStatus(tabId: string): { isLocked: boolean; lockInfo?: TabLockInfo } {
+        const tab = this.tabs.get(tabId);
+        if (!tab) {
+            return { isLocked: false };
+        }
+
+        return {
+            isLocked: tab.isLocked || false,  // 🔥 直接使用接口字段
+            lockInfo: tab.lockInfo
+        };
+    }
+
+    forceUnlockTab(tabId: string, reason: string = '强制解锁'): boolean {
+        const tab = this.tabs.get(tabId);
+        if (!tab) {
+            return false;
+        }
+
+        if (tab.isLocked) {
+            console.warn(`⚡ 强制解锁Tab: ${tab.accountName} - ${reason}`);
+            delete tab.lockInfo;
+            tab.isLocked = false;
+        }
+
+        return true;
     }
     private loadStealthScript(): void {
         try {
@@ -411,9 +507,10 @@ export class TabManager {
                 webContentsView: webContentsView,
                 loginStatus: 'unknown',
                 url: initialUrl,
-                // 🔥 新增：headless 相关字段
                 isHeadless: finalHeadless,
-                isVisible: !finalHeadless
+                isVisible: !finalHeadless,
+                // 🔥 初始化锁定状态
+                isLocked: false
             };
 
             this.tabs.set(tabId, tab);
@@ -507,20 +604,11 @@ export class TabManager {
     }
 
     async getOrCreateTab(cookieFile: string, platform: string, initialUrl: string, tabNamePrefix?: string): Promise<string> {
-        /**
-         * Get or create a tab - general method
-         * 
-         * @param cookieFile - Cookie file path/name, used as identifier
-         * @param platform - Platform name (xiaohongshu, wechat, douyin, kuaishou)
-         * @param initialUrl - Initial URL
-         * @param tabNamePrefix - Tab name prefix, e.g. "视频号_", "抖音_"
-         * @returns Tab ID
-         */
         console.log(`🚀 Getting or creating tab for ${cookieFile} on ${platform}...`);
 
         const cookieIdentifier = typeof cookieFile === 'string' ? path.basename(cookieFile) : String(cookieFile);
 
-        // 1. Check existing tabs
+        // 1. Check existing tabs - 🔥 添加锁定检查
         try {
             const existingTabs = await this.getAllTabs();
             if (existingTabs) {
@@ -529,16 +617,20 @@ export class TabManager {
                     if (tabCookieFile) {
                         const tabCookieName = path.basename(tabCookieFile);
                         if (tabCookieName === cookieIdentifier) {
-                            console.log(`🔄 Reusing existing tab: ${tab.id} (Cookie match: ${cookieIdentifier})`);
+                            // 🔥 关键检查：是否被锁定
+                            if (!this.isTabAvailableForReuse(tab)) {
+                                const extendedTab = tab as any;
+                                console.log(`🔒 Tab被锁定，跳过复用: ${tab.id} (锁定者: ${extendedTab.lockInfo?.owner}, 原因: ${extendedTab.lockInfo?.reason})`);
+                                continue; // 跳过被锁定的tab
+                            }
+                            
+                            console.log(`🔄 复用可用Tab: ${tab.id}`);
                             const currentUrl = tab.webContentsView.webContents.getURL();
                             if (currentUrl !== initialUrl) {
-                                console.log(`🔗 Tab URL mismatch, navigating from ${currentUrl} to ${initialUrl}`);
                                 await this.navigateTab(tab.id, initialUrl);
                             }
                             return tab.id;
                         }
-                    } else {
-                        console.log(`📋 Tab ${cookieFile} doesn't match (Cookie: ${tab.cookieFile})`);
                     }
                 }
             }
@@ -546,13 +638,12 @@ export class TabManager {
             console.error(`⚠️ Failed to query existing tabs:`, e);
         }
 
-        // 2. Create new tab
+        // 2. 创建新tab的逻辑保持不变...
+        // ... 现有创建逻辑
         try {
-            // Get account info for naming
             const accountInfo = await AccountStorage.getAccountInfoFromDb(cookieFile);
             const accountName = accountInfo?.username || 'unknown';
 
-            // Generate tab name
             let fullTabName: string;
             if (tabNamePrefix) {
                 fullTabName = `${tabNamePrefix}${accountName}`;
@@ -567,7 +658,6 @@ export class TabManager {
                 fullTabName = `${prefix}${accountName}`;
             }
 
-            // Create tab (pass cookieFile directly for one-step process)
             const tabId = await this.createAccountTab(
                 fullTabName,
                 platform,
@@ -1363,14 +1453,21 @@ export class TabManager {
         if (!tab) return;
 
         try {
-            // 如果是当前活动标签页，先移除显示
+            // 🔥 清理锁定状态
+            const extendedTab = tab as any;
+            if (extendedTab.isLocked) {
+                console.log(`🔓 清理已锁定Tab的锁定状态: ${tab.accountName}`);
+                delete extendedTab.lockInfo;
+                extendedTab.isLocked = false;
+            }
+
+            // ... 其余现有关闭逻辑保持不变
             if (this.activeTabId === tabId) {
                 if (!tab.isHeadless) {
                     this.mainWindow.contentView.removeChildView(tab.webContentsView);
                 }
                 this.activeTabId = null;
 
-                // 自动切换到下一个标签页
                 const remainingVisibleTabs = Array.from(this.tabs.keys())
                     .filter(id => id !== tabId)
                     .filter(id => {
@@ -1383,7 +1480,6 @@ export class TabManager {
                 }
             }
 
-            // 清理资源
             try {
                 tab.webContentsView.webContents.close();
             } catch (error) {
@@ -1404,6 +1500,65 @@ export class TabManager {
             console.error(`❌ Failed to close tab ${tabId}:`, error);
             throw error;
         }
+    }
+
+    /**
+     * 🔥 为消息同步创建专用Tab
+     */
+    async createMessageTab(platform: string, accountId: string, cookieFile: string): Promise<string> {
+        const accountKey = `${platform}_${accountId}`;
+        
+        try {
+            // 创建headless tab
+            const tabId = await this.createHeadlessTab(
+                `消息_${accountId}`, 
+                platform, 
+                this.getMessageUrl(platform)
+            );
+            
+            // 加载Cookie
+            await this.loadAccountCookies(tabId, cookieFile);
+            
+            // 🔥 立即锁定这个tab
+            const lockSuccess = this.lockTab(tabId, 'message', '消息同步发送专用');
+            if (!lockSuccess) {
+                console.warn(`⚠️ 无法锁定消息Tab: ${tabId}`);
+            }
+            
+            console.log(`✅ 消息专用Tab创建完成: ${tabId}`);
+            return tabId;
+            
+        } catch (error) {
+            console.error(`❌ 创建消息Tab失败: ${accountKey}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * 🔥 清理消息Tab
+     */
+    async cleanupMessageTab(tabId: string): Promise<void> {
+        try {
+            // 先解锁，再关闭
+            this.unlockTab(tabId, 'message');
+            await this.closeTab(tabId);
+            console.log(`✅ 消息Tab清理完成: ${tabId}`);
+        } catch (error) {
+            console.error(`❌ 清理消息Tab失败: ${tabId}:`, error);
+        }
+    }
+
+    /**
+     * 🔥 获取平台消息URL
+     */
+    private getMessageUrl(platform: string): string {
+        const messageUrls: Record<string, string> = {
+            'wechat': 'https://channels.weixin.qq.com/platform/private_msg',
+            'xiaohongshu': 'https://creator.xiaohongshu.com/creator/post',
+            // 其他平台...
+        };
+        
+        return messageUrls[platform] || 'about:blank';
     }
 
     async executeScript(tabId: string, script: string): Promise<any> {

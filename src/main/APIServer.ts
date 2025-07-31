@@ -1529,6 +1529,7 @@ export class APIServer {
             try {
                 const systemStatus = this.automationEngine.getSystemStatus();
                 const messageEngineStatus = this.messageAPI.getMessageEngine().getEngineStatus();
+                const scheduleSystemStatus = this.messageAPI.getMessageEngine().getScheduleSystemStatus();
 
                 res.json({
                     success: true,
@@ -1537,8 +1538,9 @@ export class APIServer {
                     system: systemStatus,
                     messageEngine: {
                         initializedPlugins: messageEngineStatus.initializedPlugins,
-                        activeSchedulers: messageEngineStatus.activeSchedulers,
-                        totalThreads: messageEngineStatus.totalThreads
+                        activeSchedulers: scheduleSystemStatus.runningTasks,      // ✅ 使用正确的属性
+                        totalTasks: scheduleSystemStatus.totalTasks,              // ✅ 使用正确的属性
+                        syncStatuses: messageEngineStatus.syncStatuses.length
                     }
                 });
             } catch (error) {
