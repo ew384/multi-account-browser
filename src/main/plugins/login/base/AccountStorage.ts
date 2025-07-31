@@ -1,8 +1,6 @@
-// src/main/plugins/login/base/AccountStorage.ts 扩展版 - 第一阶段实现
+// src/main/plugins/login/base/AccountStorage.ts - Better-SQLite3 版本
 
-import sqlite3 from 'sqlite3';
-import { open, Database } from 'sqlite';
-
+import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AccountInfo } from '../../../../types/pluginInterface';
@@ -29,23 +27,50 @@ const PLATFORM_NAME_MAP: Record<string, number> = {
     'tiktok': 5
 };
 
+// 🔥 数据库单例 - 与 MessageStorage 共享
+let dbInstance: Database.Database | null = null;
+
 export class AccountStorage {
+
+    /**
+     * 🔥 获取数据库实例（与 MessageStorage 共享）
+     */
+    private static getDatabase(): Database.Database {
+        if (!dbInstance) {
+            // 确保数据库目录存在
+            if (!fs.existsSync(Config.DB_DIR)) {
+                fs.mkdirSync(Config.DB_DIR, { recursive: true });
+            }
+
+            dbInstance = new Database(Config.DB_PATH);
+            
+            // 设置性能优化选项
+            dbInstance.pragma('journal_mode = WAL');
+            dbInstance.pragma('synchronous = NORMAL');
+            dbInstance.pragma('cache_size = 1000');
+            dbInstance.pragma('temp_store = memory');
+            
+            console.log('✅ Better-SQLite3 数据库连接已建立 (AccountStorage)');
+        }
+        
+        return dbInstance;
+    }
 
     /**
      * 🔥 数据库初始化 - 对应 Python 的 createTable.py
      */
-    static async initializeDatabase(): Promise<void> {
+    static initializeDatabase(): void {
         // 防止重复初始化
         if (dbInitialized) {
-            console.log('✅ 数据库已初始化，跳过');
+            console.log('✅ 账号数据库已初始化，跳过');
             return;
         }
 
         if (dbInitializing) {
-            console.log('⏳ 数据库正在初始化中，等待完成...');
-            // 等待初始化完成
+            console.log('⏳ 账号数据库正在初始化中，等待完成...');
             while (dbInitializing) {
-                await new Promise(resolve => setTimeout(resolve, 100));
+                // 同步等待
+                require('child_process').spawnSync('sleep', ['0.1']);
             }
             return;
         }
@@ -53,21 +78,12 @@ export class AccountStorage {
         dbInitializing = true;
 
         try {
-            console.log('🚀 开始初始化数据库...');
+            console.log('🚀 开始初始化账号数据库...');
 
-            // 确保数据库目录存在
-            await fs.promises.mkdir(Config.DB_DIR, { recursive: true });
-
-            // 确保视频文件目录存在
-            await fs.promises.mkdir(Config.VIDEO_DIR, { recursive: true });
-
-            const db = await open({
-                filename: Config.DB_PATH,
-                driver: sqlite3.Database
-            });
+            const db = this.getDatabase();
 
             // 🔥 创建分组表
-            await db.exec(`
+            db.exec(`
                 CREATE TABLE IF NOT EXISTS account_groups (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name VARCHAR(100) NOT NULL UNIQUE,
@@ -82,7 +98,7 @@ export class AccountStorage {
             console.log('✅ account_groups 表创建成功');
 
             // 🔥 创建账号记录表（包含所有新字段）
-            await db.exec(`
+            db.exec(`
                 CREATE TABLE IF NOT EXISTS user_info (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     type INTEGER NOT NULL,
@@ -106,7 +122,7 @@ export class AccountStorage {
             console.log('✅ user_info 表创建成功（包含账号信息字段）');
 
             // 🔥 创建文件记录表
-            await db.exec(`
+            db.exec(`
                 CREATE TABLE IF NOT EXISTS file_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     filename TEXT NOT NULL,
@@ -118,7 +134,7 @@ export class AccountStorage {
             console.log('✅ file_records 表创建成功');
 
             // 🔥 创建索引以提高查询性能
-            await db.exec(`
+            db.exec(`
                 CREATE INDEX IF NOT EXISTS idx_user_info_type ON user_info(type);
                 CREATE INDEX IF NOT EXISTS idx_user_info_filepath ON user_info(filePath);
                 CREATE INDEX IF NOT EXISTS idx_user_info_group ON user_info(group_id);
@@ -127,18 +143,16 @@ export class AccountStorage {
             console.log('✅ 数据库索引创建成功');
 
             // 🔥 插入默认分组数据
-            await this.insertDefaultGroups(db);
+            this.insertDefaultGroups(db);
 
             // 🔥 显示数据库信息
-            await this.showDatabaseInfo(db);
-
-            await db.close();
+            this.showDatabaseInfo(db);
 
             dbInitialized = true;
-            console.log('🎉 数据库初始化完成！');
+            console.log('🎉 账号数据库初始化完成！');
 
         } catch (error) {
-            console.error('❌ 数据库初始化失败:', error);
+            console.error('❌ 账号数据库初始化失败:', error);
             throw error;
         } finally {
             dbInitializing = false;
@@ -148,7 +162,7 @@ export class AccountStorage {
     /**
      * 🔥 插入默认分组数据
      */
-    private static async insertDefaultGroups(db: Database): Promise<void> {
+    private static insertDefaultGroups(db: Database.Database): void {
         const defaultGroups = [
             { name: '微信视频号', description: '微信视频号账号分组', color: '#10B981', icon: 'Video', sortOrder: 1 },
             { name: '抖音', description: '抖音账号分组', color: '#EF4444', icon: 'Music', sortOrder: 2 },
@@ -158,15 +172,14 @@ export class AccountStorage {
 
         let insertedCount = 0;
 
+        const insertStmt = db.prepare(`
+            INSERT OR IGNORE INTO account_groups (name, description, color, icon, sort_order)
+            VALUES (?, ?, ?, ?, ?)
+        `);
+
         for (const group of defaultGroups) {
             try {
-                await db.run(`
-                    INSERT OR IGNORE INTO account_groups (name, description, color, icon, sort_order)
-                    VALUES (?, ?, ?, ?, ?)
-                `, [group.name, group.description, group.color, group.icon, group.sortOrder]);
-
-                // 检查是否插入成功
-                const result = await db.get('SELECT changes() as changes');
+                const result = insertStmt.run(group.name, group.description, group.color, group.icon, group.sortOrder);
                 if (result.changes > 0) {
                     insertedCount++;
                 }
@@ -181,40 +194,47 @@ export class AccountStorage {
     /**
      * 🔥 显示数据库信息
      */
-    private static async showDatabaseInfo(db: Database): Promise<void> {
+    private static showDatabaseInfo(db: Database.Database): void {
         try {
-            console.log('\n📋 数据库表结构信息:');
+            console.log('\n📋 账号数据库表结构信息:');
 
             const tables = ['account_groups', 'user_info', 'file_records'];
 
             for (const table of tables) {
                 console.log(`\n📊 ${table} 表结构:`);
-                const columns = await db.all(`PRAGMA table_info(${table})`);
+                const columns = db.pragma(`table_info(${table})`) as Array<{
+                    cid: number;
+                    name: string;
+                    type: string;
+                    notnull: number;
+                    dflt_value: any;
+                    pk: number;
+                }>;
                 for (const col of columns) {
                     console.log(`   ${col.name} (${col.type}) - ${col.notnull ? 'NOT NULL' : 'NULL'}`);
                 }
             }
 
             // 显示统计信息
-            const groupsCount = await db.get("SELECT COUNT(*) as count FROM account_groups");
-            const usersCount = await db.get("SELECT COUNT(*) as count FROM user_info");
-            const filesCount = await db.get("SELECT COUNT(*) as count FROM file_records");
+            const groupsCount = db.prepare("SELECT COUNT(*) as count FROM account_groups").get() as { count: number };
+            const usersCount = db.prepare("SELECT COUNT(*) as count FROM user_info").get() as { count: number };
+            const filesCount = db.prepare("SELECT COUNT(*) as count FROM file_records").get() as { count: number };
 
-            console.log(`\n📈 数据库统计:`);
+            console.log(`\n📈 账号数据库统计:`);
             console.log(`   分组数量: ${groupsCount.count}`);
             console.log(`   账号数量: ${usersCount.count}`);
             console.log(`   文件数量: ${filesCount.count}`);
             console.log(`   数据库文件: ${Config.DB_PATH}`);
 
         } catch (error) {
-            console.warn('⚠️ 显示数据库信息失败:', error);
+            console.warn('⚠️ 显示账号数据库信息失败:', error);
         }
     }
 
     /**
      * 🔥 检查数据库是否已初始化
      */
-    static async isDatabaseInitialized(): Promise<boolean> {
+    static isDatabaseInitialized(): boolean {
         try {
             // 检查数据库文件是否存在
             if (!fs.existsSync(Config.DB_PATH)) {
@@ -222,33 +242,26 @@ export class AccountStorage {
             }
 
             // 检查必要的表是否存在
-            const db = await open({
-                filename: Config.DB_PATH,
-                driver: sqlite3.Database
-            });
-
+            const db = this.getDatabase();
             const requiredTables = ['account_groups', 'user_info', 'file_records'];
 
             for (const table of requiredTables) {
-                const result = await db.get(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                    [table]
-                );
+                const result = db.prepare(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+                ).get(table);
 
                 if (!result) {
-                    console.log(`❌ 表 ${table} 不存在`);
-                    await db.close();
+                    console.log(`❌ 账号表 ${table} 不存在`);
                     return false;
                 }
             }
 
-            await db.close();
-            console.log('✅ 数据库已正确初始化');
+            console.log('✅ 账号数据库已正确初始化');
             dbInitialized = true;
             return true;
 
         } catch (error) {
-            console.error('❌ 检查数据库状态失败:', error);
+            console.error('❌ 检查账号数据库状态失败:', error);
             return false;
         }
     }
@@ -256,33 +269,18 @@ export class AccountStorage {
     /**
      * 🔥 确保数据库已初始化（应用启动时调用）
      */
-    static async ensureDatabaseInitialized(): Promise<void> {
-        console.log('🔍 检查数据库初始化状态...');
+    static ensureDatabaseInitialized(): void {
+        console.log('🔍 检查账号数据库初始化状态...');
 
-        const isInitialized = await this.isDatabaseInitialized();
+        const isInitialized = this.isDatabaseInitialized();
 
         if (!isInitialized) {
-            console.log('🔧 数据库未初始化，开始初始化...');
-            await this.initializeDatabase();
+            console.log('🔧 账号数据库未初始化，开始初始化...');
+            this.initializeDatabase();
         } else {
-            console.log('✅ 数据库已初始化');
+            console.log('✅ 账号数据库已初始化');
             dbInitialized = true;
         }
-    }
-
-    /**
-     * 🔥 获取数据库连接（内部使用）
-     */
-    static async getDatabase(): Promise<Database> {
-        // 确保数据库已初始化
-        if (!dbInitialized) {
-            await this.ensureDatabaseInitialized();
-        }
-
-        return await open({
-            filename: Config.DB_PATH,
-            driver: sqlite3.Database
-        });
     }
 
     // ==================== 账号管理相关方法 ====================
@@ -291,21 +289,21 @@ export class AccountStorage {
      * 🔥 获取有效账号列表 - 对应 Python 的 getValidAccounts
      * 注意：不包含验证逻辑，纯数据库查询，返回前端格式
      */
-    static async getValidAccountsForFrontend(): Promise<any[]> {
+    static getValidAccountsForFrontend(): any[] {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const accounts = await db.all(`
-            SELECT id, type, filePath, userName, status, last_check_time, check_interval,
-                   account_id, real_name, followers_count, videos_count, bio, avatar_url, local_avatar
-            FROM user_info
-        `);
-
-            await db.close();
+            const stmt = db.prepare(`
+                SELECT id, type, filePath, userName, status, last_check_time, check_interval,
+                       account_id, real_name, followers_count, videos_count, bio, avatar_url, local_avatar
+                FROM user_info
+            `);
+            
+            const accounts = stmt.all();
 
             const results = [];
 
-            for (const row of accounts) {
+            for (const row of accounts as any[]) {
                 const {
                     id: user_id,
                     type: type_val,
@@ -348,28 +346,29 @@ export class AccountStorage {
             throw error;
         }
     }
+
     /**
      * 🔥 获取带分组信息的账号列表 - 对应 Python 的 getAccountsWithGroups
      */
-    static async getAccountsWithGroupsForFrontend(forceCheck: boolean = false): Promise<any[]> {
+    static getAccountsWithGroupsForFrontend(forceCheck: boolean = false): any[] {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const accounts = await db.all(`
-            SELECT u.id, u.type, u.filePath, u.userName, u.status, u.group_id, 
-                   u.last_check_time, u.check_interval,
-                   u.account_id, u.real_name, u.followers_count, u.videos_count, 
-                   u.bio, u.avatar_url, u.local_avatar,
-                   g.name as group_name, g.color as group_color, g.icon as group_icon
-            FROM user_info u
-            LEFT JOIN account_groups g ON u.group_id = g.id
-        `);
-
-            await db.close();
+            const stmt = db.prepare(`
+                SELECT u.id, u.type, u.filePath, u.userName, u.status, u.group_id, 
+                       u.last_check_time, u.check_interval,
+                       u.account_id, u.real_name, u.followers_count, u.videos_count, 
+                       u.bio, u.avatar_url, u.local_avatar,
+                       g.name as group_name, g.color as group_color, g.icon as group_icon
+                FROM user_info u
+                LEFT JOIN account_groups g ON u.group_id = g.id
+            `);
+            
+            const accounts = stmt.all();
 
             const results = [];
 
-            for (const row of accounts) {
+            for (const row of accounts as any[]) {
                 const {
                     id: user_id,
                     type: type_val,
@@ -427,15 +426,15 @@ export class AccountStorage {
     /**
      * 🔥 删除账号 - 对应 Python 的 delete_account
      */
-    static async deleteAccount(accountId: number): Promise<{ success: boolean, message: string, data?: any }> {
+    static deleteAccount(accountId: number): { success: boolean, message: string, data?: any } {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             // 查询要删除的记录
-            const record = await db.get("SELECT * FROM user_info WHERE id = ?", [accountId]);
+            const selectStmt = db.prepare("SELECT * FROM user_info WHERE id = ?");
+            const record = selectStmt.get(accountId) as any;
 
             if (!record) {
-                await db.close();
                 return {
                     success: false,
                     message: "account not found"
@@ -443,8 +442,8 @@ export class AccountStorage {
             }
 
             // 删除数据库记录
-            await db.run("DELETE FROM user_info WHERE id = ?", [accountId]);
-            await db.close();
+            const deleteStmt = db.prepare("DELETE FROM user_info WHERE id = ?");
+            deleteStmt.run(accountId);
 
             return {
                 success: true,
@@ -464,13 +463,13 @@ export class AccountStorage {
     /**
      * 🔥 更新账号信息 - 对应 Python 的 updateUserinfo
      */
-    static async updateUserinfo(updateData: {
+    static updateUserinfo(updateData: {
         id: number,
         type?: number,
         userName?: string,
         filePath?: string,  // 🔥 新增 filePath 参数
         status?: number
-    }): Promise<{ success: boolean, message: string, data?: any }> {
+    }): { success: boolean, message: string, data?: any } {
         try {
             const { id: user_id, type, userName, filePath, status } = updateData;
 
@@ -481,7 +480,7 @@ export class AccountStorage {
                 };
             }
 
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             // 动态构建更新SQL
             const updateFields = [];
@@ -502,12 +501,13 @@ export class AccountStorage {
                 updateFields.push('filePath = ?');
                 updateValues.push(filePath);
             }
+            
             if (status !== undefined) {  // 🔥 添加这个条件
                 updateFields.push('status = ?');
                 updateValues.push(status);
             }
+            
             if (updateFields.length === 0) {
-                await db.close();
                 return {
                     success: false,
                     message: "没有提供要更新的字段"
@@ -517,8 +517,8 @@ export class AccountStorage {
             updateValues.push(user_id);
 
             const sql = `UPDATE user_info SET ${updateFields.join(', ')} WHERE id = ?`;
-            await db.run(sql, updateValues);
-            await db.close();
+            const stmt = db.prepare(sql);
+            stmt.run(...updateValues);
 
             return {
                 success: true,
@@ -538,13 +538,13 @@ export class AccountStorage {
     /**
      * 🔥 添加账号 - 基础添加功能
      */
-    static async addAccount(accountData: {
+    static addAccount(accountData: {
         type: number,
         filePath: string,
         userName: string,
         status?: number,
         group_id?: number
-    }): Promise<{ success: boolean, message: string, data?: any }> {
+    }): { success: boolean, message: string, data?: any } {
         try {
             const { type, filePath, userName, status = 0, group_id } = accountData;
 
@@ -555,19 +555,19 @@ export class AccountStorage {
                 };
             }
 
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const result = await db.run(`
+            const stmt = db.prepare(`
                 INSERT INTO user_info (type, filePath, userName, status, group_id, updated_at)
                 VALUES (?, ?, ?, ?, ?, datetime('now'))
-            `, [type, filePath, userName, status, group_id]);
-
-            await db.close();
+            `);
+            
+            const result = stmt.run(type, filePath, userName, status, group_id);
 
             return {
                 success: true,
                 message: "账号添加成功",
-                data: { id: result.lastID }
+                data: { id: result.lastInsertRowid }
             };
 
         } catch (error) {
@@ -584,11 +584,11 @@ export class AccountStorage {
     /**
      * 🔥 获取所有分组 - 对应 Python 的 get_groups
      */
-    static async getAllGroups(): Promise<{ success: boolean, message: string, data?: any }> {
+    static getAllGroups(): { success: boolean, message: string, data?: any } {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const groups = await db.all(`
+            const stmt = db.prepare(`
                 SELECT 
                     g.id, 
                     g.name, 
@@ -604,8 +604,8 @@ export class AccountStorage {
                 GROUP BY g.id, g.name, g.description, g.color, g.icon, g.sort_order, g.created_at, g.updated_at
                 ORDER BY g.sort_order ASC, g.id ASC
             `);
-
-            await db.close();
+            
+            const groups = stmt.all();
 
             return {
                 success: true,
@@ -625,13 +625,13 @@ export class AccountStorage {
     /**
      * 🔥 创建分组 - 对应 Python 的 create_group
      */
-    static async createGroup(groupData: {
+    static createGroup(groupData: {
         name: string,
         description?: string,
         color?: string,
         icon?: string,
         sort_order?: number
-    }): Promise<{ success: boolean, message: string, data?: any }> {
+    }): { success: boolean, message: string, data?: any } {
         try {
             const {
                 name,
@@ -648,25 +648,23 @@ export class AccountStorage {
                 };
             }
 
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             try {
-                const result = await db.run(`
+                const stmt = db.prepare(`
                     INSERT INTO account_groups (name, description, color, icon, sort_order, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-                `, [name, description, color, icon, sort_order]);
-
-                await db.close();
+                `);
+                
+                const result = stmt.run(name, description, color, icon, sort_order);
 
                 return {
                     success: true,
                     message: "分组创建成功",
-                    data: { id: result.lastID }
+                    data: { id: result.lastInsertRowid }
                 };
 
             } catch (sqlError: any) {
-                await db.close();
-
                 if (sqlError.code === 'SQLITE_CONSTRAINT_UNIQUE') {
                     return {
                         success: false,
@@ -688,14 +686,14 @@ export class AccountStorage {
     /**
      * 🔥 更新分组 - 对应 Python 的 update_group
      */
-    static async updateGroup(updateData: {
+    static updateGroup(updateData: {
         id: number,
         name?: string,
         description?: string,
         color?: string,
         icon?: string,
         sort_order?: number
-    }): Promise<{ success: boolean, message: string, data?: any }> {
+    }): { success: boolean, message: string, data?: any } {
         try {
             const { id: group_id, name, description, color, icon, sort_order } = updateData;
 
@@ -706,7 +704,7 @@ export class AccountStorage {
                 };
             }
 
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             // 动态构建更新SQL
             const updateFields = [];
@@ -738,7 +736,6 @@ export class AccountStorage {
             }
 
             if (updateFields.length === 0) {
-                await db.close();
                 return {
                     success: false,
                     message: "没有提供要更新的字段"
@@ -750,8 +747,8 @@ export class AccountStorage {
 
             try {
                 const sql = `UPDATE account_groups SET ${updateFields.join(', ')} WHERE id = ?`;
-                await db.run(sql, updateValues);
-                await db.close();
+                const stmt = db.prepare(sql);
+                stmt.run(...updateValues);
 
                 return {
                     success: true,
@@ -760,8 +757,6 @@ export class AccountStorage {
                 };
 
             } catch (sqlError: any) {
-                await db.close();
-
                 if (sqlError.code === 'SQLITE_CONSTRAINT_UNIQUE') {
                     return {
                         success: false,
@@ -783,16 +778,21 @@ export class AccountStorage {
     /**
      * 🔥 删除分组 - 对应 Python 的 delete_group
      */
-    static async deleteGroup(groupId: number): Promise<{ success: boolean, message: string, data?: any }> {
+    static deleteGroup(groupId: number): { success: boolean, message: string, data?: any } {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            // 先将该分组的账号设为未分组
-            await db.run('UPDATE user_info SET group_id = NULL WHERE group_id = ?', [groupId]);
+            const transaction = db.transaction(() => {
+                // 先将该分组的账号设为未分组
+                const updateStmt = db.prepare('UPDATE user_info SET group_id = NULL WHERE group_id = ?');
+                updateStmt.run(groupId);
 
-            // 删除分组
-            await db.run('DELETE FROM account_groups WHERE id = ?', [groupId]);
-            await db.close();
+                // 删除分组
+                const deleteStmt = db.prepare('DELETE FROM account_groups WHERE id = ?');
+                deleteStmt.run(groupId);
+            });
+
+            transaction();
 
             return {
                 success: true,
@@ -812,10 +812,10 @@ export class AccountStorage {
     /**
      * 🔥 更新账号分组 - 对应 Python 的 update_account_group
      */
-    static async updateAccountGroup(updateData: {
+    static updateAccountGroup(updateData: {
         account_id: number,
         group_id?: number | null
-    }): Promise<{ success: boolean, message: string, data?: any }> {
+    }): { success: boolean, message: string, data?: any } {
         try {
             const { account_id, group_id } = updateData;
 
@@ -826,15 +826,15 @@ export class AccountStorage {
                 };
             }
 
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            await db.run(`
+            const stmt = db.prepare(`
                 UPDATE user_info
                 SET group_id = ?
                 WHERE id = ?
-            `, [group_id, account_id]);
-
-            await db.close();
+            `);
+            
+            stmt.run(group_id, account_id);
 
             return {
                 success: true,
@@ -856,12 +856,12 @@ export class AccountStorage {
     /**
      * 🔥 获取所有素材文件 - 对应 Python 的 get_all_files
      */
-    static async getAllMaterials(): Promise<{ success: boolean, message: string, data?: any }> {
+    static getAllMaterials(): { success: boolean, message: string, data?: any } {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const files = await db.all("SELECT * FROM file_records");
-            await db.close();
+            const stmt = db.prepare("SELECT * FROM file_records");
+            const files = stmt.all();
 
             return {
                 success: true,
@@ -881,23 +881,23 @@ export class AccountStorage {
     /**
      * 🔥 保存上传的素材文件 - 对应 Python 的 upload_save
      */
-    static async saveMaterial(materialData: {
+    static saveMaterial(materialData: {
         filename: string,
         final_filename: string,
         filesize: number,
         file_path: string
-    }): Promise<{ success: boolean, message: string, data?: any }> {
+    }): { success: boolean, message: string, data?: any } {
         try {
             const { filename, final_filename, filesize, file_path } = materialData;
 
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            await db.run(`
+            const stmt = db.prepare(`
                 INSERT INTO file_records (filename, filesize, file_path)
                 VALUES (?, ?, ?)
-            `, [filename, Math.round(filesize * 100) / 100, final_filename]);
-
-            await db.close();
+            `);
+            
+            stmt.run(filename, Math.round(filesize * 100) / 100, final_filename);
 
             console.log("✅ 上传文件已记录");
 
@@ -922,15 +922,15 @@ export class AccountStorage {
     /**
      * 🔥 删除素材文件 - 对应 Python 的 delete_file
      */
-    static async deleteMaterial(fileId: number): Promise<{ success: boolean, message: string, data?: any }> {
+    static deleteMaterial(fileId: number): { success: boolean, message: string, data?: any } {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             // 查询要删除的记录
-            const record = await db.get("SELECT * FROM file_records WHERE id = ?", [fileId]);
+            const selectStmt = db.prepare("SELECT * FROM file_records WHERE id = ?");
+            const record = selectStmt.get(fileId) as any;
 
             if (!record) {
-                await db.close();
                 return {
                     success: false,
                     message: "File not found"
@@ -938,8 +938,8 @@ export class AccountStorage {
             }
 
             // 删除数据库记录
-            await db.run("DELETE FROM file_records WHERE id = ?", [fileId]);
-            await db.close();
+            const deleteStmt = db.prepare("DELETE FROM file_records WHERE id = ?");
+            deleteStmt.run(fileId);
 
             return {
                 success: true,
@@ -1030,6 +1030,7 @@ export class AccountStorage {
             return false;
         }
     }
+
     /**
      * 🔥 获取最近上传的视频文件 - 对应 Python 的 get_recent_uploads
      */
@@ -1159,22 +1160,22 @@ export class AccountStorage {
     /**
      * 🔥 更新账号验证状态
      */
-    static async updateValidationStatus(cookieFile: string, isValid: boolean, validationTime: string): Promise<boolean> {
+    static updateValidationStatus(cookieFile: string, isValid: boolean, validationTime: string): boolean {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             // 使用 path.basename 提取文件名
             const fileName = path.basename(cookieFile);
 
-            const result = await db.run(`
+            const stmt = db.prepare(`
                 UPDATE user_info 
                 SET status = ?, last_check_time = ?
                 WHERE filePath = ?
-            `, [isValid ? 1 : 0, validationTime, fileName]);
+            `);
+            
+            const result = stmt.run(isValid ? 1 : 0, validationTime, fileName);
 
-            await db.close();
-
-            if (result.changes && result.changes > 0) {
+            if (result.changes > 0) {
                 console.log(`✅ 验证状态已更新: ${fileName} -> ${isValid ? '有效' : '无效'}`);
                 return true;
             } else {
@@ -1191,33 +1192,33 @@ export class AccountStorage {
     /**
      * 🔥 获取需要重新验证的有效账号（优化版）
      */
-    static async getValidAccountsNeedingRevalidation(): Promise<Array<{
+    static getValidAccountsNeedingRevalidation(): Array<{
         id: number;
         type: number;
         filePath: string;
         userName: string;
         platform: string;
         lastCheckTime: string;
-    }>> {
+    }> {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
-            const accounts = await db.all(`
-            SELECT 
-                id, type, filePath, userName,
-                last_check_time as lastCheckTime
-            FROM user_info 
-            WHERE status = 1  -- 当前有效的账号
-              AND (
-                  last_check_time IS NULL 
-                  OR last_check_time < ?
-              )
-            ORDER BY last_check_time ASC
-        `, [oneHourAgo]);
-
-            await db.close();
+            const stmt = db.prepare(`
+                SELECT 
+                    id, type, filePath, userName,
+                    last_check_time as lastCheckTime
+                FROM user_info 
+                WHERE status = 1  -- 当前有效的账号
+                  AND (
+                      last_check_time IS NULL 
+                      OR last_check_time < ?
+                  )
+                ORDER BY last_check_time ASC
+            `);
+            
+            const accounts = stmt.all(oneHourAgo) as any[];
 
             return accounts.map(account => ({
                 ...account,
@@ -1229,10 +1230,11 @@ export class AccountStorage {
             return [];
         }
     }
+
     /**
      * 🔥 获取所有有效账号
      */
-    static async getValidAccounts(): Promise<Array<{
+    static getValidAccounts(): Array<{
         id: number;
         type: number;
         filePath: string;
@@ -1240,11 +1242,11 @@ export class AccountStorage {
         platform: string;
         status: number;
         lastCheckTime: string;
-    }>> {
+    }> {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const accounts = await db.all(`
+            const stmt = db.prepare(`
                 SELECT 
                     id, type, filePath, userName, status,
                     last_check_time as lastCheckTime
@@ -1252,8 +1254,8 @@ export class AccountStorage {
                 WHERE status = 1
                 ORDER BY last_check_time DESC
             `);
-
-            await db.close();
+            
+            const accounts = stmt.all() as any[];
 
             return accounts.map(account => ({
                 ...account,
@@ -1269,7 +1271,7 @@ export class AccountStorage {
     /**
      * 🔥 获取分组账号信息
      */
-    static async getAccountsWithGroups(): Promise<Array<{
+    static getAccountsWithGroups(): Array<{
         id: number;
         type: number;
         filePath: string;
@@ -1280,11 +1282,11 @@ export class AccountStorage {
         groupId: number | null;
         groupName: string | null;
         groupColor: string | null;
-    }>> {
+    }> {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const accounts = await db.all(`
+            const stmt = db.prepare(`
                 SELECT 
                     u.id, u.type, u.filePath, u.userName, u.status,
                     u.last_check_time as lastCheckTime,
@@ -1295,8 +1297,8 @@ export class AccountStorage {
                 LEFT JOIN account_groups g ON u.group_id = g.id
                 ORDER BY g.sort_order, u.updated_at DESC
             `);
-
-            await db.close();
+            
+            const accounts = stmt.all() as any[];
 
             return accounts.map(account => ({
                 ...account,
@@ -1323,17 +1325,13 @@ export class AccountStorage {
     /**
      * 🔥 从数据库获取账号信息（改进版）
      */
-    static async getAccountInfoFromDb(cookieFile: string): Promise<{ username: string; platform: string; platformType: number } | null> {
+    static getAccountInfoFromDb(cookieFile: string): { username: string; platform: string; platformType: number } | null {
         try {
             const cookieFilename = path.basename(cookieFile);
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const result = await db.get(
-                'SELECT userName, type FROM user_info WHERE filePath = ?',
-                [cookieFilename]
-            );
-
-            await db.close();
+            const stmt = db.prepare('SELECT userName, type FROM user_info WHERE filePath = ?');
+            const result = stmt.get(cookieFilename) as any;
 
             if (result) {
                 const { userName, type: platformType } = result;
@@ -1361,24 +1359,26 @@ export class AccountStorage {
     /**
      * 🔥 保存完整账号信息到数据库（改进版）
      */
-    static async saveAccountToDatabase(
+    static saveAccountToDatabase(
         accountName: string,  // 🔥 改为使用真实账号名
         platformType: number,
         cookieFile: string,
         accountInfo?: AccountInfo
-    ): Promise<boolean> {
+    ): boolean {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             // 🔥 插入完整账号信息
             if (accountInfo) {
-                await db.run(`
+                const stmt = db.prepare(`
                     INSERT INTO user_info (
                         type, filePath, userName, status, 
                         account_id, real_name, followers_count, videos_count, 
                         bio, avatar_url, local_avatar, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                `, [
+                `);
+                
+                stmt.run(
                     platformType,
                     path.basename(cookieFile),
                     accountName,  // 🔥 使用真实账号名
@@ -1390,25 +1390,26 @@ export class AccountStorage {
                     accountInfo.bio || null,
                     accountInfo.avatar || null,
                     accountInfo.localAvatar || null
-                ]);
+                );
 
                 console.log(`✅ 完整账号信息已保存: ${accountInfo.accountName} (粉丝: ${accountInfo.followersCount})`);
             } else {
-                await db.run(`
+                const stmt = db.prepare(`
                     INSERT INTO user_info (
                         type, filePath, userName, status, updated_at
                     ) VALUES (?, ?, ?, ?, datetime('now'))
-                `, [
+                `);
+                
+                stmt.run(
                     platformType,
                     path.basename(cookieFile),
                     accountName,  // 🔥 使用真实账号名
                     1
-                ]);
+                );
 
                 console.log(`⚠️ 仅保存基础登录信息: ${accountName}`);
             }
 
-            await db.close();
             return true;
 
         } catch (error) {
@@ -1416,12 +1417,13 @@ export class AccountStorage {
             return false;
         }
     }
+
     /**
      * 🔥 获取指定分组的账号列表
      */
-    static async getAccountsByGroup(groupId?: number): Promise<Array<any>> {
+    static getAccountsByGroup(groupId?: number): Array<any> {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             let sql = `
                 SELECT u.*, g.name as group_name, g.color as group_color
@@ -1442,10 +1444,10 @@ export class AccountStorage {
 
             sql += ' ORDER BY u.updated_at DESC';
 
-            const accounts = await db.all(sql, params);
-            await db.close();
+            const stmt = db.prepare(sql);
+            const accounts = stmt.all(...params);
 
-            return accounts;
+            return accounts as any[];
 
         } catch (error) {
             console.error('❌ 获取账号列表失败:', error);
@@ -1478,21 +1480,21 @@ export class AccountStorage {
         };
         return nameMap[platformType] || 'unknown';
     }
+
     /**
      * 🔥 根据ID获取单个账号信息
      */
-    static async getAccountById(accountId: number): Promise<any | null> {
+    static getAccountById(accountId: number): any | null {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const account = await db.get(`
-            SELECT id, type, filePath, userName, status, last_check_time
-            FROM user_info 
-            WHERE id = ?
-        `, [accountId]);
-
-            await db.close();
-
+            const stmt = db.prepare(`
+                SELECT id, type, filePath, userName, status, last_check_time
+                FROM user_info 
+                WHERE id = ?
+            `);
+            
+            const account = stmt.get(accountId);
             return account || null;
 
         } catch (error) {
@@ -1504,22 +1506,21 @@ export class AccountStorage {
     /**
      * 🔥 批量获取账号信息
      */
-    static async getAccountsByIds(accountIds: number[]): Promise<any[]> {
+    static getAccountsByIds(accountIds: number[]): any[] {
         try {
             if (accountIds.length === 0) return [];
 
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
             const placeholders = accountIds.map(() => '?').join(',');
 
-            const accounts = await db.all(`
-            SELECT id, type, filePath, userName, status, last_check_time
-            FROM user_info 
-            WHERE id IN (${placeholders})
-        `, accountIds);
-
-            await db.close();
-
-            return accounts;
+            const stmt = db.prepare(`
+                SELECT id, type, filePath, userName, status, last_check_time
+                FROM user_info 
+                WHERE id IN (${placeholders})
+            `);
+            
+            const accounts = stmt.all(...accountIds);
+            return accounts as any[];
 
         } catch (error) {
             console.error('❌ 批量获取账号信息失败:', error);
@@ -1530,24 +1531,24 @@ export class AccountStorage {
     /**
      * 🔥 根据账号ID更新验证状态
      */
-    static async updateValidationStatusById(
+    static updateValidationStatusById(
         accountId: number,
         isValid: boolean,
         validationTime?: string
-    ): Promise<boolean> {
+    ): boolean {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
             const currentTime = validationTime || new Date().toISOString();
 
-            const result = await db.run(`
-            UPDATE user_info 
-            SET status = ?, last_check_time = ?
-            WHERE id = ?
-        `, [isValid ? 1 : 0, currentTime, accountId]);
+            const stmt = db.prepare(`
+                UPDATE user_info 
+                SET status = ?, last_check_time = ?
+                WHERE id = ?
+            `);
+            
+            const result = stmt.run(isValid ? 1 : 0, currentTime, accountId);
 
-            await db.close();
-
-            if (result.changes && result.changes > 0) {
+            if (result.changes > 0) {
                 console.log(`✅ 验证状态已更新: 账号ID ${accountId} -> ${isValid ? '有效' : '无效'}`);
                 return true;
             } else {
@@ -1564,44 +1565,38 @@ export class AccountStorage {
     /**
      * 🔥 批量更新验证状态（事务处理）
      */
-    static async batchUpdateValidationStatus(updates: Array<{
+    static batchUpdateValidationStatus(updates: Array<{
         accountId: number,
         isValid: boolean,
         validationTime?: string
-    }>): Promise<number> {
+    }>): number {
         try {
             if (updates.length === 0) return 0;
 
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
             const currentTime = new Date().toISOString();
             let updatedCount = 0;
 
             // 使用事务确保数据一致性
-            await db.run('BEGIN TRANSACTION');
-
-            try {
-                for (const update of updates) {
-                    const time = update.validationTime || currentTime;
-                    const result = await db.run(`
+            const transaction = db.transaction(() => {
+                const stmt = db.prepare(`
                     UPDATE user_info 
                     SET status = ?, last_check_time = ?
                     WHERE id = ?
-                `, [update.isValid ? 1 : 0, time, update.accountId]);
+                `);
 
-                    if (result.changes && result.changes > 0) {
+                for (const update of updates) {
+                    const time = update.validationTime || currentTime;
+                    const result = stmt.run(update.isValid ? 1 : 0, time, update.accountId);
+
+                    if (result.changes > 0) {
                         updatedCount++;
                     }
                 }
+            });
 
-                await db.run('COMMIT');
-                console.log(`✅ 批量验证状态更新完成: ${updatedCount}/${updates.length} 个账号`);
-
-            } catch (error) {
-                await db.run('ROLLBACK');
-                throw error;
-            } finally {
-                await db.close();
-            }
+            transaction();
+            console.log(`✅ 批量验证状态更新完成: ${updatedCount}/${updates.length} 个账号`);
 
             return updatedCount;
 
@@ -1610,33 +1605,34 @@ export class AccountStorage {
             return 0;
         }
     }
+
     // ==================== 批量操作相关方法 ====================
 
     /**
      * 🔥 批量更新账号状态
      */
-    static async batchUpdateAccountStatus(updates: Array<{
+    static batchUpdateAccountStatus(updates: Array<{
         filePath: string,
         status: number,
         lastCheckTime: string
-    }>): Promise<number> {
+    }>): number {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
             let updatedCount = 0;
 
-            for (const update of updates) {
-                const result = await db.run(`
-                    UPDATE user_info 
-                    SET status = ?, last_check_time = ?
-                    WHERE filePath = ?
-                `, [update.status, update.lastCheckTime, update.filePath]);
+            const stmt = db.prepare(`
+                UPDATE user_info 
+                SET status = ?, last_check_time = ?
+                WHERE filePath = ?
+            `);
 
-                if (result.changes && result.changes > 0) {
+            for (const update of updates) {
+                const result = stmt.run(update.status, update.lastCheckTime, update.filePath);
+                if (result.changes > 0) {
                     updatedCount++;
                 }
             }
 
-            await db.close();
             console.log(`✅ 批量更新完成: ${updatedCount}/${updates.length} 个账号状态已更新`);
             return updatedCount;
 
@@ -1651,20 +1647,20 @@ export class AccountStorage {
      */
     static async cleanupExpiredData(maxAgeHours: number = 720): Promise<void> {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
             const cutoffTime = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
 
             // 清理过期的文件记录（可选）
-            const result = await db.run(`
+            const stmt = db.prepare(`
                 DELETE FROM file_records 
                 WHERE upload_time < ? AND id NOT IN (
                     SELECT DISTINCT file_id FROM some_usage_table WHERE file_id IS NOT NULL
                 )
-            `, [cutoffTime]);
+            `);
+            
+            const result = stmt.run(cutoffTime);
 
-            await db.close();
-
-            if (result.changes && result.changes > 0) {
+            if (result.changes > 0) {
                 console.log(`🧹 清理完成: 删除了 ${result.changes} 条过期记录`);
             }
 
@@ -1678,36 +1674,34 @@ export class AccountStorage {
     /**
      * 🔥 获取数据统计信息
      */
-    static async getStatistics(): Promise<{
+    static getStatistics(): {
         totalAccounts: number,
         validAccounts: number,
         totalGroups: number,
         totalFiles: number,
         platformStats: Record<string, number>
-    }> {
+    } {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             // 基本统计
-            const totalAccounts = await db.get("SELECT COUNT(*) as count FROM user_info");
-            const validAccounts = await db.get("SELECT COUNT(*) as count FROM user_info WHERE status = 1");
-            const totalGroups = await db.get("SELECT COUNT(*) as count FROM account_groups");
-            const totalFiles = await db.get("SELECT COUNT(*) as count FROM file_records");
+            const totalAccounts = db.prepare("SELECT COUNT(*) as count FROM user_info").get() as { count: number };
+            const validAccounts = db.prepare("SELECT COUNT(*) as count FROM user_info WHERE status = 1").get() as { count: number };
+            const totalGroups = db.prepare("SELECT COUNT(*) as count FROM account_groups").get() as { count: number };
+            const totalFiles = db.prepare("SELECT COUNT(*) as count FROM file_records").get() as { count: number };
 
             // 平台统计
-            const platformStatsRaw = await db.all(`
+            const platformStatsRaw = db.prepare(`
                 SELECT type, COUNT(*) as count 
                 FROM user_info 
                 GROUP BY type
-            `);
+            `).all() as Array<{ type: number; count: number }>;
 
             const platformStats: Record<string, number> = {};
             for (const row of platformStatsRaw) {
                 const platformName = this.getPlatformName(row.type);
                 platformStats[platformName] = row.count;
             }
-
-            await db.close();
 
             return {
                 totalAccounts: totalAccounts.count,
@@ -1727,5 +1721,31 @@ export class AccountStorage {
                 platformStats: {}
             };
         }
+    }
+
+    // ==================== 生命周期管理 ====================
+
+    /**
+     * 🔥 关闭数据库连接
+     */
+    static closeDatabase(): void {
+        if (dbInstance) {
+            try {
+                dbInstance.close();
+                dbInstance = null;
+                console.log('✅ 数据库连接已关闭 (AccountStorage)');
+            } catch (error) {
+                console.error('❌ 关闭数据库连接失败:', error);
+            }
+        }
+    }
+
+    /**
+     * 🔥 重置数据库状态（测试用）
+     */
+    static resetDatabase(): void {
+        this.closeDatabase();
+        dbInitialized = false;
+        dbInitializing = false;
     }
 }
