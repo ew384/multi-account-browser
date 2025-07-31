@@ -54,7 +54,7 @@ curl -X POST http://localhost:3409/api/messages/sync \
   -d '{
     "platform": "wechat",
     "accountName": "endian", 
-    "cookieFile": "wechat_endian_1753944885403.json"
+    "cookieFile": "wechat_endian_1753974484958.json"
   }'
 
   检查自动创建的状态
