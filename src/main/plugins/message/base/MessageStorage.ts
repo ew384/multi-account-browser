@@ -1,9 +1,9 @@
-// src/main/plugins/message/base/MessageStorage.ts
-import sqlite3 from 'sqlite3';
-import { open, Database } from 'sqlite';
+// src/main/plugins/message/base/MessageStorage.ts - Better-SQLite3 版本
+import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Config } from '../../../config/Config';
+import { MessageImageManager, MessageImageInfo } from './MessageImageManager';
 import { 
     Message, 
     UserMessageThread, 
@@ -18,6 +18,8 @@ interface MessageRecord {
     sender: 'me' | 'user';
     content_type: 'text' | 'image' | 'mixed';
     text_content?: string;
+    image_paths?: string;  // 🔥 改为存储图片路径的JSON数组
+    content?: string;
     image_data?: string;  // JSON格式的图片数组
     timestamp: string;
     is_read: number;      // SQLite 使用数字表示布尔值
@@ -52,12 +54,39 @@ interface SyncStatusRecord {
 let messageDbInitialized = false;
 let messageDbInitializing = false;
 
+// 🔥 数据库单例
+let dbInstance: Database.Database | null = null;
+
 export class MessageStorage {
+
+    /**
+     * 🔥 获取数据库实例（单例模式）
+     */
+    private static getDatabase(): Database.Database {
+        if (!dbInstance) {
+            // 确保数据库目录存在
+            if (!fs.existsSync(Config.DB_DIR)) {
+                fs.mkdirSync(Config.DB_DIR, { recursive: true });
+            }
+
+            dbInstance = new Database(Config.DB_PATH);
+            
+            // 设置性能优化选项
+            dbInstance.pragma('journal_mode = WAL');
+            dbInstance.pragma('synchronous = NORMAL');
+            dbInstance.pragma('cache_size = 1000');
+            dbInstance.pragma('temp_store = memory');
+            
+            console.log('✅ Better-SQLite3 数据库连接已建立');
+        }
+        
+        return dbInstance;
+    }
 
     /**
      * 🔥 消息数据库初始化 - 创建消息相关表
      */
-    static async initializeDatabase(): Promise<void> {
+    static initializeDatabase(): void {
         // 防止重复初始化
         if (messageDbInitialized) {
             console.log('✅ 消息数据库已初始化，跳过');
@@ -67,7 +96,8 @@ export class MessageStorage {
         if (messageDbInitializing) {
             console.log('⏳ 消息数据库正在初始化中，等待完成...');
             while (messageDbInitializing) {
-                await new Promise(resolve => setTimeout(resolve, 100));
+                // 同步等待
+                require('child_process').spawnSync('sleep', ['0.1']);
             }
             return;
         }
@@ -77,16 +107,10 @@ export class MessageStorage {
         try {
             console.log('🚀 开始初始化消息数据库...');
 
-            // 确保数据库目录存在
-            await fs.promises.mkdir(Config.DB_DIR, { recursive: true });
-
-            const db = await open({
-                filename: Config.DB_PATH,
-                driver: sqlite3.Database
-            });
+            const db = this.getDatabase();
 
             // 🔥 创建消息线程表
-            await db.exec(`
+            db.exec(`
                 CREATE TABLE IF NOT EXISTS message_threads (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     platform TEXT NOT NULL,
@@ -105,7 +129,7 @@ export class MessageStorage {
             console.log('✅ message_threads 表创建成功');
 
             // 🔥 创建具体消息表
-            await db.exec(`
+            db.exec(`
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     thread_id INTEGER NOT NULL,
@@ -113,7 +137,7 @@ export class MessageStorage {
                     sender TEXT NOT NULL CHECK(sender IN ('me', 'user')),
                     content_type TEXT NOT NULL CHECK(content_type IN ('text', 'image', 'mixed')),
                     text_content TEXT,
-                    image_data TEXT,
+                    image_paths TEXT,
                     timestamp TEXT NOT NULL,
                     is_read INTEGER DEFAULT 0,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -123,7 +147,7 @@ export class MessageStorage {
             console.log('✅ messages 表创建成功');
 
             // 🔥 创建平台同步状态表
-            await db.exec(`
+            db.exec(`
                 CREATE TABLE IF NOT EXISTS platform_sync_status (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     platform TEXT NOT NULL,
@@ -138,7 +162,7 @@ export class MessageStorage {
             console.log('✅ platform_sync_status 表创建成功');
 
             // 🔥 创建索引以提高查询性能
-            await db.exec(`
+            db.exec(`
                 CREATE INDEX IF NOT EXISTS idx_message_threads_platform_account ON message_threads(platform, account_id);
                 CREATE INDEX IF NOT EXISTS idx_message_threads_user ON message_threads(user_id);
                 CREATE INDEX IF NOT EXISTS idx_message_threads_last_message_time ON message_threads(last_message_time);
@@ -150,9 +174,7 @@ export class MessageStorage {
             console.log('✅ 消息数据库索引创建成功');
 
             // 🔥 显示数据库信息
-            await MessageStorage.showMessageDatabaseInfo(db);
-
-            await db.close();
+            this.showMessageDatabaseInfo(db);
 
             messageDbInitialized = true;
             console.log('🎉 消息数据库初始化完成！');
@@ -168,7 +190,7 @@ export class MessageStorage {
     /**
      * 🔥 显示消息数据库信息
      */
-    private static async showMessageDatabaseInfo(db: Database): Promise<void> {
+    private static showMessageDatabaseInfo(db: Database.Database): void {
         try {
             console.log('\n📋 消息数据库表结构信息:');
 
@@ -176,16 +198,23 @@ export class MessageStorage {
 
             for (const table of tables) {
                 console.log(`\n📊 ${table} 表结构:`);
-                const columns = await db.all(`PRAGMA table_info(${table})`);
+                const columns = db.pragma(`table_info(${table})`) as Array<{
+                    cid: number;
+                    name: string;
+                    type: string;
+                    notnull: number;
+                    dflt_value: any;
+                    pk: number;
+                }>;
                 for (const col of columns) {
                     console.log(`   ${col.name} (${col.type}) - ${col.notnull ? 'NOT NULL' : 'NULL'}`);
                 }
             }
 
             // 显示统计信息
-            const threadsCount = await db.get("SELECT COUNT(*) as count FROM message_threads");
-            const messagesCount = await db.get("SELECT COUNT(*) as count FROM messages");
-            const syncStatusCount = await db.get("SELECT COUNT(*) as count FROM platform_sync_status");
+            const threadsCount = db.prepare("SELECT COUNT(*) as count FROM message_threads").get() as { count: number };
+            const messagesCount = db.prepare("SELECT COUNT(*) as count FROM messages").get() as { count: number };
+            const syncStatusCount = db.prepare("SELECT COUNT(*) as count FROM platform_sync_status").get() as { count: number };
 
             console.log(`\n📈 消息数据库统计:`);
             console.log(`   对话线程数量: ${threadsCount.count}`);
@@ -200,7 +229,7 @@ export class MessageStorage {
     /**
      * 🔥 检查消息数据库是否已初始化
      */
-    static async isMessageDatabaseInitialized(): Promise<boolean> {
+    static isMessageDatabaseInitialized(): boolean {
         try {
             // 检查数据库文件是否存在
             if (!fs.existsSync(Config.DB_PATH)) {
@@ -208,27 +237,20 @@ export class MessageStorage {
             }
 
             // 检查必要的表是否存在
-            const db = await open({
-                filename: Config.DB_PATH,
-                driver: sqlite3.Database
-            });
-
+            const db = this.getDatabase();
             const requiredTables = ['message_threads', 'messages', 'platform_sync_status'];
 
             for (const table of requiredTables) {
-                const result = await db.get(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                    [table]
-                );
+                const result = db.prepare(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+                ).get(table);
 
                 if (!result) {
                     console.log(`❌ 消息表 ${table} 不存在`);
-                    await db.close();
                     return false;
                 }
             }
 
-            await db.close();
             console.log('✅ 消息数据库已正确初始化');
             messageDbInitialized = true;
             return true;
@@ -242,33 +264,18 @@ export class MessageStorage {
     /**
      * 🔥 确保消息数据库已初始化
      */
-    static async ensureMessageDatabaseInitialized(): Promise<void> {
+    static ensureMessageDatabaseInitialized(): void {
         console.log('🔍 检查消息数据库初始化状态...');
 
-        const isInitialized = await this.isMessageDatabaseInitialized();
+        const isInitialized = this.isMessageDatabaseInitialized();
 
         if (!isInitialized) {
             console.log('🔧 消息数据库未初始化，开始初始化...');
-            await this.initializeDatabase();
+            this.initializeDatabase();
         } else {
             console.log('✅ 消息数据库已初始化');
             messageDbInitialized = true;
         }
-    }
-
-    /**
-     * 🔥 获取数据库连接（内部使用）
-     */
-    static async getDatabase(): Promise<Database> {
-        // 确保数据库已初始化
-        if (!messageDbInitialized) {
-            await this.ensureMessageDatabaseInitialized();
-        }
-
-        return await open({
-            filename: Config.DB_PATH,
-            driver: sqlite3.Database
-        });
     }
 
     // ==================== 对话线程管理方法 ====================
@@ -276,9 +283,9 @@ export class MessageStorage {
     /**
      * 🔥 保存或更新对话线程
      */
-    static async saveOrUpdateThread(threadData: UserMessageThread): Promise<number> {
+    static saveOrUpdateThread(threadData: UserMessageThread): number {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             const {
                 platform,
@@ -292,7 +299,7 @@ export class MessageStorage {
             } = threadData;
 
             // 使用 INSERT OR REPLACE 来处理新增或更新
-            const result = await db.run(`
+            const stmt = db.prepare(`
                 INSERT OR REPLACE INTO message_threads (
                     id, platform, account_id, user_id, user_name, user_avatar, 
                     unread_count, last_message_time, last_sync_time, 
@@ -303,16 +310,16 @@ export class MessageStorage {
                     COALESCE((SELECT created_at FROM message_threads WHERE platform = ? AND account_id = ? AND user_id = ?), CURRENT_TIMESTAMP),
                     CURRENT_TIMESTAMP
                 )
-            `, [
+            `);
+
+            const result = stmt.run(
                 platform, account_id, user_id,  // SELECT id
                 platform, account_id, user_id, user_name, avatar, 
                 unread_count, last_message_time, last_sync_time,
                 platform, account_id, user_id   // SELECT created_at
-            ]);
+            );
 
-            await db.close();
-
-            const threadId = result.lastID!;
+            const threadId = result.lastInsertRowid as number;
             console.log(`✅ 对话线程已保存: ${user_name} (ID: ${threadId})`);
             return threadId;
 
@@ -325,16 +332,16 @@ export class MessageStorage {
     /**
      * 🔥 根据用户获取对话线程
      */
-    static async getThreadByUser(platform: string, accountId: string, userId: string): Promise<UserMessageThread | null> {
+    static getThreadByUser(platform: string, accountId: string, userId: string): UserMessageThread | null {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const thread = await db.get(`
+            const stmt = db.prepare(`
                 SELECT * FROM message_threads 
                 WHERE platform = ? AND account_id = ? AND user_id = ?
-            `, [platform, accountId, userId]);
-
-            await db.close();
+            `);
+            
+            const thread = stmt.get(platform, accountId, userId) as ThreadRecord;
 
             if (!thread) {
                 return null;
@@ -361,11 +368,11 @@ export class MessageStorage {
     /**
      * 🔥 获取指定账号的所有对话线程
      */
-    static async getAllThreads(platform: string, accountId: string): Promise<UserMessageThread[]> {
+    static getAllThreads(platform: string, accountId: string): UserMessageThread[] {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const threads = await db.all(`
+            const stmt = db.prepare(`
                 SELECT t.*, 
                        m.text_content as last_message_text,
                        m.content_type as last_message_type
@@ -373,9 +380,9 @@ export class MessageStorage {
                 LEFT JOIN messages m ON t.id = m.thread_id AND m.timestamp = t.last_message_time
                 WHERE t.platform = ? AND t.account_id = ?
                 ORDER BY t.last_message_time DESC NULLS LAST
-            `, [platform, accountId]);
-
-            await db.close();
+            `);
+            
+            const threads = stmt.all(platform, accountId) as any[];
 
             return threads.map(thread => ({
                 id: thread.id,
@@ -401,28 +408,29 @@ export class MessageStorage {
     /**
      * 🔥 更新线程的最后消息时间和未读数
      */
-    static async updateThreadStatus(threadId: number, lastMessageTime: string, incrementUnread: boolean = false): Promise<void> {
+    static updateThreadStatus(threadId: number, lastMessageTime: string, incrementUnread: boolean = false): void {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
+            let stmt;
             if (incrementUnread) {
-                await db.run(`
+                stmt = db.prepare(`
                     UPDATE message_threads 
                     SET last_message_time = ?, 
                         unread_count = unread_count + 1,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                `, [lastMessageTime, threadId]);
+                `);
+                stmt.run(lastMessageTime, threadId);
             } else {
-                await db.run(`
+                stmt = db.prepare(`
                     UPDATE message_threads 
                     SET last_message_time = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                `, [lastMessageTime, threadId]);
+                `);
+                stmt.run(lastMessageTime, threadId);
             }
-
-            await db.close();
 
         } catch (error) {
             console.error('❌ 更新线程状态失败:', error);
@@ -439,67 +447,98 @@ export class MessageStorage {
         if (messages.length === 0) return;
 
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
+
+            // 🔥 确保消息图片目录存在
+            await MessageImageManager.ensureMessageImagesDirectory();
+
+            // 获取线程信息（用于图片存储）
+            const threadInfo = this.getThreadById(threadId);
+            if (!threadInfo) {
+                throw new Error(`线程不存在: ${threadId}`);
+            }
+
+            // 预处理所有消息的图片
+            const processedMessages: Array<Message & { processedImagePaths: string | null }> = [];
+            for (const message of messages) {
+                let imagePaths: string | null = null;
+                
+                // 🔥 处理图片数据 - 保存到文件系统
+                if (message.images && message.images.length > 0) {
+                    try {
+                        const savedImages = await MessageImageManager.saveMessageImages(
+                            message.images,
+                            threadInfo.platform,
+                            threadInfo.user_name,
+                            threadId,
+                            message.timestamp
+                        );
+
+                        if (savedImages.length > 0) {
+                            // 只存储相对路径
+                            imagePaths = JSON.stringify(savedImages.map(img => img.path));
+                        }
+                    } catch (error) {
+                        console.error(`❌ 保存消息图片失败:`, error);
+                        // 继续处理消息，但不保存图片
+                    }
+                }
+
+                processedMessages.push({
+                    ...message,
+                    processedImagePaths: imagePaths
+                });
+            }
 
             // 使用事务确保数据一致性
-            await db.run('BEGIN TRANSACTION');
+            const transaction = db.transaction(() => {
+                const checkStmt = db.prepare(`
+                    SELECT id FROM messages 
+                    WHERE thread_id = ? AND timestamp = ? AND sender = ?
+                `);
 
-            try {
-                for (const message of messages) {
+                const insertStmt = db.prepare(`
+                    INSERT INTO messages (
+                        thread_id, message_id, sender, content_type, 
+                        text_content, image_paths, timestamp, is_read
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `);
+
+                for (const message of processedMessages) {
                     // 检查消息是否已存在（基于时间戳和发送者去重）
-                    const existing = await db.get(`
-                        SELECT id FROM messages 
-                        WHERE thread_id = ? AND timestamp = ? AND sender = ?
-                    `, [threadId, message.timestamp, message.sender]);
+                    const existing = checkStmt.get(threadId, message.timestamp, message.sender);
 
                     if (existing) {
                         console.log(`⚠️ 消息已存在，跳过: ${message.timestamp}`);
                         continue;
                     }
 
-                    // 处理图片数据
-                    let imageData = null;
-                    if (message.images && message.images.length > 0) {
-                        imageData = JSON.stringify(message.images);
-                    }
-
                     // 确定内容类型
                     let contentType: 'text' | 'image' | 'mixed' = 'text';
-                    if (message.images && message.images.length > 0) {
+                    if (message.processedImagePaths) {
                         contentType = message.text ? 'mixed' : 'image';
                     }
 
-                    await db.run(`
-                        INSERT INTO messages (
-                            thread_id, message_id, sender, content_type, 
-                            text_content, image_data, timestamp, is_read
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    `, [
+                    insertStmt.run(
                         threadId,
                         message.message_id || null,
                         message.sender,
                         contentType,
                         message.text || null,
-                        imageData,
+                        message.processedImagePaths,
                         message.timestamp,
                         message.is_read ? 1 : 0
-                    ]);
+                    );
                 }
 
                 // 更新线程的最后消息时间
                 const lastMessage = messages[messages.length - 1];
                 const isFromUser = lastMessage.sender === 'user';
-                await this.updateThreadStatus(threadId, lastMessage.timestamp, isFromUser);
+                this.updateThreadStatus(threadId, lastMessage.timestamp, isFromUser);
+            });
 
-                await db.run('COMMIT');
-                console.log(`✅ 成功添加 ${messages.length} 条消息到线程 ${threadId}`);
-
-            } catch (error) {
-                await db.run('ROLLBACK');
-                throw error;
-            } finally {
-                await db.close();
-            }
+            transaction();
+            console.log(`✅ 成功添加 ${messages.length} 条消息到线程 ${threadId}`);
 
         } catch (error) {
             console.error('❌ 添加消息失败:', error);
@@ -510,29 +549,43 @@ export class MessageStorage {
     /**
      * 🔥 获取对话线程的消息
      */
-    static async getThreadMessages(threadId: number, limit: number = 50, offset: number = 0): Promise<Message[]> {
+    static getThreadMessages(threadId: number, limit: number = 50, offset: number = 0): Message[] {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const messages = await db.all(`
+            const stmt = db.prepare(`
                 SELECT * FROM messages 
                 WHERE thread_id = ? 
                 ORDER BY timestamp DESC 
                 LIMIT ? OFFSET ?
-            `, [threadId, limit, offset]);
+            `);
+            
+            const messages = stmt.all(threadId, limit, offset) as MessageRecord[];
 
-            await db.close();
+            return messages.map(msg => {
+                // 🔥 处理图片路径 - 按需加载
+                let images: string[] | undefined = undefined;
+                if (msg.image_paths) {
+                    try {
+                        const imagePaths = JSON.parse(msg.image_paths) as string[];
+                        // 这里只返回相对路径，实际加载由前端或其他服务处理
+                        images = imagePaths;
+                    } catch (error) {
+                        console.warn(`⚠️ 解析图片路径失败: ${msg.id}:`, error);
+                    }
+                }
 
-            return messages.map(msg => ({
-                id: msg.id,
-                message_id: msg.message_id,
-                sender: msg.sender,
-                text: msg.text_content,
-                images: msg.image_data ? JSON.parse(msg.image_data) : undefined,
-                timestamp: msg.timestamp,
-                is_read: msg.is_read === 1,
-                type: msg.content_type
-            }));
+                return {
+                    id: msg.id,
+                    message_id: msg.message_id,
+                    sender: msg.sender,
+                    text: msg.text_content,
+                    images: images,
+                    timestamp: msg.timestamp,
+                    is_read: msg.is_read === 1,
+                    type: msg.content_type
+                };
+            });
 
         } catch (error) {
             console.error('❌ 获取消息失败:', error);
@@ -543,28 +596,41 @@ export class MessageStorage {
     /**
      * 🔥 获取指定时间之后的消息（增量同步用）
      */
-    static async getMessagesAfter(threadId: number, timestamp: string): Promise<Message[]> {
+    static getMessagesAfter(threadId: number, timestamp: string): Message[] {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const messages = await db.all(`
+            const stmt = db.prepare(`
                 SELECT * FROM messages 
                 WHERE thread_id = ? AND timestamp > ?
                 ORDER BY timestamp ASC
-            `, [threadId, timestamp]);
+            `);
+            
+            const messages = stmt.all(threadId, timestamp) as MessageRecord[];
 
-            await db.close();
+            return messages.map(msg => {
+                // 🔥 处理图片路径
+                let images: string[] | undefined = undefined;
+                if (msg.image_paths) {
+                    try {
+                        const imagePaths = JSON.parse(msg.image_paths) as string[];
+                        images = imagePaths;
+                    } catch (error) {
+                        console.warn(`⚠️ 解析图片路径失败: ${msg.id}:`, error);
+                    }
+                }
 
-            return messages.map(msg => ({
-                id: msg.id,
-                message_id: msg.message_id,
-                sender: msg.sender,
-                text: msg.text_content,
-                images: msg.image_data ? JSON.parse(msg.image_data) : undefined,
-                timestamp: msg.timestamp,
-                is_read: msg.is_read === 1,
-                type: msg.content_type
-            }));
+                return {
+                    id: msg.id,
+                    message_id: msg.message_id,
+                    sender: msg.sender,
+                    text: msg.text_content,
+                    images: images,
+                    timestamp: msg.timestamp,
+                    is_read: msg.is_read === 1,
+                    type: msg.content_type
+                };
+            });
 
         } catch (error) {
             console.error('❌ 获取增量消息失败:', error);
@@ -575,35 +641,40 @@ export class MessageStorage {
     /**
      * 🔥 标记消息为已读
      */
-    static async markMessagesAsRead(threadId: number, messageIds?: number[]): Promise<void> {
+    static markMessagesAsRead(threadId: number, messageIds?: number[]): void {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            if (messageIds && messageIds.length > 0) {
-                // 标记指定消息为已读
-                const placeholders = messageIds.map(() => '?').join(',');
-                await db.run(`
-                    UPDATE messages 
-                    SET is_read = 1 
-                    WHERE thread_id = ? AND id IN (${placeholders})
-                `, [threadId, ...messageIds]);
-            } else {
-                // 标记该线程所有消息为已读
-                await db.run(`
-                    UPDATE messages 
-                    SET is_read = 1 
-                    WHERE thread_id = ?
-                `, [threadId]);
-            }
+            const transaction = db.transaction(() => {
+                if (messageIds && messageIds.length > 0) {
+                    // 标记指定消息为已读
+                    const placeholders = messageIds.map(() => '?').join(',');
+                    const stmt = db.prepare(`
+                        UPDATE messages 
+                        SET is_read = 1 
+                        WHERE thread_id = ? AND id IN (${placeholders})
+                    `);
+                    stmt.run(threadId, ...messageIds);
+                } else {
+                    // 标记该线程所有消息为已读
+                    const stmt = db.prepare(`
+                        UPDATE messages 
+                        SET is_read = 1 
+                        WHERE thread_id = ?
+                    `);
+                    stmt.run(threadId);
+                }
 
-            // 重置线程的未读数
-            await db.run(`
-                UPDATE message_threads 
-                SET unread_count = 0 
-                WHERE id = ?
-            `, [threadId]);
+                // 重置线程的未读数
+                const resetUnreadStmt = db.prepare(`
+                    UPDATE message_threads 
+                    SET unread_count = 0 
+                    WHERE id = ?
+                `);
+                resetUnreadStmt.run(threadId);
+            });
 
-            await db.close();
+            transaction();
             console.log(`✅ 消息已标记为已读: 线程 ${threadId}`);
 
         } catch (error) {
@@ -617,11 +688,11 @@ export class MessageStorage {
     /**
      * 🔥 更新平台同步时间
      */
-    static async updateLastSyncTime(platform: string, accountId: string, syncTime: string): Promise<void> {
+    static updateLastSyncTime(platform: string, accountId: string, syncTime: string): void {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            await db.run(`
+            const stmt = db.prepare(`
                 INSERT OR REPLACE INTO platform_sync_status (
                     platform, account_id, last_sync_time, sync_count, updated_at
                 ) VALUES (
@@ -629,9 +700,9 @@ export class MessageStorage {
                     COALESCE((SELECT sync_count + 1 FROM platform_sync_status WHERE platform = ? AND account_id = ?), 1),
                     CURRENT_TIMESTAMP
                 )
-            `, [platform, accountId, syncTime, platform, accountId]);
-
-            await db.close();
+            `);
+            
+            stmt.run(platform, accountId, syncTime, platform, accountId);
             console.log(`✅ 同步时间已更新: ${platform} - ${accountId}`);
 
         } catch (error) {
@@ -643,17 +714,16 @@ export class MessageStorage {
     /**
      * 🔥 获取平台最后同步时间
      */
-    static async getLastSyncTime(platform: string, accountId: string): Promise<string | null> {
+    static getLastSyncTime(platform: string, accountId: string): string | null {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const result = await db.get(`
+            const stmt = db.prepare(`
                 SELECT last_sync_time FROM platform_sync_status 
                 WHERE platform = ? AND account_id = ?
-            `, [platform, accountId]);
-
-            await db.close();
-
+            `);
+            
+            const result = stmt.get(platform, accountId) as { last_sync_time: string } | undefined;
             return result ? result.last_sync_time : null;
 
         } catch (error) {
@@ -665,17 +735,17 @@ export class MessageStorage {
     /**
      * 🔥 记录同步错误
      */
-    static async recordSyncError(platform: string, accountId: string, error: string): Promise<void> {
+    static recordSyncError(platform: string, accountId: string, error: string): void {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            await db.run(`
+            const stmt = db.prepare(`
                 UPDATE platform_sync_status 
                 SET last_error = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE platform = ? AND account_id = ?
-            `, [error, platform, accountId]);
-
-            await db.close();
+            `);
+            
+            stmt.run(error, platform, accountId);
             console.log(`⚠️ 同步错误已记录: ${platform} - ${accountId}`);
 
         } catch (error) {
@@ -688,9 +758,9 @@ export class MessageStorage {
     /**
      * 🔥 获取未读消息统计
      */
-    static async getUnreadCount(platform?: string, accountId?: string): Promise<number> {
+    static getUnreadCount(platform?: string, accountId?: string): number {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             let sql = 'SELECT SUM(unread_count) as total FROM message_threads';
             const params: string[] = [];
@@ -703,10 +773,9 @@ export class MessageStorage {
                 params.push(platform);
             }
 
-            const result = await db.get(sql, params);
-            await db.close();
-
-            return result.total || 0;
+            const stmt = db.prepare(sql);
+            const result = stmt.get(...params) as { total: number } | undefined;
+            return result?.total || 0;
 
         } catch (error) {
             console.error('❌ 获取未读消息统计失败:', error);
@@ -717,17 +786,17 @@ export class MessageStorage {
     /**
      * 🔥 获取消息统计信息
      */
-    static async getMessageStatistics(): Promise<MessageStatistics> {
+    static getMessageStatistics(): MessageStatistics {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             // 基本统计
-            const totalThreads = await db.get("SELECT COUNT(*) as count FROM message_threads");
-            const totalMessages = await db.get("SELECT COUNT(*) as count FROM messages");
-            const unreadMessages = await db.get("SELECT SUM(unread_count) as count FROM message_threads");
+            const totalThreads = db.prepare("SELECT COUNT(*) as count FROM message_threads").get() as { count: number };
+            const totalMessages = db.prepare("SELECT COUNT(*) as count FROM messages").get() as { count: number };
+            const unreadMessages = db.prepare("SELECT SUM(unread_count) as count FROM message_threads").get() as { count: number };
 
             // 按平台统计
-            const platformStatsRaw = await db.all(`
+            const platformStatsRaw = db.prepare(`
                 SELECT 
                     t.platform,
                     COUNT(t.id) as threads,
@@ -736,7 +805,7 @@ export class MessageStorage {
                 FROM message_threads t
                 LEFT JOIN messages m ON t.id = m.thread_id
                 GROUP BY t.platform
-            `);
+            `).all() as any[];
 
             const platformStats: Record<string, { threads: number; messages: number; unread: number }> = {};
             for (const row of platformStatsRaw) {
@@ -746,8 +815,6 @@ export class MessageStorage {
                     unread: row.unread || 0
                 };
             }
-
-            await db.close();
 
             return {
                 totalThreads: totalThreads.count,
@@ -772,27 +839,31 @@ export class MessageStorage {
     /**
      * 🔥 清理旧消息（保留最近30天）
      */
-    static async cleanupOldMessages(daysToKeep: number = 30): Promise<number> {
+    static cleanupOldMessages(daysToKeep: number = 30): number {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             const cutoffDate = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000).toISOString();
 
-            // 删除旧消息
-            const result = await db.run(`
-                DELETE FROM messages 
-                WHERE timestamp < ?
-            `, [cutoffDate]);
+            const transaction = db.transaction(() => {
+                // 删除旧消息
+                const deleteMessagesStmt = db.prepare(`
+                    DELETE FROM messages 
+                    WHERE timestamp < ?
+                `);
+                const result = deleteMessagesStmt.run(cutoffDate);
 
-            // 清理没有消息的线程
-            await db.run(`
-                DELETE FROM message_threads 
-                WHERE id NOT IN (SELECT DISTINCT thread_id FROM messages)
-            `);
+                // 清理没有消息的线程
+                const deleteThreadsStmt = db.prepare(`
+                    DELETE FROM message_threads 
+                    WHERE id NOT IN (SELECT DISTINCT thread_id FROM messages)
+                `);
+                deleteThreadsStmt.run();
 
-            await db.close();
+                return result.changes;
+            });
 
-            const deletedCount = result.changes || 0;
+            const deletedCount = transaction();
             console.log(`🧹 清理完成: 删除了 ${deletedCount} 条 ${daysToKeep} 天前的消息`);
 
             return deletedCount;
@@ -806,15 +877,11 @@ export class MessageStorage {
     /**
      * 🔥 增量同步逻辑 - 处理新获取的消息数据
      */
-    static async incrementalSync(
+    static incrementalSync(
         platform: string, 
         accountId: string, 
         syncData: UserMessageThread[]
-    ): Promise<{
-        newMessages: number;
-        updatedThreads: number;
-        errors: string[];
-    }> {
+    ): { newMessages: number; updatedThreads: number; errors: string[] } {
         try {
             console.log(`🔄 开始增量同步: ${platform} - ${accountId}`);
 
@@ -822,42 +889,48 @@ export class MessageStorage {
             let updatedThreads = 0;
             const errors: string[] = [];
 
-            for (const threadData of syncData) {
-                try {
-                    // 保存或更新线程
-                    const threadId = await this.saveOrUpdateThread({
-                        platform,
-                        account_id: accountId,
-                        user_id: threadData.user_id,
-                        user_name: threadData.user_name,
-                        avatar: threadData.avatar,
-                        unread_count: threadData.unread_count || 0
-                    });
+            const db = this.getDatabase();
 
-                    // 获取该线程的最后消息时间
-                    const lastMessageTime = await this.getLastMessageTime(threadId);
+            const transaction = db.transaction(() => {
+                for (const threadData of syncData) {
+                    try {
+                        // 保存或更新线程
+                        const threadId = this.saveOrUpdateThread({
+                            platform,
+                            account_id: accountId,
+                            user_id: threadData.user_id,
+                            user_name: threadData.user_name,
+                            avatar: threadData.avatar,
+                            unread_count: threadData.unread_count || 0
+                        });
 
-                    // 过滤出新消息
-                    const newMessagesForThread = threadData.messages?.filter(msg => 
-                        !lastMessageTime || msg.timestamp > lastMessageTime
-                    ) || [];
+                        // 获取该线程的最后消息时间
+                        const lastMessageTime = this.getLastMessageTime(threadId);
 
-                    if (newMessagesForThread.length > 0) {
-                        await this.addMessages(threadId, newMessagesForThread);
-                        newMessages += newMessagesForThread.length;
+                        // 过滤出新消息
+                        const newMessagesForThread = threadData.messages?.filter(msg => 
+                            !lastMessageTime || msg.timestamp > lastMessageTime
+                        ) || [];
+
+                        if (newMessagesForThread.length > 0) {
+                            this.addMessages(threadId, newMessagesForThread);
+                            newMessages += newMessagesForThread.length;
+                        }
+
+                        updatedThreads++;
+
+                    } catch (error) {
+                        const errorMsg = `线程 ${threadData.user_name} 同步失败: ${error instanceof Error ? error.message : 'unknown error'}`;
+                        errors.push(errorMsg);
+                        console.error('❌', errorMsg);
                     }
-
-                    updatedThreads++;
-
-                } catch (error) {
-                    const errorMsg = `线程 ${threadData.user_name} 同步失败: ${error instanceof Error ? error.message : 'unknown error'}`;
-                    errors.push(errorMsg);
-                    console.error('❌', errorMsg);
                 }
-            }
 
-            // 更新同步时间
-            await this.updateLastSyncTime(platform, accountId, new Date().toISOString());
+                // 更新同步时间
+                this.updateLastSyncTime(platform, accountId, new Date().toISOString());
+            });
+
+            transaction();
 
             console.log(`✅ 增量同步完成: 新消息 ${newMessages} 条，更新线程 ${updatedThreads} 个`);
 
@@ -865,7 +938,7 @@ export class MessageStorage {
 
         } catch (error) {
             console.error('❌ 增量同步失败:', error);
-            await this.recordSyncError(platform, accountId, error instanceof Error ? error.message : 'unknown error');
+            this.recordSyncError(platform, accountId, error instanceof Error ? error.message : 'unknown error');
             
             return { 
                 newMessages: 0, 
@@ -878,19 +951,18 @@ export class MessageStorage {
     /**
      * 🔥 获取线程最后一条消息的时间
      */
-    private static async getLastMessageTime(threadId: number): Promise<string | null> {
+    private static getLastMessageTime(threadId: number): string | null {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const result = await db.get(`
+            const stmt = db.prepare(`
                 SELECT timestamp FROM messages 
                 WHERE thread_id = ? 
                 ORDER BY timestamp DESC 
                 LIMIT 1
-            `, [threadId]);
-
-            await db.close();
-
+            `);
+            
+            const result = stmt.get(threadId) as { timestamp: string } | undefined;
             return result ? result.timestamp : null;
 
         } catch (error) {
@@ -899,14 +971,95 @@ export class MessageStorage {
         }
     }
 
+    /**
+     * 🔥 根据ID获取线程信息（用于图片存储）
+     */
+    private static getThreadById(threadId: number): UserMessageThread | null {
+        try {
+            const db = this.getDatabase();
+
+            const stmt = db.prepare(`
+                SELECT * FROM message_threads WHERE id = ?
+            `);
+            
+            const thread = stmt.get(threadId) as ThreadRecord;
+
+            if (!thread) {
+                return null;
+            }
+
+            return {
+                id: thread.id,
+                platform: thread.platform,
+                account_id: thread.account_id,
+                user_id: thread.user_id,
+                user_name: thread.user_name,
+                avatar: thread.user_avatar,
+                unread_count: thread.unread_count,
+                last_message_time: thread.last_message_time,
+                last_sync_time: thread.last_sync_time
+            };
+
+        } catch (error) {
+            console.error('❌ 获取线程信息失败:', error);
+            return null;
+        }
+    }
+
+    // ==================== 图片相关实用方法 ====================
+
+    /**
+     * 🔥 获取消息图片的完整路径
+     */
+    static getMessageImagePath(relativePath: string): string {
+        return MessageImageManager.getImageFullPath(relativePath);
+    }
+
+    /**
+     * 🔥 读取消息图片为base64（用于前端显示）
+     */
+    static async readMessageImageAsBase64(relativePath: string): Promise<string | null> {
+        return await MessageImageManager.readImageAsBase64(relativePath);
+    }
+
+    /**
+     * 🔥 检查消息图片是否存在
+     */
+    static async messageImageExists(relativePath: string): Promise<boolean> {
+        return await MessageImageManager.imageExists(relativePath);
+    }
+
+    /**
+     * 🔥 删除线程的所有图片文件
+     */
+    static async deleteThreadImages(threadId: number): Promise<number> {
+        try {
+            const threadInfo = this.getThreadById(threadId);
+            if (!threadInfo) {
+                console.warn(`⚠️ 线程不存在: ${threadId}`);
+                return 0;
+            }
+
+            return await MessageImageManager.deleteThreadImages(
+                threadInfo.platform,
+                threadInfo.user_name,
+                threadId
+            );
+
+        } catch (error) {
+            console.error(`❌ 删除线程图片失败:`, error);
+            return 0;
+        }
+    }
+
     // ==================== 实用工具方法 ====================
 
     /**
      * 🔥 检查线程是否存在
      */
-    static async threadExists(platform: string, accountId: string, userId: string): Promise<boolean> {
+    static threadExists(platform: string, accountId: string, userId: string): boolean {
         try {
-            const thread = await this.getThreadByUser(platform, accountId, userId);
+            const thread = this.getThreadByUser(platform, accountId, userId);
             return thread !== null;
         } catch {
             return false;
@@ -916,16 +1069,16 @@ export class MessageStorage {
     /**
      * 🔥 获取活跃的同步账号列表
      */
-    static async getActiveSyncAccounts(): Promise<Array<{
+    static getActiveSyncAccounts(): Array<{
         platform: string;
         account_id: string;
         last_sync_time: string | null;
         thread_count: number;
-    }>> {
+    }> {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const accounts = await db.all(`
+            const stmt = db.prepare(`
                 SELECT 
                     t.platform,
                     t.account_id,
@@ -936,10 +1089,8 @@ export class MessageStorage {
                 GROUP BY t.platform, t.account_id
                 ORDER BY s.last_sync_time ASC NULLS FIRST
             `);
-
-            await db.close();
-
-            return accounts;
+            
+            return stmt.all() as any[];
 
         } catch (error) {
             console.error('❌ 获取活跃同步账号失败:', error);
@@ -950,20 +1101,20 @@ export class MessageStorage {
     /**
      * 🔥 搜索消息内容
      */
-    static async searchMessages(
+    static searchMessages(
         platform: string, 
         accountId: string, 
         keyword: string, 
         limit: number = 20
-    ): Promise<Array<{
+    ): Array<{
         thread_id: number;
         user_name: string;
         message: Message;
-    }>> {
+    }> {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const results = await db.all(`
+            const stmt = db.prepare(`
                 SELECT 
                     m.*,
                     t.user_name,
@@ -974,9 +1125,9 @@ export class MessageStorage {
                 AND (m.text_content LIKE ? OR t.user_name LIKE ?)
                 ORDER BY m.timestamp DESC
                 LIMIT ?
-            `, [platform, accountId, `%${keyword}%`, `%${keyword}%`, limit]);
-
-            await db.close();
+            `);
+            
+            const results = stmt.all(platform, accountId, `%${keyword}%`, `%${keyword}%`, limit) as any[];
 
             return results.map(row => ({
                 thread_id: row.thread_id,
@@ -986,7 +1137,7 @@ export class MessageStorage {
                     message_id: row.message_id,
                     sender: row.sender,
                     text: row.text_content,
-                    images: row.image_data ? JSON.parse(row.image_data) : undefined,
+                    images: row.image_paths ? JSON.parse(row.image_paths) : undefined,
                     timestamp: row.timestamp,
                     is_read: row.is_read === 1,
                     type: row.content_type
@@ -1002,21 +1153,21 @@ export class MessageStorage {
     /**
      * 🔥 获取指定时间范围内的消息统计
      */
-    static async getMessageStatsInRange(
+    static getMessageStatsInRange(
         platform: string,
         accountId: string,
         startTime: string,
         endTime: string
-    ): Promise<{
+    ): {
         totalMessages: number;
         sentByMe: number;
         receivedFromUsers: number;
         activeUsers: number;
-    }> {
+    } {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            const stats = await db.get(`
+            const stmt = db.prepare(`
                 SELECT 
                     COUNT(*) as total_messages,
                     SUM(CASE WHEN m.sender = 'me' THEN 1 ELSE 0 END) as sent_by_me,
@@ -1026,9 +1177,9 @@ export class MessageStorage {
                 JOIN message_threads t ON m.thread_id = t.id
                 WHERE t.platform = ? AND t.account_id = ?
                 AND m.timestamp BETWEEN ? AND ?
-            `, [platform, accountId, startTime, endTime]);
-
-            await db.close();
+            `);
+            
+            const stats = stmt.get(platform, accountId, startTime, endTime) as any;
 
             return {
                 totalMessages: stats.total_messages || 0,
@@ -1051,31 +1202,30 @@ export class MessageStorage {
     /**
      * 🔥 导出指定线程的完整对话数据
      */
-    static async exportThreadData(threadId: number): Promise<{
+    static exportThreadData(threadId: number): {
         thread: UserMessageThread;
         messages: Message[];
-    } | null> {
+    } | null {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             // 获取线程信息
-            const thread = await db.get(`
+            const threadStmt = db.prepare(`
                 SELECT * FROM message_threads WHERE id = ?
-            `, [threadId]);
+            `);
+            const thread = threadStmt.get(threadId) as ThreadRecord;
 
             if (!thread) {
-                await db.close();
                 return null;
             }
 
             // 获取所有消息
-            const messages = await db.all(`
+            const messagesStmt = db.prepare(`
                 SELECT * FROM messages 
                 WHERE thread_id = ? 
                 ORDER BY timestamp ASC
-            `, [threadId]);
-
-            await db.close();
+            `);
+            const messages = messagesStmt.all(threadId) as MessageRecord[];
 
             return {
                 thread: {
@@ -1094,7 +1244,7 @@ export class MessageStorage {
                     message_id: msg.message_id,
                     sender: msg.sender,
                     text: msg.text_content,
-                    images: msg.image_data ? JSON.parse(msg.image_data) : undefined,
+                    images: msg.image_paths ? JSON.parse(msg.image_paths) : undefined,
                     timestamp: msg.timestamp,
                     is_read: msg.is_read === 1,
                     type: msg.content_type
@@ -1110,18 +1260,18 @@ export class MessageStorage {
     /**
      * 🔥 删除指定线程及其所有消息
      */
-    static async deleteThread(threadId: number): Promise<boolean> {
+    static deleteThread(threadId: number): boolean {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             // 由于设置了外键约束 ON DELETE CASCADE，删除线程会自动删除相关消息
-            const result = await db.run(`
+            const stmt = db.prepare(`
                 DELETE FROM message_threads WHERE id = ?
-            `, [threadId]);
+            `);
+            
+            const result = stmt.run(threadId);
 
-            await db.close();
-
-            if (result.changes && result.changes > 0) {
+            if (result.changes > 0) {
                 console.log(`✅ 线程已删除: ID ${threadId}`);
                 return true;
             } else {
@@ -1138,20 +1288,20 @@ export class MessageStorage {
     /**
      * 🔥 批量删除旧线程
      */
-    static async batchDeleteOldThreads(daysToKeep: number = 30): Promise<number> {
+    static batchDeleteOldThreads(daysToKeep: number = 30): number {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             const cutoffDate = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000).toISOString();
 
-            const result = await db.run(`
+            const stmt = db.prepare(`
                 DELETE FROM message_threads 
                 WHERE last_message_time < ? OR last_message_time IS NULL
-            `, [cutoffDate]);
+            `);
+            
+            const result = stmt.run(cutoffDate);
 
-            await db.close();
-
-            const deletedCount = result.changes || 0;
+            const deletedCount = result.changes;
             console.log(`🧹 批量删除完成: 删除了 ${deletedCount} 个超过 ${daysToKeep} 天的对话线程`);
 
             return deletedCount;
@@ -1167,55 +1317,61 @@ export class MessageStorage {
     /**
      * 🔥 修复数据一致性
      */
-    static async repairDataConsistency(): Promise<{
+    static repairDataConsistency(): {
         repairedThreads: number;
         orphanedMessages: number;
-    }> {
+    } {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
-            // 修复线程的最后消息时间
-            await db.run(`
-                UPDATE message_threads 
-                SET last_message_time = (
-                    SELECT MAX(timestamp) 
-                    FROM messages 
-                    WHERE thread_id = message_threads.id
-                )
-                WHERE id IN (
-                    SELECT DISTINCT thread_id FROM messages
-                )
-            `);
+            const transaction = db.transaction(() => {
+                // 修复线程的最后消息时间
+                const updateThreadsStmt = db.prepare(`
+                    UPDATE message_threads 
+                    SET last_message_time = (
+                        SELECT MAX(timestamp) 
+                        FROM messages 
+                        WHERE thread_id = message_threads.id
+                    )
+                    WHERE id IN (
+                        SELECT DISTINCT thread_id FROM messages
+                    )
+                `);
+                updateThreadsStmt.run();
 
-            // 修复线程的未读消息数（假设所有 sender='user' 且 is_read=0 的消息为未读）
-            await db.run(`
-                UPDATE message_threads 
-                SET unread_count = (
-                    SELECT COUNT(*) 
-                    FROM messages 
-                    WHERE thread_id = message_threads.id 
-                    AND sender = 'user' 
-                    AND is_read = 0
-                )
-            `);
+                // 修复线程的未读消息数（假设所有 sender='user' 且 is_read=0 的消息为未读）
+                const updateUnreadStmt = db.prepare(`
+                    UPDATE message_threads 
+                    SET unread_count = (
+                        SELECT COUNT(*) 
+                        FROM messages 
+                        WHERE thread_id = message_threads.id 
+                        AND sender = 'user' 
+                        AND is_read = 0
+                    )
+                `);
+                updateUnreadStmt.run();
 
-            // 删除孤儿消息（没有对应线程的消息）
-            const orphanedResult = await db.run(`
-                DELETE FROM messages 
-                WHERE thread_id NOT IN (SELECT id FROM message_threads)
-            `);
+                // 删除孤儿消息（没有对应线程的消息）
+                const deleteOrphanedStmt = db.prepare(`
+                    DELETE FROM messages 
+                    WHERE thread_id NOT IN (SELECT id FROM message_threads)
+                `);
+                const orphanedResult = deleteOrphanedStmt.run();
 
-            // 获取修复的线程数
-            const repairedThreads = await db.get(`
-                SELECT COUNT(*) as count FROM message_threads
-            `);
+                // 获取修复的线程数
+                const repairedThreadsStmt = db.prepare(`
+                    SELECT COUNT(*) as count FROM message_threads
+                `);
+                const repairedThreads = repairedThreadsStmt.get() as { count: number };
 
-            await db.close();
+                return {
+                    repairedThreads: repairedThreads.count,
+                    orphanedMessages: orphanedResult.changes
+                };
+            });
 
-            const result = {
-                repairedThreads: repairedThreads.count,
-                orphanedMessages: orphanedResult.changes || 0
-            };
+            const result = transaction();
 
             console.log(`🔧 数据一致性修复完成: 修复线程 ${result.repairedThreads} 个，删除孤儿消息 ${result.orphanedMessages} 条`);
 
@@ -1230,24 +1386,25 @@ export class MessageStorage {
     /**
      * 🔥 获取数据库健康状态
      */
-    static async getDatabaseHealth(): Promise<{
+    static getDatabaseHealth(): {
         isHealthy: boolean;
         issues: string[];
         suggestions: string[];
         stats: MessageStatistics;
-    }> {
+    } {
         try {
             const issues: string[] = [];
             const suggestions: string[] = [];
 
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             // 检查孤儿消息
-            const orphanedMessages = await db.get(`
+            const orphanedMessagesStmt = db.prepare(`
                 SELECT COUNT(*) as count 
                 FROM messages 
                 WHERE thread_id NOT IN (SELECT id FROM message_threads)
             `);
+            const orphanedMessages = orphanedMessagesStmt.get() as { count: number };
 
             if (orphanedMessages.count > 0) {
                 issues.push(`发现 ${orphanedMessages.count} 条孤儿消息`);
@@ -1255,11 +1412,12 @@ export class MessageStorage {
             }
 
             // 检查空线程
-            const emptyThreads = await db.get(`
+            const emptyThreadsStmt = db.prepare(`
                 SELECT COUNT(*) as count 
                 FROM message_threads 
                 WHERE id NOT IN (SELECT DISTINCT thread_id FROM messages)
             `);
+            const emptyThreads = emptyThreadsStmt.get() as { count: number };
 
             if (emptyThreads.count > 0) {
                 issues.push(`发现 ${emptyThreads.count} 个空线程`);
@@ -1267,7 +1425,7 @@ export class MessageStorage {
             }
 
             // 检查时间戳不一致
-            const inconsistentTime = await db.get(`
+            const inconsistentTimeStmt = db.prepare(`
                 SELECT COUNT(*) as count 
                 FROM message_threads t
                 WHERE t.last_message_time != (
@@ -1276,16 +1434,15 @@ export class MessageStorage {
                     WHERE m.thread_id = t.id
                 )
             `);
+            const inconsistentTime = inconsistentTimeStmt.get() as { count: number };
 
             if (inconsistentTime.count > 0) {
                 issues.push(`发现 ${inconsistentTime.count} 个线程的最后消息时间不一致`);
                 suggestions.push('修复时间戳一致性');
             }
 
-            await db.close();
-
             // 获取基本统计
-            const stats = await this.getMessageStatistics();
+            const stats = this.getMessageStatistics();
 
             const isHealthy = issues.length === 0;
 
@@ -1317,29 +1474,32 @@ export class MessageStorage {
     /**
      * 🔥 批量更新账号状态
      */
-    static async batchUpdateAccountStatus(updates: Array<{
+    static batchUpdateAccountStatus(updates: Array<{
         platform: string;
         accountId: string;
         status: number;
         lastSyncTime: string;
-    }>): Promise<number> {
+    }>): number {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
             let updatedCount = 0;
 
-            for (const update of updates) {
-                const result = await db.run(`
+            const transaction = db.transaction(() => {
+                const stmt = db.prepare(`
                     UPDATE platform_sync_status 
                     SET last_sync_time = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE platform = ? AND account_id = ?
-                `, [update.lastSyncTime, update.platform, update.accountId]);
+                `);
 
-                if (result.changes && result.changes > 0) {
-                    updatedCount++;
+                for (const update of updates) {
+                    const result = stmt.run(update.lastSyncTime, update.platform, update.accountId);
+                    if (result.changes > 0) {
+                        updatedCount++;
+                    }
                 }
-            }
+            });
 
-            await db.close();
+            transaction();
             console.log(`✅ 批量更新完成: ${updatedCount}/${updates.length} 个账号状态已更新`);
             return updatedCount;
 
@@ -1352,18 +1512,18 @@ export class MessageStorage {
     /**
      * 🔥 获取需要同步的账号列表
      */
-    static async getAccountsNeedingSync(intervalMinutes: number = 5): Promise<Array<{
+    static getAccountsNeedingSync(intervalMinutes: number = 5): Array<{
         platform: string;
         account_id: string;
         last_sync_time: string | null;
         thread_count: number;
-    }>> {
+    }> {
         try {
-            const db = await this.getDatabase();
+            const db = this.getDatabase();
 
             const cutoffTime = new Date(Date.now() - intervalMinutes * 60 * 1000).toISOString();
 
-            const accounts = await db.all(`
+            const stmt = db.prepare(`
                 SELECT 
                     t.platform,
                     t.account_id,
@@ -1374,15 +1534,39 @@ export class MessageStorage {
                 WHERE s.last_sync_time IS NULL OR s.last_sync_time < ?
                 GROUP BY t.platform, t.account_id
                 ORDER BY s.last_sync_time ASC NULLS FIRST
-            `, [cutoffTime]);
-
-            await db.close();
-
-            return accounts;
+            `);
+            
+            return stmt.all(cutoffTime) as any[];
 
         } catch (error) {
             console.error('❌ 获取需要同步的账号失败:', error);
             return [];
         }
+    }
+
+    // ==================== 生命周期管理 ====================
+
+    /**
+     * 🔥 关闭数据库连接
+     */
+    static closeDatabase(): void {
+        if (dbInstance) {
+            try {
+                dbInstance.close();
+                dbInstance = null;
+                console.log('✅ 数据库连接已关闭');
+            } catch (error) {
+                console.error('❌ 关闭数据库连接失败:', error);
+            }
+        }
+    }
+
+    /**
+     * 🔥 重置数据库状态（测试用）
+     */
+    static resetDatabase(): void {
+        this.closeDatabase();
+        messageDbInitialized = false;
+        messageDbInitializing = false;
     }
 }

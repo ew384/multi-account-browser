@@ -1,4 +1,4 @@
-// src/main/config/Config.ts
+// src/main/config/Config.ts - 添加消息图片目录配置
 
 import * as path from 'path';
 import { app } from 'electron';
@@ -40,6 +40,11 @@ export class Config {
     // 🔥 头像存储目录
     static get AVATAR_DIR(): string {
         return path.join(process.env.HOME || require('os').homedir(), '.config/multi-account-browser/assets/avatar');
+    }
+
+    // 🔥 消息图片存储目录
+    static get MESSAGE_IMAGES_DIR(): string {
+        return path.join(this.BASE_DIR, 'messageImages');
     }
 
     // 🔥 日志目录
@@ -118,6 +123,7 @@ export class Config {
             this.COOKIE_DIR,
             this.DB_DIR,
             this.AVATAR_DIR,
+            this.MESSAGE_IMAGES_DIR,  // 🔥 新增消息图片目录
             this.LOG_DIR,
             this.TEMP_DIR
         ];
