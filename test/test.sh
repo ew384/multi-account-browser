@@ -57,9 +57,24 @@ curl -X POST http://localhost:3409/api/messages/sync \
     "cookieFile": "wechat_endian_1753974484958.json"
   }'
 
-  检查自动创建的状态
-bash# 查看调度器状态（会显示实际创建的 tabId）
+#检查自动创建的状态
+# 查看调度器状态（会显示实际创建的 tabId）
 curl -X GET http://localhost:3409/api/messages/scheduler/status
 
 # 查看所有 headless tabs（message tab 是 headless 的）
 curl -X GET http://localhost:3409/api/tabs/headless
+
+curl -X GET http://localhost:3409/api/messages/threads
+
+启动消息调度系统
+bash# 启动整个消息调度系统
+curl -X POST http://localhost:3409/api/messages/scheduler/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platform": "wechat",
+    "accountId": "endian",
+    "tabId": "wechat-1753946623176",
+    "config": {
+      "syncInterval": 5
+    }
+  }
