@@ -8,6 +8,7 @@ import { HeadlessManager } from './HeadlessManager';
 
 
 import { SocialAutomationAPI } from './apis/SocialAutomationAPI';
+import { MessageAutomationAPI } from './apis/MessageAutomationAPI';
 export class APIServer {
     private app: express.Application;
     private server: any;
@@ -15,11 +16,13 @@ export class APIServer {
     private tabManager: TabManager;  // 🔥 保留 tabManager 用于底层操作
     private headlessManager: HeadlessManager;
     private socialAPI: SocialAutomationAPI;
+    private messageAPI: MessageAutomationAPI;
     constructor(automationEngine: AutomationEngine, tabManager: TabManager) {
         this.automationEngine = automationEngine;
         this.tabManager = tabManager;  // 🔥 保留 tabManager 引用
         this.headlessManager = HeadlessManager.getInstance();
         this.socialAPI = new SocialAutomationAPI(automationEngine);
+        this.messageAPI = new MessageAutomationAPI(tabManager);
         this.app = express();
         this.setupMiddleware();
         this.setupRoutes();
@@ -50,14 +53,49 @@ export class APIServer {
         });
     }
     private setupRoutes(): void {
-        // 🔥 第一优先级：前端兼容路由（使用 SocialAutomationAPI）
         this.app.use('/', this.socialAPI.getRouter());
 
-        // 🔥 第二优先级：特殊处理的API（SSE登录）
+        // 🔥 第二优先级：消息自动化API路由
+        this.setupMessageRoutes();
+
+        // 🔥 第三优先级：特殊处理的API（SSE登录）
         this.setupSpecialRoutes();
 
-        // 🔥 第三优先级：系统级API和Tab管理API
+        // 🔥 第四优先级：系统级API和Tab管理API
         this.setupSystemAndTabRoutes();
+    }
+        private setupMessageRoutes(): void {
+        console.log('🔌 设置消息自动化API路由...');
+
+        // ==================== 消息同步相关API ====================
+        this.app.post('/api/messages/sync', this.messageAPI.syncMessages.bind(this.messageAPI));
+        this.app.post('/api/messages/batch-sync', this.messageAPI.batchSyncMessages.bind(this.messageAPI));
+
+        // ==================== 消息发送相关API ====================
+        this.app.post('/api/messages/send', this.messageAPI.sendMessage.bind(this.messageAPI));
+        this.app.post('/api/messages/batch-send', this.messageAPI.batchSendMessages.bind(this.messageAPI));
+
+        // ==================== 消息查询相关API ====================
+        this.app.get('/api/messages/threads', this.messageAPI.getMessageThreads.bind(this.messageAPI));
+        this.app.get('/api/messages/thread/:threadId', this.messageAPI.getThreadMessages.bind(this.messageAPI));
+        this.app.post('/api/messages/mark-read', this.messageAPI.markMessagesAsRead.bind(this.messageAPI));
+        this.app.get('/api/messages/search', this.messageAPI.searchMessages.bind(this.messageAPI));
+
+        // ==================== 统计相关API ====================
+        this.app.get('/api/messages/statistics', this.messageAPI.getMessageStatistics.bind(this.messageAPI));
+        this.app.get('/api/messages/unread-count', this.messageAPI.getUnreadCount.bind(this.messageAPI));
+
+        // ==================== 调度管理相关API ====================
+        this.app.post('/api/messages/scheduler/start', this.messageAPI.startScheduler.bind(this.messageAPI));
+        this.app.post('/api/messages/scheduler/stop', this.messageAPI.stopScheduler.bind(this.messageAPI));
+        this.app.get('/api/messages/scheduler/status', this.messageAPI.getSchedulerStatus.bind(this.messageAPI));
+
+        // ==================== 系统管理相关API ====================
+        this.app.get('/api/messages/platforms', this.messageAPI.getSupportedPlatforms.bind(this.messageAPI));
+        this.app.post('/api/messages/maintenance', this.messageAPI.performMaintenance.bind(this.messageAPI));
+        this.app.get('/api/messages/engine/status', this.messageAPI.getEngineStatus.bind(this.messageAPI));
+
+        console.log('✅ 消息自动化API路由设置完成');
     }
     private setupSpecialRoutes(): void {
         // 🔥 SSE登录接口（需要特殊流处理，保留在APIServer）
@@ -1488,14 +1526,63 @@ export class APIServer {
 
         // 健康检查接口
         this.app.get('/health', (req, res) => {
-            const systemStatus = this.automationEngine.getSystemStatus();
-            res.json({
-                success: true,
-                status: 'healthy',
-                timestamp: new Date().toISOString(),
-                system: systemStatus
-            });
+            try {
+                const systemStatus = this.automationEngine.getSystemStatus();
+                const messageEngineStatus = this.messageAPI.getMessageEngine().getEngineStatus();
+
+                res.json({
+                    success: true,
+                    status: 'healthy',
+                    timestamp: new Date().toISOString(),
+                    system: systemStatus,
+                    messageEngine: {
+                        initializedPlugins: messageEngineStatus.initializedPlugins,
+                        activeSchedulers: messageEngineStatus.activeSchedulers,
+                        totalThreads: messageEngineStatus.totalThreads
+                    }
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    status: 'unhealthy',
+                    error: error instanceof Error ? error.message : 'unknown error',
+                    timestamp: new Date().toISOString()
+                });
+            }
         });
+
+        // 🔥 新增：消息功能总览API
+        this.app.get('/api/messages/overview', async (req, res) => {
+            try {
+                const [statistics, engineStatus, platforms] = await Promise.all([
+                    this.messageAPI.getMessageEngine().getMessageStatistics(),
+                    Promise.resolve(this.messageAPI.getMessageEngine().getEngineStatus()),
+                    Promise.resolve(this.messageAPI.getMessageEngine().getSupportedPlatforms())
+                ]);
+
+                res.json({
+                    success: true,
+                    data: {
+                        statistics,
+                        engineStatus,
+                        supportedPlatforms: platforms,
+                        apiEndpoints: {
+                            sync: '/api/messages/sync',
+                            send: '/api/messages/send',
+                            threads: '/api/messages/threads',
+                            scheduler: '/api/messages/scheduler/start'
+                        }
+                    },
+                    timestamp: new Date().toISOString()
+                });
+            } catch (error) {
+                res.status(500).json({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                });
+            }
+        });
+
 
         // 获取支持的平台
         this.app.get('/platforms', (req, res) => {
@@ -1550,6 +1637,25 @@ export class APIServer {
                     console.log(`   POST /api/account/set-file - Set file to input`);
                     console.log(`   POST /api/accounts/batch - Batch operations`);
                     console.log(`   GET  /api/account/:tabId/status - Check tab status`);
+
+                    console.log(`\n💬 消息自动化API:`);
+                    console.log(`   POST /api/messages/sync - 同步单个平台消息`);
+                    console.log(`   POST /api/messages/batch-sync - 批量同步消息`);
+                    console.log(`   POST /api/messages/send - 发送单条消息`);
+                    console.log(`   POST /api/messages/batch-send - 批量发送消息`);
+                    console.log(`   GET  /api/messages/threads - 获取消息线程列表`);
+                    console.log(`   GET  /api/messages/thread/:threadId - 获取线程消息`);
+                    console.log(`   POST /api/messages/mark-read - 标记消息已读`);
+                    console.log(`   GET  /api/messages/search - 搜索消息`);
+                    console.log(`   GET  /api/messages/statistics - 获取消息统计`);
+                    console.log(`   GET  /api/messages/unread-count - 获取未读数`);
+                    console.log(`   POST /api/messages/scheduler/start - 启动消息调度`);
+                    console.log(`   POST /api/messages/scheduler/stop - 停止消息调度`);
+                    console.log(`   GET  /api/messages/scheduler/status - 获取调度状态`);
+                    console.log(`   GET  /api/messages/platforms - 获取支持平台`);
+                    console.log(`   POST /api/messages/maintenance - 执行系统维护`);
+                    console.log(`   GET  /api/messages/engine/status - 获取引擎状态`);
+                    
                     console.log(`   GET  /api/debug/bounds - Debug bounds info`);
                     console.log(`   POST /api/debug/update-bounds - Update bounds`);
                     console.log(`🔄 Using WebContentsView renderer`);
@@ -1570,19 +1676,59 @@ export class APIServer {
         });
     }
 
-    stop(): Promise<void> {
-        return new Promise((resolve) => {
-            if (this.server) {
-                this.server.close(() => {
-                    console.log('🛑 API Server stopped');
+    async stop(): Promise<void> {
+        return new Promise(async (resolve) => {
+            try {
+                console.log('🛑 正在停止API服务器...');
+                
+                // 先销毁消息API
+                if (this.messageAPI) {
+                    await this.messageAPI.destroy();
+                    console.log('✅ 消息API已销毁');
+                }
+
+                // 然后停止HTTP服务器
+                if (this.server) {
+                    this.server.close(() => {
+                        console.log('🛑 API Server stopped');
+                        resolve();
+                    });
+                } else {
                     resolve();
-                });
-            } else {
-                resolve();
+                }
+            } catch (error) {
+                console.error('❌ 停止API服务器时出错:', error);
+                resolve(); // 即使出错也要resolve，避免阻塞
             }
         });
     }
+    getMessageAPI(): MessageAutomationAPI {
+        return this.messageAPI;
+    }
 
+    // 🔥 新增：快速检查消息功能是否可用
+    isMessageFunctionAvailable(): boolean {
+        try {
+            return !!(this.messageAPI && this.messageAPI.getMessageEngine());
+        } catch {
+            return false;
+        }
+    }
+
+    // 🔥 新增：获取扩展的服务器状态
+    getExtendedServerStatus(): {
+        isRunning: boolean;
+        hasMessageFunction: boolean;
+        supportedPlatforms: string[];
+        activeSchedulers: number;
+    } {
+        return {
+            isRunning: this.isRunning(),
+            hasMessageFunction: this.isMessageFunctionAvailable(),
+            supportedPlatforms: this.messageAPI ? this.messageAPI.getMessageEngine().getSupportedPlatforms() : [],
+            activeSchedulers: this.messageAPI ? this.messageAPI.getMessageEngine().getAllScheduleStatuses().length : 0
+        };
+    }
     isRunning(): boolean {
         return !!this.server && this.server.listening;
     }
