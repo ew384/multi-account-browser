@@ -265,24 +265,20 @@ export class MessageAutomationEngine {
      */
     async syncPlatformMessages(
         platform: string, 
-        accountId: string, 
-        tabId: string,
+        accountName: string, 
+        cookieFile: string,
         options?: {
             fullSync?: boolean;
             timeout?: number;
         }
     ): Promise<MessageSyncResult> {
         try {
-            console.log(`🔄 开始同步 ${platform} 平台消息: ${accountId}`);
+            console.log(`🔄 开始同步 ${platform} 平台消息: ${accountName}`);
 
-            // 🔥 新增：自动确保消息Tab存在
-            const cookieFile = await this.getCookieFileForAccount(platform, accountId);
-            if (!cookieFile) {
-                throw new Error(`无法获取Cookie文件: ${platform}_${accountId}`);
-            }
+
             
             // 🔥 关键：使用MessageTabManager自动创建或复用tab
-            const actualTabId = await this.ensureMessageTab(platform, accountId, cookieFile);
+            const actualTabId = await this.ensureMessageTab(platform, accountName, cookieFile);
             console.log(`✅ 消息Tab已就绪: ${actualTabId}`);
             
             // 确保消息数据库已初始化
@@ -299,13 +295,13 @@ export class MessageAutomationEngine {
             // 获取最后同步时间（用于增量同步）
             const lastSyncTime = options?.fullSync ? 
                 undefined : 
-                await MessageStorage.getLastSyncTime(platform, accountId);
+                await MessageStorage.getLastSyncTime(platform, accountName);
 
             // 执行同步
             const syncParams: MessageSyncParams = {
-                tabId,
+                tabId:actualTabId,
                 platform,
-                accountId,
+                accountId: accountName,
                 lastSyncTime: lastSyncTime || undefined,
                 fullSync: options?.fullSync || false
             };
@@ -316,7 +312,7 @@ export class MessageAutomationEngine {
                 // 保存同步结果到数据库
                 const incrementalResult = await MessageStorage.incrementalSync(
                     platform,
-                    accountId,
+                    accountName,
                     syncResult.threads
                 );
 
@@ -339,7 +335,7 @@ export class MessageAutomationEngine {
             // 记录同步错误
             await MessageStorage.recordSyncError(
                 platform, 
-                accountId, 
+                accountName, 
                 error instanceof Error ? error.message : 'unknown error'
             );
 
@@ -683,6 +679,7 @@ export class MessageAutomationEngine {
     async startMessageScheduler(
         platform: string,
         accountId: string,
+        cookieFile: string,
         tabId: string,
         config?: MessageScheduleConfig
     ): Promise<boolean> {
@@ -761,13 +758,21 @@ export class MessageAutomationEngine {
     /**
      * 🔥 获取账号的Cookie文件
      */
-    private async getCookieFileForAccount(platform: string, accountId: string): Promise<string | null> {
+    private async getCookieFileForAccount(platform: string, identifier: string): Promise<string | null> {
         try {
-            // 这里需要根据实际的存储方式来获取Cookie文件路径
-            const accountInfo = await AccountStorage.getAccountInfoFromDb(`${platform}_${accountId}.txt`);
-            return accountInfo ? `${platform}_${accountId}.txt` : null;
-        } catch (error) {
-            console.warn(`⚠️ 获取Cookie文件失败: ${platform}_${accountId}:`, error);
+            console.log(`🔍 解析账号标识: ${platform} - ${identifier}`);
+            
+            // 1. 如果是 .json 结尾，直接认为是文件路径
+            if (identifier.endsWith('.json')) {
+                console.log(`📁 识别为文件路径: ${identifier}`);
+                return identifier;
+            }else{
+                console.warn(`❌ 无法解析账号标识: ${identifier}`);
+                return null;
+            
+            } 
+        }catch (error) {
+            console.error(`❌ 获取Cookie文件失败: ${platform}_${identifier}:`, error);
             return null;
         }
     }

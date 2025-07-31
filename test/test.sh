@@ -48,3 +48,11 @@ curl -X POST http://localhost:3409/api/account/execute \
     "tabId": "wechat-1753770533600",
     "script": "(async function() { try { console.log(\"开始点击发表按钮...\"); const wujieApp = document.querySelector(\"wujie-app\"); if (!wujieApp || !wujieApp.shadowRoot) { return { success: false, error: \"未找到Shadow DOM\" }; } const shadowDoc = wujieApp.shadowRoot; const buttons = shadowDoc.querySelectorAll(\"button\"); console.log(\"找到按钮总数:\", buttons.length); let publishButton = null; for (const button of buttons) { const buttonText = button.textContent.trim(); console.log(\"检查按钮:\", { text: buttonText, disabled: button.disabled, className: button.className.includes(\"disabled\") }); if (buttonText.includes(\"发表\") && !button.disabled && !button.className.includes(\"weui-desktop-btn_disabled\")) { publishButton = button; console.log(\"找到可点击的发表按钮!\"); break; } } if (!publishButton) { console.log(\"未找到可点击的发表按钮\"); return { success: false, error: \"发表按钮未找到或不可点击\" }; } console.log(\"准备点击发表按钮...\"); publishButton.scrollIntoView({ behavior: \"smooth\", block: \"center\" }); await new Promise(resolve => setTimeout(resolve, 500)); publishButton.focus(); await new Promise(resolve => setTimeout(resolve, 200)); publishButton.click(); console.log(\"✅ 发表按钮已点击\"); await new Promise(resolve => setTimeout(resolve, 1000)); return { success: true, buttonText: publishButton.textContent.trim(), buttonClass: publishButton.className }; } catch (error) { console.error(\"点击发表按钮失败:\", error); return { success: false, error: error.message, stack: error.stack }; } })()"
   }'
+
+curl -X POST http://localhost:3409/api/messages/sync \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platform": "wechat",
+    "accountName": "endian", 
+    "cookieFile": "wechat_endian_1753944885403.json"
+  }'

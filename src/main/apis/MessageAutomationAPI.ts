@@ -34,24 +34,23 @@ export class MessageAutomationAPI {
      */
     async syncMessages(req: Request, res: Response): Promise<void> {
         try {
-            const { platform, accountId, tabId, options } = req.body;
+            const { platform, accountName, cookieFile } = req.body;
 
-            if (!platform || !accountId || !tabId) {
+            if (!platform || !accountName || !cookieFile) {
                 res.status(400).json({
                     success: false,
-                    error: '缺少必需参数: platform, accountId, tabId',
+                    error: '缺少必需参数: platform, accountName, cookieFile',
                     code: 'MISSING_PARAMS'
                 });
                 return;
             }
 
-            console.log(`🔄 API请求: 同步 ${platform} 消息 - ${accountId}`);
+            console.log(`🔄 API请求: 同步 ${platform} 消息 - ${accountName}`);
 
             const result = await this.messageEngine.syncPlatformMessages(
                 platform,
-                accountId,
-                tabId,
-                options
+                accountName,
+                cookieFile
             );
 
             res.json({

@@ -35,8 +35,8 @@ export class MessageTabManager {
     /**
      * 🔥 确保消息Tab存在并健康
      */
-    async ensureMessageTab(platform: string, accountId: string, cookieFile: string): Promise<string> {
-        const accountKey = `${platform}_${accountId}`;
+    async ensureMessageTab(platform: string, accountName: string, cookieFile: string): Promise<string> {
+        const accountKey = `message_${cookieFile}`;
         
         try {
             // 1. 检查现有Tab
@@ -54,11 +54,11 @@ export class MessageTabManager {
             }
             
             // 3. 创建新Tab
-            tabId = await this.createMessageTab(platform, accountId, cookieFile);
+            tabId = await this.createMessageTab(platform, accountName, cookieFile);
             
             // 4. 记录映射和启动监控
             this.messageTabMapping.set(accountKey, tabId);
-            this.startTabMonitoring(tabId, platform, accountId);
+            this.startTabMonitoring(tabId, platform, accountName, cookieFile);
             
             console.log(`✅ 消息Tab就绪: ${accountKey} -> ${tabId}`);
             return tabId;
@@ -72,15 +72,15 @@ export class MessageTabManager {
     /**
      * 🔥 创建消息专用Tab
      */
-    private async createMessageTab(platform: string, accountId: string, cookieFile: string): Promise<string> {
+    private async createMessageTab(platform: string, accountName: string, cookieFile: string): Promise<string> {
         try {
             // 使用TabManager创建并锁定Tab
-            const tabId = await this.tabManager.createMessageTab(platform, accountId, cookieFile);
+            const tabId = await this.tabManager.createMessageTab(platform, accountName, cookieFile);
             
             // 记录Tab元数据
             this.tabMetadata.set(tabId, {
                 platform,
-                accountId,
+                accountId: accountName,
                 cookieFile,
                 createdAt: new Date().toISOString(),
                 lastHealthCheck: new Date().toISOString(),
@@ -93,7 +93,7 @@ export class MessageTabManager {
             return tabId;
             
         } catch (error) {
-            console.error(`❌ 创建消息专用Tab失败: ${platform}_${accountId}:`, error);
+            console.error(`❌ 创建消息专用Tab失败: ${platform} ${accountName} ${cookieFile}:`, error);
             throw error;
         }
     }
@@ -223,7 +223,7 @@ export class MessageTabManager {
     /**
      * 🔥 启动Tab监控
      */
-    private startTabMonitoring(tabId: string, platform: string, accountId: string): void {
+    private startTabMonitoring(tabId: string, platform: string, accountName:string, cookieFile: string): void {
         // 清理现有监控
         this.stopTabMonitoring(tabId);
         
@@ -232,8 +232,8 @@ export class MessageTabManager {
                 const isHealthy = await this.isTabHealthy(tabId);
                 
                 if (!isHealthy) {
-                    console.warn(`⚠️ 检测到不健康的Tab: ${platform}_${accountId}`);
-                    await this.handleUnhealthyTab(tabId, platform, accountId);
+                    console.warn(`⚠️ 检测到不健康的Tab: ${tabId} ${cookieFile}`);
+                    await this.handleUnhealthyTab(tabId, platform,accountName, cookieFile);
                 } else {
                     // 更新健康检查时间
                     const metadata = this.tabMetadata.get(tabId);
@@ -247,7 +247,7 @@ export class MessageTabManager {
         }, this.HEALTH_CHECK_INTERVAL);
         
         this.tabHealthMonitors.set(tabId, monitor);
-        console.log(`🔍 启动Tab监控: ${platform}_${accountId}`);
+        console.log(`🔍 启动Tab监控: TabID: ${tabId} cookieFile: ${cookieFile}`);
     }
 
     /**
@@ -264,8 +264,8 @@ export class MessageTabManager {
     /**
      * 🔥 处理不健康的Tab
      */
-    private async handleUnhealthyTab(tabId: string, platform: string, accountId: string): Promise<void> {
-        const accountKey = `${platform}_${accountId}`;
+    private async handleUnhealthyTab(tabId: string, platform: string,accountName:string, cookieFile: string): Promise<void> {
+        const accountKey = `message_${cookieFile}`;
         const metadata = this.tabMetadata.get(tabId);
         
         if (!metadata) return;
@@ -289,7 +289,7 @@ export class MessageTabManager {
             await new Promise(resolve => setTimeout(resolve, 5000));
             
             // 重新创建Tab
-            await this.ensureMessageTab(platform, accountId, metadata.cookieFile);
+            await this.ensureMessageTab(platform, accountName, metadata.cookieFile);
             
         } catch (error) {
             console.error(`❌ 处理不健康Tab失败: ${accountKey}:`, error);
