@@ -19,10 +19,10 @@ export class APIServer {
     private messageAPI: MessageAutomationAPI;
     constructor(automationEngine: AutomationEngine, tabManager: TabManager) {
         this.automationEngine = automationEngine;
-        this.tabManager = tabManager;  // 🔥 保留 tabManager 引用
+        this.tabManager = tabManager;
         this.headlessManager = HeadlessManager.getInstance();
         this.socialAPI = new SocialAutomationAPI(automationEngine);
-        this.messageAPI = new MessageAutomationAPI(tabManager);
+        this.messageAPI = new MessageAutomationAPI(tabManager,automationEngine);
         this.app = express();
         this.setupMiddleware();
         this.setupRoutes();
@@ -85,9 +85,18 @@ export class APIServer {
         this.app.get('/api/messages/statistics', this.messageAPI.getMessageStatistics.bind(this.messageAPI));
         this.app.get('/api/messages/unread-count', this.messageAPI.getUnreadCount.bind(this.messageAPI));
 
-        // ==================== 调度管理相关API ====================
-        this.app.post('/api/messages/scheduler/start', this.messageAPI.startScheduler.bind(this.messageAPI));
-        this.app.post('/api/messages/scheduler/stop', this.messageAPI.stopScheduler.bind(this.messageAPI));
+        // ==================== 系统级调度管理API ====================
+        this.app.post('/api/messages/scheduler/system/start', this.messageAPI.startCompleteSystem.bind(this.messageAPI));
+        this.app.post('/api/messages/scheduler/system/stop', this.messageAPI.stopSchedulerSystem.bind(this.messageAPI));
+        this.app.post('/api/messages/scheduler/system/reload', this.messageAPI.reloadAllAccounts.bind(this.messageAPI));
+
+        // ==================== 单个账号调度管理API ====================
+        this.app.post('/api/messages/scheduler/account/stop', this.messageAPI.stopAccountScheduler.bind(this.messageAPI));
+
+        // ==================== 账号Cookie管理API ====================
+        this.app.post('/api/messages/accounts/update-cookie', this.messageAPI.updateAccountCookie.bind(this.messageAPI));
+
+        // ==================== 调度状态查询API ====================
         this.app.get('/api/messages/scheduler/status', this.messageAPI.getSchedulerStatus.bind(this.messageAPI));
 
         // ==================== 系统管理相关API ====================

@@ -23,27 +23,23 @@ import {
     isMessagePlatformSupported,
     getMessagePlatformConfig
 } from '../plugins/message/index';
-
-import { TabManager } from '../TabManager';
+import { AutomationEngine } from './AutomationEngine';
 import { AccountStorage } from '../plugins/login/base/AccountStorage';
+import { TabManager } from '../TabManager';
 
-// 🔥 导入新的消息专用组件
 import { MessageTabManager, MessageScheduler } from './message';
 
 export class MessageAutomationEngine {
     private tabManager: TabManager;
+    private automationEngine: AutomationEngine;
     private messagePlugins: Map<string, PluginMessage> = new Map();
-    
-    // 🔥 新架构：组合专用管理器
     private messageTabManager: MessageTabManager;
     private messageScheduler: MessageScheduler;
-    
-    // 🔥 保留原有的兼容性映射
     private messageSyncStatus: Map<string, MessageScheduleStatus> = new Map();
 
-    constructor(tabManager: TabManager) {
+    constructor(tabManager: TabManager,automationEngine: AutomationEngine) {
         this.tabManager = tabManager;
-        
+        this.automationEngine = automationEngine;
         // 🔥 初始化专用管理器
         this.messageTabManager = new MessageTabManager(tabManager);
         this.messageScheduler = new MessageScheduler(this.messageTabManager);
@@ -157,6 +153,110 @@ export class MessageAutomationEngine {
     }
 
     // ==================== 调度管理 - 委托给MessageScheduler ====================
+    /**
+     * 🔥 自动加载所有有效账号到调度系统
+     */
+    async autoLoadValidAccountsToSchedule(): Promise<{
+        success: number;
+        failed: number;
+        results: Array<{ accountKey: string; success: boolean; taskId?: string; error?: string }>;
+    }> {
+        console.log('🔍 自动加载所有有效账号到消息调度系统...');
+        
+        try {
+            // 🔥 通过注入的 AutomationEngine 获取有效账号
+            const validAccounts = await this.automationEngine.getValidAccounts();
+            console.log(`📋 发现 ${validAccounts.length} 个有效账号`);
+
+            const results = [];
+            let success = 0;
+            let failed = 0;
+
+            for (const account of validAccounts) {
+                try {
+                    // 🔥 需要确认 AccountStorage.getPlatformName 方法
+                    const platform = AccountStorage.getPlatformName(account.type);
+                    const accountId = account.userName;
+                    const cookieFile = account.filePath;
+                    const accountKey = `${platform}_${accountId}`;
+                    
+                    // 检查是否已存在
+                    const existingTask = this.messageScheduler.getTaskByAccount(platform, accountId);
+                    
+                    if (existingTask) {
+                        // 检查Cookie文件是否更新
+                        if (existingTask.currentCookieFile !== cookieFile) {
+                            this.messageScheduler.updateTaskCookie(accountKey, cookieFile, 'auto_reload');
+                            console.log(`🔄 更新账号Cookie: ${accountKey}`);
+                        } else {
+                            console.log(`⚠️ 账号已存在，跳过: ${accountKey}`);
+                        }
+                        
+                        results.push({ accountKey, success: true, taskId: existingTask.id });
+                        success++;
+                        continue;
+                    }
+
+                    // 添加新任务
+                    const taskId = this.addAccountToSchedule({
+                        platform: platform,
+                        accountId: accountId,
+                        cookieFile: cookieFile,
+                        syncInterval: 5,
+                        autoStart: true
+                    });
+
+                    results.push({ accountKey, success: true, taskId });
+                    success++;
+                    
+                    console.log(`✅ 已添加到调度: ${accountKey}`);
+                    
+                } catch (error) {
+                    const accountKey = `unknown_${account.userName}`;
+                    results.push({ 
+                        accountKey, 
+                        success: false, 
+                        error: error instanceof Error ? error.message : 'unknown error' 
+                    });
+                    failed++;
+                    console.error(`❌ 添加账号失败: ${account.userName}:`, error);
+                }
+            }
+
+            console.log(`📊 自动加载完成: 成功 ${success}, 失败 ${failed}`);
+            return { success, failed, results };
+            
+        } catch (error) {
+            console.error('❌ 自动加载账号失败:', error);
+            throw error;
+        }
+    }
+    /**
+     * 🔥 启动完整的消息自动化系统
+     */
+    async startCompleteMessageSystem(): Promise<boolean> {
+        try {
+            console.log('🚀 启动完整的消息自动化系统...');
+            
+            // 1. 自动加载所有有效账号
+            const loadResult = await this.autoLoadValidAccountsToSchedule();
+            console.log(`📋 账号加载结果: 成功 ${loadResult.success}, 失败 ${loadResult.failed}`);
+            
+            // 2. 启动调度器（如果有任务）
+            if (loadResult.success > 0) {
+                await this.messageScheduler.start();  // 🔥 直接调用 messageScheduler.start()
+                console.log('✅ 消息调度器已启动');
+                return true;
+            } else {
+                console.log('⚠️ 没有可用账号，调度器未启动');
+                return false;
+            }
+            
+        } catch (error) {
+            console.error('❌ 启动消息自动化系统失败:', error);
+            return false;
+        }
+    }
 
     /**
      * 🔥 启动消息自动化调度系统
@@ -218,20 +318,6 @@ export class MessageAutomationEngine {
         return taskId;
     }
 
-    /**
-     * 🔥 批量添加账号到调度系统
-     */
-    addBatchAccountsToSchedule(accounts: Array<{
-        platform: string;
-        accountId: string;
-        cookieFile: string;
-        syncInterval?: number;
-        priority?: number;
-    }>): string[] {
-        console.log(`📋 批量添加 ${accounts.length} 个账号到调度系统`);
-        
-        return this.messageScheduler.addBatchTasks(accounts);
-    }
 
     /**
      * 🔥 从调度系统移除账号
@@ -406,7 +492,6 @@ export class MessageAutomationEngine {
     // ==================== 批量操作（保持不变） ====================
 
     async batchSyncMessages(request: BatchMessageSyncRequest): Promise<BatchMessageSyncResult> {
-        // ... 现有实现保持不变
         try {
             console.log(`🔄 批量同步消息: ${request.platform} 平台 ${request.accounts.length} 个账号`);
 
@@ -422,17 +507,10 @@ export class MessageAutomationEngine {
                 
                 const batchPromises = batch.map(async (account) => {
                     try {
-                        // 🔥 使用MessageTabManager确保Tab
-                        // 获取Cookie文件路径
-                        const cookieFile = await this.getCookieFileForAccount(request.platform, account.accountId);
-                        if (!cookieFile) {
-                            throw new Error(`无法获取Cookie文件: ${request.platform}_${account.accountId}`);
-                        }
-                        
                         const tabId = await this.ensureMessageTab(
                             request.platform,
                             account.accountId,
-                            cookieFile
+                            account.cookieFile
                         );
 
                         const syncResult = await Promise.race([
@@ -670,51 +748,6 @@ export class MessageAutomationEngine {
         }
     }
 
-    // ==================== 兼容性方法 ====================
-
-    /**
-     * 🔥 启动消息自动同步调度 (兼容方法)
-     * @deprecated 建议使用 addAccountToSchedule
-     */
-    async startMessageScheduler(
-        platform: string,
-        accountId: string,
-        cookieFile: string,
-        tabId: string,
-        config?: MessageScheduleConfig
-    ): Promise<boolean> {
-        try {
-            // 获取Cookie文件
-            const cookieFile = await this.getCookieFileForAccount(platform, accountId);
-            if (!cookieFile) {
-                console.error(`❌ 无法获取Cookie文件: ${platform}_${accountId}`);
-                return false;
-            }
-            
-            // 添加到新的调度系统
-            this.addAccountToSchedule({
-                platform,
-                accountId,
-                cookieFile,
-                syncInterval: config?.syncInterval || 5,
-                autoStart: true
-            });
-            
-            return true;
-            
-        } catch (error) {
-            console.error(`❌ 启动消息调度失败: ${platform}_${accountId}:`, error);
-            return false;
-        }
-    }
-
-    /**
-     * 🔥 停止消息调度 (兼容方法)
-     */
-    stopMessageScheduler(platform: string, accountId: string): boolean {
-        return this.removeAccountFromSchedule(platform, accountId);
-    }
-
     /**
      * 🔥 获取调度状态 (兼容方法)
      */
@@ -752,29 +785,12 @@ export class MessageAutomationEngine {
             lastError: task.lastError
         }));
     }
-
-    // ==================== 辅助方法 ====================
-
     /**
-     * 🔥 获取账号的Cookie文件
+     * 🔥 新增：更新账号Cookie
      */
-    private async getCookieFileForAccount(platform: string, identifier: string): Promise<string | null> {
-        try {
-            console.log(`🔍 解析账号标识: ${platform} - ${identifier}`);
-            
-            // 1. 如果是 .json 结尾，直接认为是文件路径
-            if (identifier.endsWith('.json')) {
-                console.log(`📁 识别为文件路径: ${identifier}`);
-                return identifier;
-            }else{
-                console.warn(`❌ 无法解析账号标识: ${identifier}`);
-                return null;
-            
-            } 
-        }catch (error) {
-            console.error(`❌ 获取Cookie文件失败: ${platform}_${identifier}:`, error);
-            return null;
-        }
+    updateAccountCookie(platform: string, accountId: string, newCookieFile: string): boolean {
+        const accountKey = `${platform}_${accountId}`;
+        return this.messageScheduler.updateTaskCookie(accountKey, newCookieFile, 'relogin');
     }
 
     // ==================== 数据清理功能 ====================
@@ -828,60 +844,6 @@ export class MessageAutomationEngine {
         }
     }
 
-    // ==================== 批量操作增强 ====================
-
-    /**
-     * 🔥 批量启动消息调度
-     */
-    async batchStartMessageSchedulers(accounts: Array<{
-        platform: string;
-        accountId: string;
-        cookieFile: string;
-        config?: MessageScheduleConfig;
-    }>): Promise<{
-        success: number;
-        failed: number;
-        results: Array<{ accountKey: string; success: boolean; taskId?: string; error?: string }>;
-    }> {
-        console.log(`🚀 批量启动消息调度: ${accounts.length} 个账号`);
-        
-        const results = [];
-        let success = 0;
-        let failed = 0;
-        
-        for (const account of accounts) {
-            try {
-                const accountKey = `${account.platform}_${account.accountId}`;
-                
-                // 添加到调度系统
-                const taskId = this.addAccountToSchedule({
-                    platform: account.platform,
-                    accountId: account.accountId,
-                    cookieFile: account.cookieFile,
-                    syncInterval: account.config?.syncInterval || 5,
-                    autoStart: true
-                });
-                
-                success++;
-                results.push({ accountKey, success: true, taskId });
-                
-            } catch (error) {
-                failed++;
-                results.push({ 
-                    accountKey: `${account.platform}_${account.accountId}`, 
-                    success: false, 
-                    error: error instanceof Error ? error.message : 'unknown error' 
-                });
-            }
-            
-            // 账号间延迟，避免过载
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        
-        console.log(`📊 批量启动完成: 成功 ${success}, 失败 ${failed}`);
-        
-        return { success, failed, results };
-    }
 
     // ==================== 生命周期管理 ====================
 

@@ -10,7 +10,8 @@ import {
     Message,
     UserMessageThread
 } from '../../../../types/pluginInterface';
-
+import * as fs from 'fs';
+import * as path from 'path';
 export class WeChatChannelsMessage implements PluginMessage {
     public readonly platform = 'wechat';
     public readonly name = '微信视频号消息插件';
@@ -52,7 +53,9 @@ export class WeChatChannelsMessage implements PluginMessage {
             console.log('📱 执行微信消息同步脚本...');
 
             const scriptResult = await this.tabManager.executeScript(params.tabId, syncScript);
-
+            console.log('📊 脚本执行返回的原始结果:');
+            console.log('📊 结果类型:', typeof scriptResult);
+            console.log('📊 结果内容:', JSON.stringify(scriptResult, null, 2));
             if (!scriptResult) {
                 throw new Error('脚本执行返回空结果');
             }
@@ -284,223 +287,9 @@ export class WeChatChannelsMessage implements PluginMessage {
      * 🔥 生成微信消息同步脚本
      */
     private generateWechatSyncScript(): string {
-        // 🔥 这里是你已经验证成功的 WechatMessageGetScript
-        return `
-            (async function(){
-                function getCorrectDocument(){
-                    const iframes=document.querySelectorAll('iframe');
-                    for(let iframe of iframes){
-                        try{
-                            const iframeDoc=iframe.contentDocument||iframe.contentWindow.document;
-                            if(iframeDoc){
-                                const privateElements=iframeDoc.querySelectorAll('.private-msg-list');
-                                if(privateElements.length>0){
-                                    return{doc:iframeDoc,win:iframe.contentWindow}
-                                }
-                            }
-                        }catch(error){continue}
-                    }
-                    return{doc:document,win:window}
-                }
-                
-                function waitForElement(doc,selector,timeout=5000){
-                    return new Promise((resolve,reject)=>{
-                        const element=doc.querySelector(selector);
-                        if(element)return resolve(element);
-                        const observer=new MutationObserver(()=>{
-                            const element=doc.querySelector(selector);
-                            if(element){
-                                observer.disconnect();
-                                resolve(element)
-                            }
-                        });
-                        observer.observe(doc.body,{childList:true,subtree:true});
-                        setTimeout(()=>{
-                            observer.disconnect();
-                            reject(new Error(\`Element \${selector} not found within \${timeout}ms\`))
-                        },timeout)
-                    })
-                }
-                
-                function scrollToLoadImages(doc){
-                    return new Promise(async(resolve)=>{
-                        const conversationContainer=doc.querySelector('.session-content-wrapper')||doc.querySelector('.scroll-list')||doc.body;
-                        if(!conversationContainer){resolve();return}
-                        const imageContainers=doc.querySelectorAll('.image-wrapper');
-                        if(imageContainers.length===0){resolve();return}
-                        conversationContainer.scrollTop=0;
-                        await delay(500);
-                        const containerHeight=conversationContainer.clientHeight;
-                        const scrollHeight=conversationContainer.scrollHeight;
-                        const scrollStep=containerHeight/2;
-                        for(let scrollPos=0;scrollPos<=scrollHeight;scrollPos+=scrollStep){
-                            conversationContainer.scrollTop=scrollPos;
-                            await delay(800)
-                        }
-                        conversationContainer.scrollTop=scrollHeight;
-                        await delay(1000);
-                        conversationContainer.scrollTop=0;
-                        await delay(500);
-                        resolve()
-                    })
-                }
-                
-                function waitForImagesLoaded(doc,timeout=10000){
-                    return new Promise((resolve)=>{
-                        const images=doc.querySelectorAll('.msg-img');
-                        if(images.length===0){resolve();return}
-                        let loadedCount=0;
-                        let totalImages=images.length;
-                        const checkAllLoaded=()=>{
-                            loadedCount++;
-                            if(loadedCount>=totalImages){resolve()}
-                        };
-                        images.forEach((img,index)=>{
-                            if(img.complete&&img.src&&img.src!=='data:image/png;base64,'){
-                                checkAllLoaded()
-                            }else if(img.src&&img.src!=='data:image/png;base64,'){
-                                img.onload=checkAllLoaded;
-                                img.onerror=checkAllLoaded
-                            }else{
-                                checkAllLoaded()
-                            }
-                        });
-                        setTimeout(()=>{resolve()},timeout)
-                    })
-                }
-                
-                function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
-                
-                function generateUserId(name,avatar){
-                    const str=name+avatar;
-                    let hash=0;
-                    for(let i=0;i<str.length;i++){
-                        const char=str.charCodeAt(i);
-                        hash=((hash<<5)-hash)+char;
-                        hash=hash&hash
-                    }
-                    return Math.abs(hash).toString()
-                }
-                
-                function getSender(messageElement,docContext){
-                    if(messageElement.classList.contains('content-left')){return'user'}
-                    if(messageElement.classList.contains('content-right')){return'me'}
-                    let currentElement=messageElement;
-                    while(currentElement&&currentElement!==docContext.body){
-                        if(currentElement.classList.contains('content-left')){return'user'}
-                        if(currentElement.classList.contains('content-right')){return'me'}
-                        currentElement=currentElement.parentElement
-                    }
-                    const contentLeft=messageElement.querySelector('.content-left');
-                    const contentRight=messageElement.querySelector('.content-right');
-                    if(contentLeft)return'user';
-                    if(contentRight)return'me';
-                    const bubbleLeft=messageElement.querySelector('.bubble-left');
-                    const bubbleRight=messageElement.querySelector('.bubble-right');
-                    if(bubbleLeft)return'user';
-                    if(bubbleRight)return'me';
-                    try{
-                        if(messageElement.closest('.content-left')){
-                            return'user'
-                        }else if(messageElement.closest('.content-right')){
-                            return'me'
-                        }
-                    }catch(e){}
-                    return'unknown'
-                }
-                
-                try{
-                    const{doc,win}=getCorrectDocument();
-                    const result={timestamp:new Date().toISOString(),users:[]};
-                    const currentTab=doc.querySelector('li.weui-desktop-tab__nav_current a');
-                    if(currentTab&&currentTab.textContent.trim()==='私信'){}else{
-                        const allTabs=doc.querySelectorAll('li.weui-desktop-tab__nav a');
-                        let privateMessageTab=null;
-                        for(const tab of allTabs){
-                            if(tab.textContent.trim()==='私信'){
-                                privateMessageTab=tab;
-                                break
-                            }
-                        }
-                        if(!privateMessageTab){
-                            throw new Error('未找到私信标签')
-                        }
-                        privateMessageTab.click();
-                        await delay(1000)
-                    }
-                    await waitForElement(doc,'.session-wrap');
-                    await delay(1000);
-                    const userElements=doc.querySelectorAll('.session-wrap');
-                    if(userElements.length===0){return result}
-                    for(let i=0;i<userElements.length;i++){
-                        const userElement=userElements[i];
-                        try{
-                            const nameElement=userElement.querySelector('.name');
-                            const avatarElement=userElement.querySelector('.feed-img');
-                            if(!nameElement||!avatarElement){continue}
-                            const userName=nameElement.textContent.trim();
-                            const userAvatar=avatarElement.src;
-                            userElement.click();
-                            await delay(1500);
-                            await waitForElement(doc,'.session-content-wrapper',3000);
-                            await scrollToLoadImages(doc);
-                            await waitForImagesLoaded(doc,5000);
-                            const messages=[];
-                            const allMessageContainers=doc.querySelectorAll('.text-wrapper, .image-wrapper');
-                            allMessageContainers.forEach((container,index)=>{
-                                try{
-                                    const sender=getSender(container,doc);
-                                    if(container.classList.contains('text-wrapper')){
-                                        const messageElement=container.querySelector('.message-plain');
-                                        if(messageElement){
-                                            const emojiImages=messageElement.querySelectorAll('.we-emoji');
-                                            let text='';
-                                            if(emojiImages.length>0){
-                                                const textNodes=[];
-                                                messageElement.childNodes.forEach(node=>{
-                                                    if(node.nodeType===Node.TEXT_NODE){
-                                                        const nodeText=node.textContent.trim();
-                                                        if(nodeText)textNodes.push(nodeText)
-                                                    }else if(node.nodeType===Node.ELEMENT_NODE&&node.classList.contains('we-emoji')){
-                                                        const alt=node.getAttribute('alt')||'';
-                                                        if(alt)textNodes.push(alt)
-                                                    }
-                                                });
-                                                text=textNodes.join('')
-                                            }else{
-                                                text=messageElement.textContent.trim()
-                                            }
-                                            if(text){
-                                                messages.push({sender:sender,text:text})
-                                            }
-                                        }
-                                    }
-                                    if(container.classList.contains('image-wrapper')){
-                                        const imageElement=container.querySelector('.msg-img');
-                                        if(imageElement&&imageElement.src&&imageElement.src!=='data:image/png;base64,'&&imageElement.complete){
-                                            messages.push({sender:sender,images:[imageElement.src]})
-                                        }
-                                    }
-                                }catch(error){}
-                            });
-                            const userData={
-                                user_id:generateUserId(userName,userAvatar),
-                                name:userName,
-                                avatar:userAvatar,
-                                messages:messages
-                            };
-                            result.users.push(userData)
-                        }catch(error){continue}
-                    }
-                    window.privateMessagesData=result;
-                    return result
-                }catch(error){
-                    throw error
-                }
-            })()
-        `;
+        const scriptPath = path.join(__dirname, './scripts/wechat-sync.js');
+        return fs.readFileSync(scriptPath, 'utf-8');
     }
-
     /**
      * 🔥 生成微信消息发送脚本
      */
@@ -613,20 +402,30 @@ export class WeChatChannelsMessage implements PluginMessage {
         errors?: string[];
     } {
         try {
+            // 🔥 添加调试信息
+            console.log('📊 脚本返回的原始数据:', JSON.stringify(scriptResult, null, 2));
+            console.log('📊 数据类型:', typeof scriptResult);
+            
             // 如果脚本结果直接是解析好的对象
             if (scriptResult && typeof scriptResult === 'object') {
                 if (scriptResult.users && Array.isArray(scriptResult.users)) {
+                    console.log('✅ 找到users数组，长度:', scriptResult.users.length);
                     return {
                         success: true,
                         users: scriptResult.users
                     };
+                } else {
+                    console.log('⚠️ scriptResult是对象但没有users数组');
+                    console.log('⚠️ scriptResult的keys:', Object.keys(scriptResult));
                 }
             }
 
             // 如果脚本结果是字符串，尝试解析
             if (typeof scriptResult === 'string') {
+                console.log('📝 尝试解析字符串数据...');
                 const parsed = JSON.parse(scriptResult);
                 if (parsed.users && Array.isArray(parsed.users)) {
+                    console.log('✅ 解析后找到users数组，长度:', parsed.users.length);
                     return {
                         success: true,
                         users: parsed.users

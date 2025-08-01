@@ -6,7 +6,11 @@ export interface MessageScheduleTask {
     platform: string;             // 平台名称
     accountId: string;             // 账号ID
     accountKey: string;            // 组合键 platform_accountId
-    cookieFile: string;            // Cookie文件路径
+    currentCookieFile: string;     // 🔥 改名：cookieFile -> currentCookieFile
+    
+    // 🔥 简化的Cookie管理信息
+    lastCookieUpdate: string;      // 🔥 新增：最后更新Cookie的时间
+    cookieUpdateCount: number;     // 🔥 新增：Cookie更新次数
     
     // 调度配置
     syncInterval: number;          // 同步间隔(分钟)
@@ -97,8 +101,9 @@ export class MessageScheduler {
             platform: params.platform,
             accountId: params.accountId,
             accountKey: accountKey,
-            cookieFile: params.cookieFile,
-            
+            currentCookieFile: params.cookieFile,
+            lastCookieUpdate: new Date().toISOString(),
+            cookieUpdateCount: 1,            
             // 调度配置
             syncInterval: params.syncInterval || 5,
             enabled: params.enabled !== false,
@@ -331,7 +336,7 @@ export class MessageScheduler {
             const tabId = await this.messageTabManager.ensureMessageTab(
                 task.platform,
                 task.accountId,
-                task.cookieFile
+                task.currentCookieFile
             );
             
             // 2. 执行同步
@@ -457,7 +462,44 @@ export class MessageScheduler {
         }
         return null;
     }
-
+    /**
+     * 🔥 更新任务的Cookie文件
+     */
+    updateTaskCookie(accountKey: string, newCookieFile: string, reason: string = 'manual_update'): boolean {
+        const task = Array.from(this.tasks.values()).find(t => t.accountKey === accountKey);
+        
+        if (!task) {
+            console.warn(`⚠️ 未找到任务: ${accountKey}`);
+            return false;
+        }
+        
+        console.log(`🔄 更新任务Cookie: ${accountKey}`);
+        console.log(`   旧Cookie: ${task.currentCookieFile}`);
+        console.log(`   新Cookie: ${newCookieFile}`);
+        
+        // 简单替换，不保留历史
+        task.currentCookieFile = newCookieFile;
+        task.lastCookieUpdate = new Date().toISOString();
+        task.cookieUpdateCount++;
+        
+        // 重置错误状态
+        task.consecutiveErrors = 0;
+        delete task.lastError;
+        
+        // 如果任务被禁用，重新启用
+        if (!task.enabled || task.status === 'error') {
+            task.status = 'pending';
+            task.enabled = true;
+            console.log(`✅ 任务已重新启用: ${accountKey}`);
+        }
+        
+        // 重新调度
+        if (this.isRunning && task.enabled) {
+            this.scheduleTask(task.id);
+        }
+        
+        return true;
+    }
     /**
      * 🔥 启用/禁用任务
      */

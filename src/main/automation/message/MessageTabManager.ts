@@ -19,7 +19,11 @@ export class MessageTabManager {
     private tabManager: TabManager;
     
     // Tab映射和状态
-    private messageTabMapping: Map<string, string> = new Map(); // accountKey -> tabId
+    private messageTabMapping: Map<string, {
+        tabId: string;
+        currentCookieFile: string;
+        lastUpdate: string;
+    }> = new Map(); // 🔥 修改映射结构
     private tabHealthMonitors: Map<string, NodeJS.Timeout> = new Map(); // tabId -> timer
     private tabMetadata: Map<string, MessageTabMetadata> = new Map(); // tabId -> metadata
     
@@ -36,28 +40,40 @@ export class MessageTabManager {
      * 🔥 确保消息Tab存在并健康
      */
     async ensureMessageTab(platform: string, accountName: string, cookieFile: string): Promise<string> {
-        const accountKey = `message_${cookieFile}`;
+        const accountKey = `${platform}_${accountName}`;  // 🔥 使用稳定标识
         
         try {
             // 1. 检查现有Tab
-            let tabId = this.messageTabMapping.get(accountKey);
+            let tabInfo = this.messageTabMapping.get(accountKey);
             
-            if (tabId && await this.isTabHealthy(tabId)) {
-                console.log(`♻️ 复用健康的消息Tab: ${accountKey} -> ${tabId}`);
-                return tabId;
+            // 2. 检查Cookie是否更新
+            const cookieChanged = tabInfo && tabInfo.currentCookieFile !== cookieFile;
+            
+            if (tabInfo && !cookieChanged && await this.isTabHealthy(tabInfo.tabId)) {
+                console.log(`♻️ 复用健康的消息Tab: ${accountKey} -> ${tabInfo.tabId}`);
+                return tabInfo.tabId;
             }
             
-            // 2. 清理不健康的Tab
-            if (tabId) {
-                console.warn(`⚠️ 清理不健康的消息Tab: ${accountKey}`);
+            // 3. 如果Cookie变了或Tab不健康，重建
+            if (tabInfo && (cookieChanged || !await this.isTabHealthy(tabInfo.tabId))) {
+                if (cookieChanged) {
+                    console.log(`🔄 Cookie已更新，重建Tab: ${accountKey}`);
+                } else {
+                    console.warn(`⚠️ 清理不健康的消息Tab: ${accountKey}`);
+                }
                 await this.cleanupMessageTab(accountKey);
             }
             
-            // 3. 创建新Tab
-            tabId = await this.createMessageTab(platform, accountName, cookieFile);
+            // 4. 创建新Tab
+            const tabId = await this.createMessageTab(platform, accountName, cookieFile);
             
-            // 4. 记录映射和启动监控
-            this.messageTabMapping.set(accountKey, tabId);
+            // 5. 更新映射
+            this.messageTabMapping.set(accountKey, {
+                tabId,
+                currentCookieFile: cookieFile,
+                lastUpdate: new Date().toISOString()
+            });
+            
             this.startTabMonitoring(tabId, platform, accountName, cookieFile);
             
             console.log(`✅ 消息Tab就绪: ${accountKey} -> ${tabId}`);
@@ -300,21 +316,21 @@ export class MessageTabManager {
      * 🔥 清理消息Tab
      */
     async cleanupMessageTab(accountKey: string): Promise<void> {
-        const tabId = this.messageTabMapping.get(accountKey);
+        const tabInfo = this.messageTabMapping.get(accountKey);  // 🔥 修改这一行，原来直接获取tabId
         
-        if (tabId) {
+        if (tabInfo) {
             try {
-                console.log(`🧹 清理消息Tab: ${accountKey} -> ${tabId}`);
+                console.log(`🧹 清理消息Tab: ${accountKey} -> ${tabInfo.tabId}`);
                 
                 // 停止监控
-                this.stopTabMonitoring(tabId);
+                this.stopTabMonitoring(tabInfo.tabId);
                 
                 // 清理Tab
-                await this.tabManager.cleanupMessageTab(tabId);
+                await this.tabManager.cleanupMessageTab(tabInfo.tabId);
                 
                 // 清理映射和元数据
                 this.messageTabMapping.delete(accountKey);
-                this.tabMetadata.delete(tabId);
+                this.tabMetadata.delete(tabInfo.tabId);
                 
                 console.log(`✅ 消息Tab清理完成: ${accountKey}`);
             } catch (error) {
@@ -326,10 +342,14 @@ export class MessageTabManager {
     /**
      * 🔥 获取Tab信息
      */
-    getTabInfo(accountKey: string): { tabId?: string; metadata?: MessageTabMetadata } {
-        const tabId = this.messageTabMapping.get(accountKey);
-        const metadata = tabId ? this.tabMetadata.get(tabId) : undefined;
-        return { tabId, metadata };
+    getTabInfo(accountKey: string): { tabId?: string; metadata?: MessageTabMetadata; cookieFile?: string } {
+        const tabInfo = this.messageTabMapping.get(accountKey);  // 🔥 修改数据获取
+        const metadata = tabInfo ? this.tabMetadata.get(tabInfo.tabId) : undefined;
+        return { 
+            tabId: tabInfo?.tabId, 
+            metadata,
+            cookieFile: tabInfo?.currentCookieFile  // 🔥 新增Cookie文件信息
+        };
     }
 
     /**
@@ -345,13 +365,14 @@ export class MessageTabManager {
     }>> {
         const results = [];
         
-        for (const [accountKey, tabId] of this.messageTabMapping) {
-            const metadata = this.tabMetadata.get(tabId);
+
+        for (const [accountKey, tabInfo] of this.messageTabMapping) {  
+            const metadata = this.tabMetadata.get(tabInfo.tabId); 
             if (metadata) {
-                const isHealthy = await this.isTabHealthy(tabId);
+                const isHealthy = await this.isTabHealthy(tabInfo.tabId);
                 results.push({
                     accountKey,
-                    tabId,
+                    tabId: tabInfo.tabId,
                     platform: metadata.platform,
                     accountId: metadata.accountId,
                     isHealthy,

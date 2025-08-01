@@ -404,7 +404,7 @@ export interface BatchMessageSyncRequest {
     platform: string;              // 平台标识
     accounts: Array<{               // 账号列表
         accountId: string;
-        tabId: string;
+        cookieFile: string;
         lastSyncTime?: string;
     }>;
     options?: {                     // 同步选项

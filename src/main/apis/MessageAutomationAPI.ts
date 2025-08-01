@@ -1,5 +1,5 @@
 // src/main/apis/MessageAutomationAPI.ts
-// 专门的消息自动化API，直接调用MessageAutomationEngine，不通过AutomationEngine代理
+
 
 import { Request, Response } from 'express';
 import { MessageAutomationEngine } from '../automation/MessageAutomationEngine';
@@ -11,12 +11,12 @@ import {
     BatchMessageSendRequest,
     MessageScheduleConfig
 } from '../../types/pluginInterface';
-
+import { AutomationEngine } from '../automation/AutomationEngine';
 export class MessageAutomationAPI {
     private messageEngine: MessageAutomationEngine;
 
-    constructor(tabManager: TabManager) {
-        this.messageEngine = new MessageAutomationEngine(tabManager);
+    constructor(tabManager: TabManager,automationEngine: AutomationEngine) {
+        this.messageEngine = new MessageAutomationEngine(tabManager, automationEngine);
         console.log('✅ MessageAutomationAPI 已初始化');
     }
 
@@ -429,56 +429,96 @@ export class MessageAutomationAPI {
     // ==================== 调度管理相关API ====================
 
     /**
-     * 🔥 POST /api/messages/scheduler/start - 启动消息调度
+     * 🔥 POST /api/messages/scheduler/system/start - 启动完整消息系统
      */
-    async startScheduler(req: Request, res: Response): Promise<void> {
+    async startCompleteSystem(req: Request, res: Response): Promise<void> {
         try {
-            const { platform, accountId, tabId, config } = req.body;
+            console.log('🚀 API请求: 启动完整消息系统');
 
-            if (!platform || !accountId || !tabId) {
-                res.status(400).json({
-                    success: false,
-                    error: '缺少必需参数: platform, accountId, tabId',
-                    code: 'MISSING_PARAMS'
-                });
-                return;
-            }
-
-            console.log(`⏰ API请求: 启动消息调度 - ${platform}_${accountId}`);
-
-            const success = await this.messageEngine.startMessageScheduler(
-                platform,
-                accountId,
-                tabId,
-                config
-            );
+            const success = await this.messageEngine.startCompleteMessageSystem();
+            const status = this.messageEngine.getScheduleSystemStatus();
 
             res.json({
                 success: success,
                 data: {
-                    platform,
-                    accountId,
-                    tabId,
-                    config: config || { syncInterval: 5 },
+                    systemStarted: success,
+                    schedulerStatus: status,
+                    message: success ? '消息自动化系统已启动，所有有效账号已加载' : '系统启动失败或无可用账号',
                     startedAt: new Date().toISOString()
                 },
                 timestamp: new Date().toISOString()
             });
 
         } catch (error) {
-            console.error('❌ 启动调度API失败:', error);
+            console.error('❌ 启动完整系统API失败:', error);
             res.status(500).json({
                 success: false,
                 error: error instanceof Error ? error.message : 'unknown error',
-                code: 'START_SCHEDULER_ERROR'
+                code: 'START_COMPLETE_SYSTEM_ERROR'
             });
         }
     }
 
     /**
-     * 🔥 POST /api/messages/scheduler/stop - 停止消息调度
+     * 🔥 POST /api/messages/scheduler/system/stop - 停止整个调度系统
      */
-    async stopScheduler(req: Request, res: Response): Promise<void> {
+    async stopSchedulerSystem(req: Request, res: Response): Promise<void> {
+        try {
+            console.log(`⏹️ API请求: 停止整个消息调度系统`);
+
+            await this.messageEngine.stopScheduleSystem();
+
+            res.json({
+                success: true,
+                data: {
+                    message: '消息调度系统已停止',
+                    stoppedAt: new Date().toISOString()
+                },
+                timestamp: new Date().toISOString()
+            });
+
+        } catch (error) {
+            console.error('❌ 停止调度系统API失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error',
+                code: 'STOP_SCHEDULER_SYSTEM_ERROR'
+            });
+        }
+    }
+
+    /**
+     * 🔥 POST /api/messages/scheduler/system/reload - 重新加载所有有效账号
+     */
+    async reloadAllAccounts(req: Request, res: Response): Promise<void> {
+        try {
+            console.log('🔄 API请求: 重新加载所有有效账号');
+
+            const loadResult = await this.messageEngine.autoLoadValidAccountsToSchedule();
+
+            res.json({
+                success: loadResult.success > 0,
+                data: {
+                    ...loadResult,
+                    reloadedAt: new Date().toISOString()
+                },
+                timestamp: new Date().toISOString()
+            });
+
+        } catch (error) {
+            console.error('❌ 重新加载账号API失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error',
+                code: 'RELOAD_ACCOUNTS_ERROR'
+            });
+        }
+    }
+
+    /**
+     * 🔥 POST /api/messages/scheduler/account/stop - 停止指定账号调度
+     */
+    async stopAccountScheduler(req: Request, res: Response): Promise<void> {
         try {
             const { platform, accountId } = req.body;
 
@@ -491,9 +531,9 @@ export class MessageAutomationAPI {
                 return;
             }
 
-            console.log(`⏹️ API请求: 停止消息调度 - ${platform}_${accountId}`);
+            console.log(`⏹️ API请求: 停止账号消息调度 - ${platform}_${accountId}`);
 
-            const success = this.messageEngine.stopMessageScheduler(platform, accountId);
+            const success = this.messageEngine.removeAccountFromSchedule(platform, accountId);
 
             res.json({
                 success: success,
@@ -506,11 +546,52 @@ export class MessageAutomationAPI {
             });
 
         } catch (error) {
-            console.error('❌ 停止调度API失败:', error);
+            console.error('❌ 停止账号调度API失败:', error);
             res.status(500).json({
                 success: false,
                 error: error instanceof Error ? error.message : 'unknown error',
-                code: 'STOP_SCHEDULER_ERROR'
+                code: 'STOP_ACCOUNT_SCHEDULER_ERROR'
+            });
+        }
+    }
+
+    /**
+     * 🔥 POST /api/messages/accounts/update-cookie - 更新账号Cookie
+     */
+    async updateAccountCookie(req: Request, res: Response): Promise<void> {
+        try {
+            const { platform, accountId, newCookieFile } = req.body;
+
+            if (!platform || !accountId || !newCookieFile) {
+                res.status(400).json({
+                    success: false,
+                    error: '缺少必需参数: platform, accountId, newCookieFile',
+                    code: 'MISSING_PARAMS'
+                });
+                return;
+            }
+
+            console.log(`🔄 API请求: 更新账号Cookie - ${platform}_${accountId}`);
+
+            const success = this.messageEngine.updateAccountCookie(platform, accountId, newCookieFile);
+
+            res.json({
+                success,
+                data: {
+                    platform,
+                    accountId,
+                    newCookieFile,
+                    updatedAt: new Date().toISOString()
+                },
+                timestamp: new Date().toISOString()
+            });
+
+        } catch (error) {
+            console.error('❌ 更新Cookie API失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error',
+                code: 'UPDATE_COOKIE_ERROR'
             });
         }
     }
