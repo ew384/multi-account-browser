@@ -38,13 +38,13 @@ export class APIServer {
         this.app.use(express.json({ limit: '50mb' }));
         this.app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-        // 🔥 新增：文件上传中间件（用于 /uploadSave）
+        // 🔥 新增：文件上传中间件（用于 /upload*所有相关的API）
         const multer = require('multer');
         const upload = multer({
             storage: multer.memoryStorage(),
             limits: { fileSize: 1024 * 1024 * 1024 * 4 } // 4GB限制
         });
-        this.app.use('/uploadSave', upload.single('file'));
+        this.app.use('/upload*', upload.single('file'));
 
         // 请求日志
         this.app.use((req, res, next) => {
