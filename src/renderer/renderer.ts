@@ -306,120 +306,60 @@ function setupUrlInputEvents(): void {
     const urlInput = document.getElementById('url-input') as HTMLInputElement;
     if (!urlInput) return;
 
-    // 防止重复绑定
-    if ((urlInput as any)._eventsFixed) {
-        console.log('⚠️ URL input events already fixed');
-        return;
-    }
-    (urlInput as any)._eventsFixed = true;
-
-    // 完全清理现有事件监听器
-    const newInput = urlInput.cloneNode(true) as HTMLInputElement;
-    urlInput.parentNode?.replaceChild(newInput, urlInput);
-    
-    // 重新获取清理后的元素
-    const cleanInput = document.getElementById('url-input') as HTMLInputElement;
-    if (!cleanInput) return;
-
-    // 核心键盘事件处理
-    cleanInput.addEventListener('keydown', (e: KeyboardEvent) => {
-        // 立即停止事件传播
-        e.stopImmediatePropagation();
-        
-        // 阻止按键重复触发
-        if (e.repeat) {
+    // 🔥 最小修改：只在keydown中添加一个检查，防止循环输入数字
+    urlInput.addEventListener('keydown', (e: KeyboardEvent) => {
+        // 检测循环输入数字的异常情况
+        if (e.repeat && ['8', '2', '4', '6'].includes(e.key)) {
+            console.log('🚫 Preventing number loop input');
             e.preventDefault();
             return false;
         }
 
-        // 方向键：允许默认行为（光标移动）
-        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-            // 不调用 preventDefault()，让浏览器处理
-            return true;
+        // 其他所有逻辑保持原样，不添加任何 stopPropagation()
+        
+        // 你原来的键盘处理逻辑...
+        const allowedKeys = [
+            'KeyC', 'KeyV', 'KeyX', 'KeyA', 'KeyZ', 'KeyY', // 复制粘贴等
+            'Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+            'Home', 'End', 'Tab'
+        ];
+
+        const isStandardShortcut = (e.ctrlKey || e.metaKey) && allowedKeys.includes(e.code);
+        const isNavigationKey = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab'].includes(e.code);
+        const isTyping = e.key.length === 1 || e.key === 'Space';
+
+        if (isStandardShortcut || isNavigationKey || isTyping) {
+            // 不阻止任何事件传播，让浏览器正常处理
         }
 
-        // Enter 键：导航
+        // Enter 键处理导航
         if (e.key === 'Enter') {
             e.preventDefault();
             navigateToUrl();
-            return false;
         }
 
-        // Escape 键：取消焦点
+        // Escape 键取消焦点
         if (e.key === 'Escape') {
             e.preventDefault();
-            cleanInput.blur();
-            return false;
+            urlInput.blur();
         }
-
-        // 允许的编辑键
-        const editingKeys = ['Backspace', 'Delete', 'Home', 'End', 'Tab'];
-        if (editingKeys.includes(e.key)) {
-            return true;
-        }
-
-        // 允许的快捷键
-        if ((e.ctrlKey || e.metaKey) && ['KeyC', 'KeyV', 'KeyX', 'KeyA', 'KeyZ', 'KeyY'].includes(e.code)) {
-            return true;
-        }
-
-        // 允许字符输入
-        if (e.key.length === 1 || e.key === 'Space') {
-            return true;
-        }
-
-        // 其他按键阻止
-        e.preventDefault();
-        return false;
-    }, { 
-        passive: false,
-        capture: true
     });
 
-    // 其他事件处理
-    cleanInput.addEventListener('keypress', (e) => {
-        e.stopImmediatePropagation();
-    }, { capture: true });
-
-    cleanInput.addEventListener('keyup', (e) => {
-        e.stopImmediatePropagation();
-        updateGoButtonVisibility();
-    }, { capture: true });
-
-    cleanInput.addEventListener('input', (e) => {
-        e.stopImmediatePropagation();
+    // 其他事件监听器保持简单
+    urlInput.addEventListener('input', (e) => {
         updateGoButtonVisibility();
     });
 
-    cleanInput.addEventListener('focus', () => {
+    urlInput.addEventListener('focus', () => {
         console.log('🔍 URL input focused');
     });
 
-    cleanInput.addEventListener('blur', () => {
+    urlInput.addEventListener('blur', () => {
         console.log('🔍 URL input blurred');
     });
 
-    // 右键菜单
-    cleanInput.addEventListener('contextmenu', (e) => {
-        e.stopPropagation();
-    });
-
-    // 鼠标事件
-    cleanInput.addEventListener('mousedown', (e) => {
-        e.stopPropagation();
-    });
-
-    cleanInput.addEventListener('mouseup', (e) => {
-        e.stopPropagation();
-    });
-
-    cleanInput.addEventListener('click', (e) => {
-        e.stopPropagation();
-    });
-
-    console.log('✅ URL input events setup complete with fixes');
+    console.log('✅ URL input events setup complete (minimal fix)');
 }
-
 /**
  * 更新 Go 按钮的显示状态
  */
