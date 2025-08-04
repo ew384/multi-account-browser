@@ -113,7 +113,7 @@ export class WeChatLogin implements PluginLogin {
 
     private async getQRCode(tabId: string): Promise<string | null> {
         console.log('🔍 查找微信登录二维码...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 500));
         const qrCodeScript = `
             new Promise((resolve) => {
                 let attempts = 0;
@@ -178,7 +178,7 @@ export class WeChatLogin implements PluginLogin {
                         return;
                     }
                     
-                    setTimeout(checkIframe, 1000);
+                    setTimeout(checkIframe, 500);
                 };
                 
                 checkIframe();

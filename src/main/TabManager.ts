@@ -269,8 +269,20 @@ export class TabManager {
                 resolved = true;
 
                 if (timeoutId) clearTimeout(timeoutId);
-                tab.webContentsView.webContents.removeListener('did-navigate', onNavigate);
-                tab.webContentsView.webContents.removeListener('did-navigate-in-page', onNavigate);
+                console.log(`🔍 [DEBUG] cleanup开始 - tab存在: ${!!tab}`);
+                console.log(`🔍 [DEBUG] webContentsView存在: ${!!tab?.webContentsView}`);
+                console.log(`🔍 [DEBUG] webContents存在: ${!!tab?.webContentsView?.webContents}`);
+                if (tab?.webContentsView?.webContents) {
+                    try {
+                        tab.webContentsView.webContents.removeListener('did-navigate', onNavigate);
+                        tab.webContentsView.webContents.removeListener('did-navigate-in-page', onNavigate);
+                        console.log(`✅ [DEBUG] 事件监听器移除成功`);
+                    } catch (error) {
+                        console.error(`❌ [DEBUG] 移除事件监听器失败:`, error);
+                    }
+                } else {
+                    console.warn(`⚠️ [DEBUG] webContents不存在，跳过事件监听器移除`);
+                }
             };
 
             const onNavigate = (event: any, url: string) => {
@@ -304,6 +316,16 @@ export class TabManager {
                 }
 
                 try {
+                    //console.log(`🔍 [DEBUG] 定期检查 - tabId: ${tabId}, tab存在: ${!!tab}`);
+                    //console.log(`🔍 [DEBUG] webContentsView存在: ${!!tab?.webContentsView}`);
+                    //console.log(`🔍 [DEBUG] webContents存在: ${!!tab?.webContentsView?.webContents}`);
+                    
+                    if (!tab?.webContentsView?.webContents) {
+                        console.error(`❌ [DEBUG] webContents已不存在，停止检查`);
+                        clearInterval(checkInterval);
+                        return;
+                    }
+
                     const currentUrl = tab.webContentsView.webContents.getURL();
                     if (currentUrl !== originalUrl && !currentUrl.includes('about:blank')) {
                         console.log(`✅ 定期检查发现URL变化: ${tab.accountName}`);
@@ -312,6 +334,8 @@ export class TabManager {
                         resolve(true);
                     }
                 } catch (error) {
+                    console.error(`❌ [DEBUG] 定期检查出错:`, error);
+                    console.error(`❌ [DEBUG] 错误时tab状态: tab=${!!tab}, webContentsView=${!!tab?.webContentsView}, webContents=${!!tab?.webContentsView?.webContents}`);
                     console.warn(`URL检查出错: ${error}`);
                 }
             }, 1000);
@@ -1092,7 +1116,7 @@ export class TabManager {
         webContents.on('did-navigate', async (event, url, isInPlace, isMainFrame) => {
             if (isMainFrame) {
                 console.log(`🔄 Navigation started for ${tab.accountName}: ${url}`);
-                await this.injectInitScripts(tab.id);
+                //await this.injectInitScripts(tab.id);
             }
         });
         webContents.on('did-fail-load', (event: any, errorCode: number, errorDescription: string, validatedURL: string) => {
