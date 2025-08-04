@@ -277,128 +277,118 @@ function setupUrlInputEvents(): void {
     const urlInput = document.getElementById('url-input') as HTMLInputElement;
     if (!urlInput) return;
 
-    // 阻止事件冒泡到 Electron，让浏览器处理标准快捷键
-    urlInput.addEventListener('keydown', (e: KeyboardEvent) => {
-        // 允许标准的编辑快捷键
-        const allowedKeys = [
-            'KeyC', 'KeyV', 'KeyX', 'KeyA', 'KeyZ', 'KeyY', // 复制、粘贴、剪切、全选、撤销、重做
-            'Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
-            'Home', 'End', 'Tab'
-        ];
+    // 防止重复绑定
+    if ((urlInput as any)._eventsFixed) {
+        console.log('⚠️ URL input events already fixed');
+        return;
+    }
+    (urlInput as any)._eventsFixed = true;
 
-        const isStandardShortcut = (e.ctrlKey || e.metaKey) && allowedKeys.includes(e.code);
-        const isNavigationKey = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab'].includes(e.code);
-        const isTyping = e.key.length === 1 || e.key === 'Space';
+    // 完全清理现有事件监听器
+    const newInput = urlInput.cloneNode(true) as HTMLInputElement;
+    urlInput.parentNode?.replaceChild(newInput, urlInput);
+    
+    // 重新获取清理后的元素
+    const cleanInput = document.getElementById('url-input') as HTMLInputElement;
+    if (!cleanInput) return;
 
-        if (isStandardShortcut || isNavigationKey || isTyping) {
-            // 阻止事件冒泡到 Electron 主进程
-            e.stopPropagation();
+    // 核心键盘事件处理
+    cleanInput.addEventListener('keydown', (e: KeyboardEvent) => {
+        // 立即停止事件传播
+        e.stopImmediatePropagation();
+        
+        // 阻止按键重复触发
+        if (e.repeat) {
+            e.preventDefault();
+            return false;
         }
 
-        // Enter 键处理导航
+        // 方向键：允许默认行为（光标移动）
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            // 不调用 preventDefault()，让浏览器处理
+            return true;
+        }
+
+        // Enter 键：导航
         if (e.key === 'Enter') {
-            e.stopPropagation();
             e.preventDefault();
             navigateToUrl();
+            return false;
         }
 
-        // Escape 键取消焦点
+        // Escape 键：取消焦点
         if (e.key === 'Escape') {
-            e.stopPropagation();
             e.preventDefault();
-            urlInput.blur();
+            cleanInput.blur();
+            return false;
         }
 
-        // Tab 键处理
-        if (e.key === 'Tab') {
-            e.stopPropagation();
-            // 让浏览器处理 Tab 键的默认行为
+        // 允许的编辑键
+        const editingKeys = ['Backspace', 'Delete', 'Home', 'End', 'Tab'];
+        if (editingKeys.includes(e.key)) {
+            return true;
         }
-    });
 
-    // 阻止某些事件冒泡
-    urlInput.addEventListener('keypress', (e) => {
-        e.stopPropagation();
-    });
-
-    urlInput.addEventListener('keyup', (e) => {
-        const isStandardShortcut = (e.ctrlKey || e.metaKey) && ['KeyC', 'KeyV', 'KeyX', 'KeyA'].includes(e.code);
-        if (isStandardShortcut) {
-            e.stopPropagation();
+        // 允许的快捷键
+        if ((e.ctrlKey || e.metaKey) && ['KeyC', 'KeyV', 'KeyX', 'KeyA', 'KeyZ', 'KeyY'].includes(e.code)) {
+            return true;
         }
+
+        // 允许字符输入
+        if (e.key.length === 1 || e.key === 'Space') {
+            return true;
+        }
+
+        // 其他按键阻止
+        e.preventDefault();
+        return false;
+    }, { 
+        passive: false,
+        capture: true
     });
 
-    // 右键菜单支持 - 阻止冒泡让浏览器处理
-    urlInput.addEventListener('contextmenu', (e) => {
-        e.stopPropagation();
-        // 允许浏览器默认的右键菜单（包含复制粘贴选项）
-    });
+    // 其他事件处理
+    cleanInput.addEventListener('keypress', (e) => {
+        e.stopImmediatePropagation();
+    }, { capture: true });
 
-    // 鼠标事件处理
-    urlInput.addEventListener('mousedown', (e) => {
-        e.stopPropagation();
-    });
+    cleanInput.addEventListener('keyup', (e) => {
+        e.stopImmediatePropagation();
+        updateGoButtonVisibility();
+    }, { capture: true });
 
-    urlInput.addEventListener('mouseup', (e) => {
-        e.stopPropagation();
-    });
-
-    urlInput.addEventListener('click', (e) => {
-        e.stopPropagation();
-    });
-
-    // ❌ 移除这些 JavaScript 焦点样式设置
-    // 焦点事件处理 - 不再设置内联样式
-    urlInput.addEventListener('focus', () => {
-        console.log('🔍 URL input focused');
-        // ❌ 移除：添加焦点样式
-        // urlInput.style.outline = '2px solid #1a73e8';
-        // urlInput.style.outlineOffset = '-2px';
-
-        // ✅ 让 CSS 处理焦点样式
-    });
-
-    urlInput.addEventListener('blur', () => {
-        console.log('🔍 URL input blurred');
-        // ❌ 移除：移除焦点样式
-        // urlInput.style.outline = '';
-        // urlInput.style.outlineOffset = '';
-
-        // ✅ 让 CSS 处理焦点样式
-    });
-
-    // 输入事件处理
-    urlInput.addEventListener('input', (e) => {
-        const target = e.target as HTMLInputElement;
-        console.log('🔍 URL input changed:', target.value);
-        e.stopPropagation();
-
-        // 更新 Go 按钮显示状态
+    cleanInput.addEventListener('input', (e) => {
+        e.stopImmediatePropagation();
         updateGoButtonVisibility();
     });
 
-    // 选择事件处理
-    urlInput.addEventListener('select', (e) => {
-        console.log('🔍 URL text selected');
+    cleanInput.addEventListener('focus', () => {
+        console.log('🔍 URL input focused');
+    });
+
+    cleanInput.addEventListener('blur', () => {
+        console.log('🔍 URL input blurred');
+    });
+
+    // 右键菜单
+    cleanInput.addEventListener('contextmenu', (e) => {
         e.stopPropagation();
     });
 
-    // 粘贴事件特殊处理
-    urlInput.addEventListener('paste', (e) => {
+    // 鼠标事件
+    cleanInput.addEventListener('mousedown', (e) => {
         e.stopPropagation();
-        console.log('📋 Paste event in URL input');
-
-        // 延迟更新 Go 按钮状态
-        setTimeout(() => updateGoButtonVisibility(), 10);
     });
 
-    // 复制事件特殊处理
-    urlInput.addEventListener('copy', (e) => {
+    cleanInput.addEventListener('mouseup', (e) => {
         e.stopPropagation();
-        console.log('📋 Copy event in URL input');
     });
 
-    console.log('✅ URL input events setup complete');
+    cleanInput.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+
+    console.log('✅ URL input events setup complete with fixes');
 }
 
 /**
@@ -420,18 +410,15 @@ function updateGoButtonVisibility(): void {
  */
 function setupEventListeners(): void {
     try {
+        // 设置 URL 输入框事件 - 必须在其他事件之前设置
+        setupUrlInputEvents();
         // 顶部按钮
         addEventListenerSafely('new-tab-btn', 'click', () => createNewTab());
         addEventListenerSafely('back-btn', 'click', () => navigateBack());
         addEventListenerSafely('forward-btn', 'click', () => navigateForward());
         addEventListenerSafely('refresh-btn', 'click', () => refreshCurrentTab());
-
-        // 设置 URL 输入框事件 - 必须在其他事件之前设置
-        setupUrlInputEvents();
-
         // Go 按钮
         addEventListenerSafely('go-btn', 'click', () => navigateToUrl());
-
         // 工具栏按钮
         addEventListenerSafely('cookie-btn', 'click', () => showCookieDialog());
 
@@ -1871,6 +1858,11 @@ async function duplicateTab(tabId: string): Promise<void> {
 // ========================================
 function setupKeyboardShortcuts(): void {
     document.addEventListener('keydown', (e) => {
+        const target = e.target as HTMLElement;
+        if (target && target.id === 'url-input') {
+            console.log('🔍 Ignoring keydown from URL input in global handler');
+            return; // 直接返回，不处理任何全局快捷键
+        }
         // 检查当前焦点元素 - 修复类型错误
         const activeElement = document.activeElement;
         const isInputFocused = activeElement && (
