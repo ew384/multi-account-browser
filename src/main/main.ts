@@ -796,9 +796,9 @@ class MultiAccountBrowser {
 
                 // 只在normal模式下设置开发者工具
                 const mode = this.headlessManager.getMode();
-                if (mode === 'normal') {
-                    this.setupDeveloperTools();
-                }
+                //if (mode === 'normal') {
+                //    this.setupDeveloperTools();
+                //}
                 this.logInitializationComplete(mode);
             } catch (error) {
                 console.error('❌ 初始化过程中发生错误:', error);

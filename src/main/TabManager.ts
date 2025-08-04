@@ -267,21 +267,15 @@ export class TabManager {
             const cleanup = () => {
                 if (resolved) return;
                 resolved = true;
-
                 if (timeoutId) clearTimeout(timeoutId);
-                console.log(`🔍 [DEBUG] cleanup开始 - tab存在: ${!!tab}`);
-                console.log(`🔍 [DEBUG] webContentsView存在: ${!!tab?.webContentsView}`);
-                console.log(`🔍 [DEBUG] webContents存在: ${!!tab?.webContentsView?.webContents}`);
-                if (tab?.webContentsView?.webContents) {
-                    try {
+                
+                try {
+                    if (tab?.webContentsView?.webContents) {
                         tab.webContentsView.webContents.removeListener('did-navigate', onNavigate);
                         tab.webContentsView.webContents.removeListener('did-navigate-in-page', onNavigate);
-                        console.log(`✅ [DEBUG] 事件监听器移除成功`);
-                    } catch (error) {
-                        console.error(`❌ [DEBUG] 移除事件监听器失败:`, error);
                     }
-                } else {
-                    console.warn(`⚠️ [DEBUG] webContents不存在，跳过事件监听器移除`);
+                } catch (error) {
+                    console.warn(`清理事件监听器失败:`, error);
                 }
             };
 
@@ -297,62 +291,19 @@ export class TabManager {
                 }
             };
 
-            // 监听导航事件
+            // 🔥 优化1：只使用事件监听器，移除定期检查
             tab.webContentsView.webContents.on('did-navigate', onNavigate);
             tab.webContentsView.webContents.on('did-navigate-in-page', onNavigate);
 
-            // 设置超时
+            // 🔥 优化2：设置超时但不执行定期检查
             timeoutId = setTimeout(() => {
                 console.log(`⏰ URL变化监听超时: ${tab.accountName}`);
                 cleanup();
                 resolve(false);
             }, timeout);
 
-            // 定期检查URL变化（备用方案）
-            const checkInterval = setInterval(() => {
-                if (resolved) {
-                    clearInterval(checkInterval);
-                    return;
-                }
-
-                try {
-                    //console.log(`🔍 [DEBUG] 定期检查 - tabId: ${tabId}, tab存在: ${!!tab}`);
-                    //console.log(`🔍 [DEBUG] webContentsView存在: ${!!tab?.webContentsView}`);
-                    //console.log(`🔍 [DEBUG] webContents存在: ${!!tab?.webContentsView?.webContents}`);
-                    
-                    if (!tab?.webContentsView?.webContents) {
-                        console.error(`❌ [DEBUG] webContents已不存在，停止检查`);
-                        clearInterval(checkInterval);
-                        return;
-                    }
-
-                    const currentUrl = tab.webContentsView.webContents.getURL();
-                    if (currentUrl !== originalUrl && !currentUrl.includes('about:blank')) {
-                        console.log(`✅ 定期检查发现URL变化: ${tab.accountName}`);
-                        clearInterval(checkInterval);
-                        cleanup();
-                        resolve(true);
-                    }
-                } catch (error) {
-                    console.error(`❌ [DEBUG] 定期检查出错:`, error);
-                    console.error(`❌ [DEBUG] 错误时tab状态: tab=${!!tab}, webContentsView=${!!tab?.webContentsView}, webContents=${!!tab?.webContentsView?.webContents}`);
-                    console.warn(`URL检查出错: ${error}`);
-                }
-            }, 1000);
-
-            // 确保interval也会被清理
-            const originalCleanup = cleanup;
-            const enhancedCleanup = () => {
-                clearInterval(checkInterval);
-                originalCleanup();
-            };
-
-            // 替换cleanup引用
-            timeoutId = setTimeout(() => {
-                console.log(`⏰ URL变化监听超时: ${tab.accountName}`);
-                enhancedCleanup();
-                resolve(false);
-            }, timeout);
+            // 🔥 优化3：移除整个定期检查的 setInterval 代码块
+            // 注释掉原有的 checkInterval 相关代码
         });
     }
 
@@ -584,17 +535,17 @@ export class TabManager {
             } else {
                 // 正常tab：自动切换显示
                 console.log(`🔄 Auto-switching to new tab: ${accountName}`);
-                //await this.switchToTab(tabId);
+                await this.switchToTab(tabId);
             }
             // 如果有初始URL，开始导航（非阻塞）
-            if (this.stealthScript) {
-                try {
-                    await this.addInitScript(tabId, this.stealthScript);
-                    console.log(`📜 反检测脚本已添加到队列: ${accountName}`);
-                } catch (error) {
-                    console.warn(`⚠️ 反检测脚本注入失败 for ${accountName}:`, error);
-                }
-            }
+            // if (this.stealthScript) {
+            //     try {
+            //         await this.addInitScript(tabId, this.stealthScript);
+            //         console.log(`📜 反检测脚本已添加到队列: ${accountName}`);
+            //     } catch (error) {
+            //         console.warn(`⚠️ 反检测脚本注入失败 for ${accountName}:`, error);
+            //     }
+            // }
             if (initialUrl) {
                 console.log(`🔗 Starting immediate navigation for ${accountName}...`);
                 // 不使用 setImmediate，直接开始导航
@@ -1113,12 +1064,13 @@ export class TabManager {
             }
         });
 
-        webContents.on('did-navigate', async (event, url, isInPlace, isMainFrame) => {
-            if (isMainFrame) {
-                console.log(`🔄 Navigation started for ${tab.accountName}: ${url}`);
-                //await this.injectInitScripts(tab.id);
-            }
-        });
+        // 注释掉这个事件监听器，它会在每次导航时触发脚本注入
+        // webContents.on('did-navigate', async (event, url, isInPlace, isMainFrame) => {
+        //     if (isMainFrame) {
+        //         console.log(`🔄 Navigation started for ${tab.accountName}: ${url}`);
+        //         //await this.injectInitScripts(tab.id);
+        //     }
+        // });
         webContents.on('did-fail-load', (event: any, errorCode: number, errorDescription: string, validatedURL: string) => {
             if (errorCode !== -3) {
                 console.error(`❌ 页面加载失败: ${errorDescription} (${errorCode}) - ${tab.accountName}`);
@@ -1421,51 +1373,35 @@ export class TabManager {
         const targetView = specificView || (this.activeTabId ? this.tabs.get(this.activeTabId)?.webContentsView : null);
 
         if (!targetView) {
-            console.log('📐 No active tab to update bounds');
-            return;
+            return; // 移除console.log
         }
 
         const tab = Array.from(this.tabs.values()).find(t => t.webContentsView === targetView);
         if (!tab) {
-            console.log('📐 Tab not found for WebContentsView');
-            return;
+            return; // 移除console.log
         }
 
         try {
             const windowBounds = this.mainWindow.getContentBounds();
-
-            // 计算 WebContentsView 应该占用的区域
             const webContentsViewBounds = {
                 x: 0,
-                y: 108, // 固定值：60 + 48
+                y: 108,
                 width: windowBounds.width,
                 height: Math.max(0, windowBounds.height - 108)
             };
 
-            console.log(`📐 Setting WebContentsView bounds for ${tab.accountName}:`, webContentsViewBounds);
-            console.log(`📐 Window content bounds:`, windowBounds);
-
             targetView.setBounds(webContentsViewBounds);
 
-            // 验证边界设置
-            setTimeout(() => {
-                try {
-                    const actualBounds = targetView.getBounds();
-                    console.log(`📐 Actual WebContentsView bounds:`, actualBounds);
-
-                    // 检查是否有重叠问题
-                    if (actualBounds.y < this.TOP_OFFSET) {
-                        console.warn(`⚠️ WebContentsView overlapping header! Adjusting...`);
-                        targetView.setBounds({
-                            ...actualBounds,
-                            y: this.TOP_OFFSET,
-                            height: Math.max(0, actualBounds.height - (this.TOP_OFFSET - actualBounds.y))
-                        });
-                    }
-                } catch (error) {
-                    console.warn('Failed to verify bounds:', error);
-                }
-            }, 50);
+            // 注释掉验证边界的代码块
+            // setTimeout(() => {
+            //     try {
+            //         const actualBounds = targetView.getBounds();
+            //         console.log(`📐 Actual WebContentsView bounds:`, actualBounds);
+            //         // ... 验证逻辑
+            //     } catch (error) {
+            //         console.warn('Failed to verify bounds:', error);
+            //     }
+            // }, 50);
 
         } catch (error) {
             console.error(`❌ Failed to update WebContentsView bounds for ${tab.accountName}:`, error);

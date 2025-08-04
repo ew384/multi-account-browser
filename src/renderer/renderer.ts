@@ -69,53 +69,65 @@ function setupTabTitleListeners(): void {
         updateTabFavicon(tabId, favicon);
     });
 }
-
+let titleUpdateTimeout: NodeJS.Timeout | null = null;
+let faviconUpdateTimeout: NodeJS.Timeout | null = null;
 /**
  * 更新标签页标题
  */
 function updateTabTitle(tabId: string, title: string): void {
-    // 更新内存中的数据
-    const tab = currentTabs.find(t => t.id === tabId);
-    if (tab) {
-        tab.displayTitle = title;
+    if (titleUpdateTimeout) {
+        clearTimeout(titleUpdateTimeout);
     }
-
-    // 更新DOM中的标签页标题
-    const tabElement = document.querySelector(`[data-tab-id="${tabId}"]`);
-    if (tabElement) {
-        const titleElement = tabElement.querySelector('.chrome-tab-title');
-        if (titleElement) {
-            titleElement.textContent = title;
-            titleElement.setAttribute('title', title);
+    titleUpdateTimeout = setTimeout(() => {
+        // 原有的更新逻辑保持不变
+        const tab = currentTabs.find(t => t.id === tabId);
+        if (tab) {
+            tab.displayTitle = title;
         }
-    }
 
+        // 更新DOM中的标签页标题
+        const tabElement = document.querySelector(`[data-tab-id="${tabId}"]`);
+        if (tabElement) {
+            const titleElement = tabElement.querySelector('.chrome-tab-title');
+            if (titleElement) {
+                titleElement.textContent = title;
+                titleElement.setAttribute('title', title);
+            }
+        }
+        titleUpdateTimeout = null;
+    }, 100); // 100ms防抖
     // 如果是当前活动标签页，更新窗口标题
-    if (tabId === activeTabId) {
-        document.title = title + ' - Multi-Account Browser';
-    }
+    //if (tabId === activeTabId) {
+    //    document.title = title + ' - Multi-Account Browser';
+    //}
 }
 
 /**
  * 更新标签页图标
  */
 function updateTabFavicon(tabId: string, favicon: string): void {
+    if (faviconUpdateTimeout) {
+        clearTimeout(faviconUpdateTimeout);
+    }
     // 更新内存中的数据
-    const tab = currentTabs.find(t => t.id === tabId);
-    if (tab) {
-        tab.displayFavicon = favicon;
-    }
-
-    // 更新DOM中的标签页图标
-    const tabElement = document.querySelector(`[data-tab-id="${tabId}"]`);
-    if (tabElement) {
-        const iconElement = tabElement.querySelector('.chrome-tab-icon');
-        if (iconElement) {
-            // 🔥 使用网站的 favicon，失败时显示地球图标
-            iconElement.innerHTML = `<img src="${favicon}" alt="icon" style="width: 16px; height: 16px; border-radius: 2px;" 
-                                     onerror="this.style.display='none'; this.parentElement.textContent='🌍';">`;
+    faviconUpdateTimeout = setTimeout(() => {
+        const tab = currentTabs.find(t => t.id === tabId);
+        if (tab) {
+            tab.displayFavicon = favicon;
         }
-    }
+
+        // 更新DOM中的标签页图标
+        const tabElement = document.querySelector(`[data-tab-id="${tabId}"]`);
+        if (tabElement) {
+            const iconElement = tabElement.querySelector('.chrome-tab-icon');
+            if (iconElement) {
+                // 🔥 使用网站的 favicon，失败时显示地球图标
+                iconElement.innerHTML = `<img src="${favicon}" alt="icon" style="width: 16px; height: 16px; border-radius: 2px;" 
+                                        onerror="this.style.display='none'; this.parentElement.textContent='🌍';">`;
+            }
+        }
+        titleUpdateTimeout = null;
+    }, 100);
 }
 
 /**

@@ -41,12 +41,12 @@ export class SessionManager {
         // 移除不必要的预加载脚本
         isolatedSession.setPreloads([]);
 
-        // 网络优化 - 这个是有效的
-        isolatedSession.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
-            // 移除可能导致慢速的头部
-            delete details.requestHeaders['X-Requested-With'];
-            callback({ requestHeaders: details.requestHeaders });
-        });
+        // 注释掉整个 webRequest 拦截
+        // isolatedSession.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
+        //     // 移除可能导致慢速的头部
+        //     delete details.requestHeaders['X-Requested-With'];
+        //     callback({ requestHeaders: details.requestHeaders });
+        // });
 
         this.sessions.set(accountId, isolatedSession);
         console.log(`✅ Created isolated session for account: ${accountId}`);
