@@ -111,9 +111,9 @@ function updateTabFavicon(tabId: string, favicon: string): void {
     if (tabElement) {
         const iconElement = tabElement.querySelector('.chrome-tab-icon');
         if (iconElement) {
-            // 使用网站的 favicon，失败时显示默认图标
+            // 🔥 使用网站的 favicon，失败时显示地球图标
             iconElement.innerHTML = `<img src="${favicon}" alt="icon" style="width: 16px; height: 16px; border-radius: 2px;" 
-                                     onerror="this.style.display='none'; this.parentElement.textContent='🌐';">`;
+                                     onerror="this.style.display='none'; this.parentElement.textContent='🌍';">`;
         }
     }
 }
@@ -128,13 +128,19 @@ function createChromeTab(tab: TabData): HTMLElement {
 
     // 优先使用页面标题，备选使用账号名
     const displayTitle = tab.displayTitle || tab.accountName || 'New Tab';
-    // 图标：优先使用 favicon，备选使用加载动画
+    
+    // 🔥 修改图标逻辑：根据URL类型决定图标
     let iconContent = '';
     if (tab.displayFavicon) {
+        // 有 favicon 时使用网站图标
         iconContent = `<img src="${tab.displayFavicon}" alt="icon" style="width: 16px; height: 16px; border-radius: 2px;" 
-                    onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\\'tab-loading-spinner\\'></div>';">`;
+                    onerror="this.style.display='none'; this.parentElement.innerHTML='<img src=\\'../../assets/tray-icon.png\\' style=\\'width: 16px; height: 16px;\\' alt=\\'browser\\'>';">`;
+    } else if (tab.url === 'about:blank' || !tab.url) {
+        // 🔥 空白页面使用浏览器图标，不显示加载动画
+        iconContent = '<img src="../../assets/tray-icon.png" style="width: 16px; height: 16px;" alt="browser">';
     } else {
-        iconContent = '<div class="tab-loading-spinner"></div>'; // 加载动画
+        // 🔥 其他情况显示加载动画，但设置超时回退
+        iconContent = '<div class="tab-loading-spinner" data-timeout="10000"></div>';
     }
 
     tabElement.innerHTML = `
@@ -143,13 +149,24 @@ function createChromeTab(tab: TabData): HTMLElement {
         <button class="chrome-tab-close" title="关闭标签页"></button>
     `;
 
-    // 事件监听器
+    // 🔥 为加载动画设置超时回退机制
+    const spinner = tabElement.querySelector('.tab-loading-spinner[data-timeout]');
+    if (spinner) {
+        const timeout = parseInt(spinner.getAttribute('data-timeout') || '5000');
+        setTimeout(() => {
+            // 如果5秒后还是加载动画，切换为地球图标
+            if (spinner.parentElement && spinner.parentElement.contains(spinner)) {
+                spinner.parentElement.innerHTML = '🌍';
+            }
+        }, timeout);
+    }
+
+    // 其余事件监听器代码保持不变...
     tabElement.addEventListener('click', (e) => {
         if (!(e.target as HTMLElement).classList.contains('chrome-tab-close')) {
             switchTab(tab.id);
         }
     });
-
 
     const closeBtn = tabElement.querySelector('.chrome-tab-close');
     if (closeBtn) {
@@ -2073,6 +2090,8 @@ async function openTabDevTools(tabId: string): Promise<void> {
  * 显示通知
  */
 function showNotification(message: string, type: 'success' | 'info' | 'warning' | 'error' = 'info'): void {
+    return
+    /**
     const container = document.getElementById('notification-container');
     if (!container) {
         console.warn('通知容器不存在');
@@ -2120,6 +2139,7 @@ function showNotification(message: string, type: 'success' | 'info' | 'warning' 
     }, 5000);
 
     console.log(`📢 通知[${type}]: ${message}`);
+     */
 }
 
 /**

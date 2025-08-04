@@ -120,7 +120,7 @@ export class DouyinLogin implements PluginLogin {
      */
     private async getQRCode(tabId: string): Promise<string | null> {
         console.log('🔍 查找抖音登录二维码...');
-        await new Promise(resolve => setTimeout(resolve, 20000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
         const qrCodeScript = `
             (function() {
                 const element = document.querySelector('img[aria-label="二维码"]');
@@ -146,7 +146,7 @@ export class DouyinLogin implements PluginLogin {
             }
 
             attempts++;
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
 
         return null;

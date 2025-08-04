@@ -1094,7 +1094,28 @@ s .url-bar::before,
 .welcome-content {
     animation: fadeInUp 0.6s ease-out;
 }
+/* 标签页默认图标样式 */
+.chrome-tab-icon {
+    font-size: 16px;
+    line-height: 1;
+    text-align: center;
+}
 
+/* 确保浏览器图标正确显示 */
+.chrome-tab-icon img[alt="browser"] {
+    filter: none !important;
+    opacity: 0.8;
+}
+
+.chrome-tab-icon img[alt="browser"]:hover {
+    opacity: 1;
+}
+
+/* 地球图标样式 */
+.chrome-tab-icon:not(:has(img)):not(:has(.tab-loading-spinner)) {
+    font-size: 14px;
+    color: var(--chrome-text-secondary);
+}
 @keyframes fadeInUp {
     from {
         opacity: 0;

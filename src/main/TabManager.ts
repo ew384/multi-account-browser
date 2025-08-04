@@ -560,7 +560,7 @@ export class TabManager {
             } else {
                 // 正常tab：自动切换显示
                 console.log(`🔄 Auto-switching to new tab: ${accountName}`);
-                await this.switchToTab(tabId);
+                //await this.switchToTab(tabId);
             }
             // 如果有初始URL，开始导航（非阻塞）
             if (this.stealthScript) {
