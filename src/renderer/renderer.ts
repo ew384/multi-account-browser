@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await initializeApplication();
     } catch (error) {
         console.error('应用初始化失败:', error);
-        showNotification('应用初始化失败，请刷新页面重试', 'error');
+        //showNotification('应用初始化失败，请刷新页面重试', 'error');
     }
 });
 function handleError(error: unknown): string {
@@ -244,12 +244,12 @@ async function initializeApplication(): Promise<void> {
         hideLoading();
 
         console.log('✅ 应用初始化完成（Chrome风格标签页）');
-        showNotification('应用初始化完成', 'success');
+        //showNotification('应用初始化完成', 'success');
 
     } catch (error) {
         hideLoading();
         console.error('应用初始化失败:', error);
-        showNotification(`应用初始化失败: ${handleError(error)}`, 'error');
+        //showNotification(`应用初始化失败: ${handleError(error)}`, 'error');
         throw error;
     }
 }
@@ -465,7 +465,7 @@ async function navigateToUrl(): Promise<void> {
     }
 
     if (!activeTabId) {
-        showNotification('无法创建标签页', 'error');
+        //showNotification('无法创建标签页', 'error');
         return;
     }
 
@@ -494,7 +494,7 @@ async function navigateToUrl(): Promise<void> {
             console.log('✅ 导航到:', url);
             // 更新 URL 输入框为实际的 URL
             urlInput.value = url;
-            showNotification(`正在加载: ${url}`, 'info');
+            //showNotification(`正在加载: ${url}`, 'info');
 
             // 模拟 Chrome 的行为：导航后选中整个 URL
             setTimeout(() => {
@@ -505,7 +505,7 @@ async function navigateToUrl(): Promise<void> {
         }
     } catch (error) {
         console.error('导航失败:', error);
-        showNotification('导航失败', 'error');
+        //showNotification('导航失败', 'error');
     } finally {
         hideLoading();
     }
@@ -524,7 +524,7 @@ async function showCookieDialog(): Promise<void> {
         }
     } catch (error) {
         console.error('Failed to show cookie dialog:', error);
-        showNotification('显示Cookie管理对话框失败', 'error');
+        //showNotification('显示Cookie管理对话框失败', 'error');
     }
 }
 
@@ -549,7 +549,7 @@ async function hideCookieDialog(): Promise<void> {
  */
 async function loadCookieFile(): Promise<void> {
     if (!activeTabId) {
-        showNotification('请先选择一个标签页', 'warning');
+        //showNotification('请先选择一个标签页', 'warning');
         return;
     }
 
@@ -585,7 +585,7 @@ async function loadCookieFile(): Promise<void> {
         const result2 = await response.json();
 
         if (result2.success) {
-            showNotification(`Cookie加载成功: ${cookieFile.split('/').pop()}`, 'success');
+            //showNotification(`Cookie加载成功: ${cookieFile.split('/').pop()}`, 'success');
 
             // 刷新当前标签页
             setTimeout(() => {
@@ -597,7 +597,7 @@ async function loadCookieFile(): Promise<void> {
 
     } catch (error) {
         console.error('加载Cookie失败:', error);
-        showNotification(`加载Cookie失败: ${handleError(error)}`, 'error');
+        //showNotification(`加载Cookie失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -608,7 +608,7 @@ async function loadCookieFile(): Promise<void> {
  */
 async function saveCookieFile(): Promise<void> {
     if (!activeTabId) {
-        showNotification('请先选择一个标签页', 'warning');
+        //showNotification('请先选择一个标签页', 'warning');
         return;
     }
 
@@ -649,14 +649,14 @@ async function saveCookieFile(): Promise<void> {
         const result2 = await response.json();
 
         if (result2.success) {
-            showNotification(`Cookie保存成功: ${cookieFile.split('/').pop()}`, 'success');
+            //showNotification(`Cookie保存成功: ${cookieFile.split('/').pop()}`, 'success');
         } else {
             throw new Error(result2.error || '保存失败');
         }
 
     } catch (error) {
         console.error('保存Cookie失败:', error);
-        showNotification(`保存Cookie失败: ${handleError(error)}`, 'error');
+        //showNotification(`保存Cookie失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -764,12 +764,12 @@ function setupErrorHandling(): void {
     // 全局错误处理
     window.addEventListener('error', (event) => {
         console.error('渲染进程错误:', event.error);
-        showNotification('应用发生错误，请查看控制台获取详细信息', 'error');
+        //showNotification('应用发生错误，请查看控制台获取详细信息', 'error');
     });
 
     window.addEventListener('unhandledrejection', (event) => {
         console.error('未处理的Promise拒绝:', event.reason);
-        showNotification('操作失败，请重试', 'error');
+        //showNotification('操作失败，请重试', 'error');
     });
 
     console.log('✅ 错误处理设置完成');
@@ -924,14 +924,14 @@ async function createNewTab(): Promise<void> {
                 }
             }, 800);
 
-            showNotification(`已创建新标签页: ${accountName}`, 'success');
+            //showNotification(`已创建新标签页: ${accountName}`, 'success');
             console.log('✅ 标签页创建成功:', tabId);
         } else {
             throw new Error(result.error || '创建失败');
         }
     } catch (error) {
         console.error('❌ 创建标签页失败:', error);
-        showNotification(`创建标签页失败: ${handleError(error)}`, 'error');
+        //showNotification(`创建标签页失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -959,7 +959,7 @@ async function switchTab(tabId: string): Promise<void> {
         }
     } catch (error) {
         console.error('切换标签页失败:', error);
-        showNotification(`切换标签页失败: ${handleError(error)}`, 'error');
+        //showNotification(`切换标签页失败: ${handleError(error)}`, 'error');
     }
 }
 
@@ -969,12 +969,12 @@ async function switchTab(tabId: string): Promise<void> {
 async function closeTab(tabId: string): Promise<void> {
     const tab = currentTabs.find(t => t.id === tabId);
     if (!tab) {
-        showNotification('标签页不存在', 'warning');
+        //showNotification('标签页不存在', 'warning');
         return;
     }
 
-    const confirmed = confirm(`确定要关闭标签页 "${tab.accountName}" 吗？`);
-    if (!confirmed) return;
+    //const confirmed = confirm(`确定要关闭标签页 "${tab.accountName}" 吗？`);
+    //if (!confirmed) return;
 
     try {
         showLoading('正在关闭标签页...');
@@ -986,7 +986,7 @@ async function closeTab(tabId: string): Promise<void> {
             }
 
             await refreshTabList();
-            showNotification(`已关闭标签页: ${tab.accountName}`, 'info');
+            //showNotification(`已关闭标签页: ${tab.accountName}`, 'info');
 
             console.log('✅ 标签页已关闭:', tabId);
         } else {
@@ -994,7 +994,7 @@ async function closeTab(tabId: string): Promise<void> {
         }
     } catch (error) {
         console.error('关闭标签页失败:', error);
-        showNotification(`关闭标签页失败: ${handleError(error)}`, 'error');
+        //showNotification(`关闭标签页失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -1063,7 +1063,7 @@ async function testIsolation(): Promise<void> {
                 'Session隔离测试通过 - 不同标签页Session完全独立' :
                 'Session隔离测试失败 - 存在Session泄露问题';
 
-            showNotification(message, result.isolated ? 'success' : 'error');
+            //showNotification(message, result.isolated ? 'success' : 'error');
 
             if (testPanel && typeof testPanel.addResult === 'function') {
                 testPanel.addResult({
@@ -1078,7 +1078,7 @@ async function testIsolation(): Promise<void> {
         }
     } catch (error) {
         console.error('隔离测试失败:', error);
-        showNotification(`隔离测试失败: ${handleError(error)}`, 'error');
+        //showNotification(`隔离测试失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -1091,7 +1091,7 @@ async function testIsolation(): Promise<void> {
  */
 async function loadCookies(): Promise<void> {
     if (!activeTabId) {
-        showNotification('请先选择一个标签页', 'warning');
+        //showNotification('请先选择一个标签页', 'warning');
         return;
     }
 
@@ -1118,21 +1118,21 @@ async function loadCookies(): Promise<void> {
             const loadResult = await window.electronAPI.loadCookies(activeTabId!, cookieFilePath);
 
             if (loadResult.success) {
-                showNotification('Cookie加载成功', 'success');
+                //showNotification('Cookie加载成功', 'success');
                 await refreshCurrentTab();
             } else {
                 throw new Error(loadResult.error || '加载失败');
             }
         } catch (error) {
             console.error('加载Cookie失败:', error);
-            showNotification(`Cookie加载失败: ${handleError(error)}`, 'error');
+            //showNotification(`Cookie加载失败: ${handleError(error)}`, 'error');
         } finally {
             hideLoading();
         }
 
     } catch (error) {
         console.error('打开文件对话框失败:', error);
-        showNotification(`打开文件对话框失败: ${handleError(error)}`, 'error');
+        //showNotification(`打开文件对话框失败: ${handleError(error)}`, 'error');
     }
 }
 
@@ -1141,7 +1141,7 @@ async function loadCookies(): Promise<void> {
  */
 async function saveCookies(): Promise<void> {
     if (!activeTabId) {
-        showNotification('请先选择一个标签页', 'warning');
+        //showNotification('请先选择一个标签页', 'warning');
         return;
     }
 
@@ -1173,21 +1173,21 @@ async function saveCookies(): Promise<void> {
             const saveResult = await window.electronAPI.saveCookies(activeTabId!, cookieFilePath);
 
             if (saveResult.success) {
-                showNotification(`Cookie已保存到: ${cookieFilePath}`, 'success');
+                //showNotification(`Cookie已保存到: ${cookieFilePath}`, 'success');
             } else {
                 throw new Error(saveResult.error || '保存失败');
             }
 
         } catch (error) {
             console.error('保存Cookie失败:', error);
-            showNotification(`保存Cookie失败: ${handleError(error)}`, 'error');
+            //showNotification(`保存Cookie失败: ${handleError(error)}`, 'error');
         } finally {
             hideLoading();
         }
 
     } catch (error) {
         console.error('打开保存对话框失败:', error);
-        showNotification(`打开保存对话框失败: ${handleError(error)}`, 'error');
+        //showNotification(`打开保存对话框失败: ${handleError(error)}`, 'error');
     }
 }
 
@@ -1196,7 +1196,7 @@ async function saveCookies(): Promise<void> {
  */
 async function clearCookies(): Promise<void> {
     if (!activeTabId) {
-        showNotification('请先选择一个标签页', 'warning');
+        //showNotification('请先选择一个标签页', 'warning');
         return;
     }
 
@@ -1234,7 +1234,7 @@ async function clearCookies(): Promise<void> {
         const result = await response.json();
 
         if (result.success) {
-            showNotification('Cookie和存储数据已清除', 'success');
+            //showNotification('Cookie和存储数据已清除', 'success');
 
             // 刷新页面
             await refreshCurrentTab();
@@ -1244,7 +1244,7 @@ async function clearCookies(): Promise<void> {
 
     } catch (error) {
         console.error('清除Cookie失败:', error);
-        showNotification(`清除Cookie失败: ${handleError(error)}`, 'error');
+        //showNotification(`清除Cookie失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -1255,7 +1255,7 @@ async function clearCookies(): Promise<void> {
  */
 async function batchLoadCookies(): Promise<void> {
     if (currentTabs.length === 0) {
-        showNotification('没有可操作的标签页', 'warning');
+        //showNotification('没有可操作的标签页', 'warning');
         return;
     }
 
@@ -1282,7 +1282,7 @@ async function batchLoadCookies(): Promise<void> {
         );
 
         if (selectedTabs.length === 0) {
-            showNotification('没有选择任何标签页', 'info');
+            //showNotification('没有选择任何标签页', 'info');
             return;
         }
 
@@ -1306,10 +1306,7 @@ async function batchLoadCookies(): Promise<void> {
             }
         }
 
-        showNotification(
-            `批量加载完成: ${successCount} 成功, ${errorCount} 失败`,
-            errorCount === 0 ? 'success' : 'warning'
-        );
+        //showNotification(`批量加载完成: ${successCount} 成功, ${errorCount} 失败`,errorCount === 0 ? 'success' : 'warning');
 
         // 刷新所有成功加载的标签页
         if (successCount > 0) {
@@ -1318,7 +1315,7 @@ async function batchLoadCookies(): Promise<void> {
 
     } catch (error) {
         console.error('批量加载Cookie失败:', error);
-        showNotification(`批量加载Cookie失败: ${handleError(error)}`, 'error');
+        //showNotification(`批量加载Cookie失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -1363,7 +1360,7 @@ async function batchLoadCookies(): Promise<void> {
  */
 async function refreshCurrentTab(): Promise<void> {
     if (!activeTabId) {
-        showNotification('请先选择一个标签页', 'warning');
+        //showNotification('请先选择一个标签页', 'warning');
         return;
     }
 
@@ -1377,14 +1374,14 @@ async function refreshCurrentTab(): Promise<void> {
         const result = await response.json();
 
         if (result.success) {
-            showNotification('页面已刷新', 'info');
+            //showNotification('页面已刷新', 'info');
         } else {
             throw new Error(result.error || '刷新失败');
         }
 
     } catch (error) {
         console.error('刷新页面失败:', error);
-        showNotification(`刷新页面失败: ${handleError(error)}`, 'error');
+        //showNotification(`刷新页面失败: ${handleError(error)}`, 'error');
     }
 }
 
@@ -1393,7 +1390,7 @@ async function refreshCurrentTab(): Promise<void> {
  */
 async function takeScreenshot(): Promise<void> {
     if (!activeTabId) {
-        showNotification('请先选择一个标签页', 'warning');
+        //showNotification('请先选择一个标签页', 'warning');
         return;
     }
 
@@ -1410,14 +1407,14 @@ async function takeScreenshot(): Promise<void> {
 
         if (result.success) {
             showScreenshot(result.data.screenshot);
-            showNotification('截图完成', 'success');
+            //showNotification('截图完成', 'success');
         } else {
             throw new Error(result.error || '截图失败');
         }
 
     } catch (error) {
         console.error('截图失败:', error);
-        showNotification(`截图失败: ${handleError(error)}`, 'error');
+        //showNotification(`截图失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -1455,7 +1452,7 @@ function hideScreenshotModal(): void {
 function downloadScreenshot(): void {
     const screenshotData = (window as any).currentScreenshot;
     if (!screenshotData) {
-        showNotification('没有可下载的截图', 'warning');
+        //showNotification('没有可下载的截图', 'warning');
         return;
     }
 
@@ -1467,10 +1464,10 @@ function downloadScreenshot(): void {
         link.click();
         document.body.removeChild(link);
 
-        showNotification('截图已下载', 'success');
+        //showNotification('截图已下载', 'success');
     } catch (error) {
         console.error('下载截图失败:', error);
-        showNotification('下载截图失败', 'error');
+        //showNotification('下载截图失败', 'error');
     }
 }
 
@@ -1489,19 +1486,19 @@ async function executeBatchOperation(): Promise<void> {
     const input = inputElement?.value?.trim() || '';
 
     if (!operation) {
-        showNotification('请选择批量操作类型', 'warning');
+        //showNotification('请选择批量操作类型', 'warning');
         operationSelect?.focus();
         return;
     }
 
     if (!input) {
-        showNotification('请输入操作参数', 'warning');
+        //showNotification('请输入操作参数', 'warning');
         inputElement?.focus();
         return;
     }
 
     if (currentTabs.length === 0) {
-        showNotification('没有可操作的标签页', 'warning');
+        //showNotification('没有可操作的标签页', 'warning');
         return;
     }
 
@@ -1533,7 +1530,7 @@ async function executeBatchOperation(): Promise<void> {
 
         if (result.success) {
             const successCount = result.data.filter((r: any) => r.success).length;
-            showNotification(`批量操作完成: ${successCount}/${tabIds.length} 个标签页操作成功`, 'success');
+            //showNotification(`批量操作完成: ${successCount}/${tabIds.length} 个标签页操作成功`, 'success');
 
             // 显示详细结果到测试面板
             if (testPanel && typeof testPanel.addResult === 'function') {
@@ -1553,7 +1550,7 @@ async function executeBatchOperation(): Promise<void> {
 
     } catch (error) {
         console.error('批量操作失败:', error);
-        showNotification(`批量操作失败: ${handleError(error)}`, 'error');
+        //showNotification(`批量操作失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -1777,13 +1774,13 @@ async function refreshTab(tabId: string): Promise<void> {
 
         if (result.success) {
             const tab = currentTabs.find(t => t.id === tabId);
-            showNotification(`已刷新标签页: ${tab?.accountName || tabId}`, 'info');
+            //showNotification(`已刷新标签页: ${tab?.accountName || tabId}`, 'info');
         } else {
             throw new Error(result.error || '刷新失败');
         }
     } catch (error) {
         console.error('刷新标签页失败:', error);
-        showNotification(`刷新标签页失败: ${handleError(error)}`, 'error');
+        //showNotification(`刷新标签页失败: ${handleError(error)}`, 'error');
     }
 
     hideContextMenu();
@@ -1795,7 +1792,7 @@ async function refreshTab(tabId: string): Promise<void> {
 async function duplicateTab(tabId: string): Promise<void> {
     const tab = currentTabs.find(t => t.id === tabId);
     if (!tab) {
-        showNotification('标签页不存在', 'warning');
+        //showNotification('标签页不存在', 'warning');
         return;
     }
 
@@ -1808,13 +1805,13 @@ async function duplicateTab(tabId: string): Promise<void> {
 
         if (result.success) {
             await refreshTabList();
-            showNotification(`已复制标签页: ${newName}`, 'success');
+            //showNotification(`已复制标签页: ${newName}`, 'success');
         } else {
             throw new Error(result.error || '复制失败');
         }
     } catch (error) {
         console.error('复制标签页失败:', error);
-        showNotification(`复制标签页失败: ${handleError(error)}`, 'error');
+        //showNotification(`复制标签页失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -1974,7 +1971,7 @@ async function openCurrentTabDevTools(): Promise<void> {
 
     if (!activeTabId) {
         console.log('❌ No active tab');
-        showNotification('请先选择一个标签页', 'warning');
+        //showNotification('请先选择一个标签页', 'warning');
         return;
     }
 
@@ -1995,13 +1992,13 @@ async function openCurrentTabDevTools(): Promise<void> {
         console.log('🔧 Response result:', result);
 
         if (result.success) {
-            showNotification('开发者工具已在独立窗口中打开', 'success');
+            //showNotification('开发者工具已在独立窗口中打开', 'success');
         } else {
             throw new Error(result.error || '打开失败');
         }
     } catch (error) {
         console.error('❌ 打开开发者工具失败:', error);
-        showNotification(`打开开发者工具失败: ${handleError(error)}`, 'error');
+        //showNotification(`打开开发者工具失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -2022,13 +2019,13 @@ async function openTabDevTools(tabId: string): Promise<void> {
 
         const result = await response.json();
         if (result.success) {
-            showNotification('开发者工具已在独立窗口中打开', 'success');
+            //showNotification('开发者工具已在独立窗口中打开', 'success');
         } else {
             throw new Error(result.error || '打开失败');
         }
     } catch (error) {
         console.error('打开开发者工具失败:', error);
-        showNotification('打开开发者工具失败', 'error');
+        //showNotification('打开开发者工具失败', 'error');
     } finally {
         hideLoading();
     }
@@ -2042,8 +2039,6 @@ async function openTabDevTools(tabId: string): Promise<void> {
  * 显示通知
  */
 function showNotification(message: string, type: 'success' | 'info' | 'warning' | 'error' = 'info'): void {
-    return
-    /**
     const container = document.getElementById('notification-container');
     if (!container) {
         console.warn('通知容器不存在');
@@ -2091,7 +2086,6 @@ function showNotification(message: string, type: 'success' | 'info' | 'warning' 
     }, 5000);
 
     console.log(`📢 通知[${type}]: ${message}`);
-     */
 }
 
 /**
@@ -2204,11 +2198,11 @@ function delay(ms: number): Promise<void> {
 
         const result = await response.json();
         if (result.success) {
-            showNotification('开发者工具已打开', 'info');
+            //showNotification('开发者工具已打开', 'info');
         }
     } catch (error) {
         console.error('打开开发者工具失败:', error);
-        showNotification('打开开发者工具失败', 'error');
+        //showNotification('打开开发者工具失败', 'error');
     }
     hideContextMenu();
 };
@@ -2343,7 +2337,7 @@ console.log('🎨 渲染进程脚本加载完成');
 // 暴露调试接口
 if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
     (window as any).debugAPI = {
-        showNotification,
+        //showNotification,
         showLoading,
         hideLoading,
         checkAPIStatus,
