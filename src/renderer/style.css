@@ -799,62 +799,7 @@ s .url-bar::before,
     }
 }
 
-/* 深色模式支持 */
-@media (prefers-color-scheme: dark) {
-    .url-input {
-        background: #2d2e30;
-        border-color: #5f6368;
-        color: #e8eaed;
-    }
 
-    .url-input:focus {
-        border-color: #8ab4f8;
-        box-shadow: 0 1px 6px rgba(138, 180, 248, 0.15);
-        background: #2d2e30;
-    }
-
-    .url-input:hover:not(:focus) {
-        border-color: #9aa0a6;
-        box-shadow: 0 1px 3px rgba(255, 255, 255, 0.1);
-    }
-
-    .url-input::placeholder {
-        color: #9aa0a6;
-    }
-
-    .url-input::selection {
-        background-color: #8ab4f8;
-        color: #2d2e30;
-    }
-
-    .navigation-bar {
-        background: #202124;
-        border-bottom-color: #3c4043;
-    }
-
-    .nav-btn,
-    .toolbar-btn,
-    .go-btn {
-        color: #9aa0a6;
-    }
-
-    .nav-btn:hover:not(:disabled),
-    .toolbar-btn:hover,
-    .go-btn:hover {
-        background-color: #3c4043;
-        color: #e8eaed;
-    }
-
-    .nav-btn:active:not(:disabled),
-    .toolbar-btn:active,
-    .go-btn:active {
-        background-color: #5f6368;
-    }
-
-    .nav-btn:disabled {
-        color: #5f6368;
-    }
-}
 
 /* 响应式设计 */
 @media (max-width: 768px) {

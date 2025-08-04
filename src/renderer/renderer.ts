@@ -234,7 +234,7 @@ async function initializeApplication(): Promise<void> {
         await initializeComponents();
         setupEventListeners();
         setupTabTitleListeners();
-        await checkAPIStatus();
+        //await checkAPIStatus();
         await refreshTabList();
         setupMenuListeners();
         setupPeriodicUpdates();
@@ -856,84 +856,26 @@ function hideNewTabDialog(): void {
     }
 }
 
-/**
- * 创建新标签页 - 简化版本，直接创建空白标签页
- */
 async function createNewTab(): Promise<void> {
-    try {
-        showLoading('正在创建标签页...');
-
-        // 🔥 修复1：先实时检查API状态，不依赖全局变量
-        console.log('🔍 创建标签页前检查API状态...');
-        await checkAPIStatus();
-
-        console.log('🔍 当前 apiConnected 状态:', apiConnected);
-
-        // 🔥 修复2：如果API检查失败，尝试直接测试连接
-        if (!apiConnected) {
-            console.log('⚠️ API状态显示未连接，尝试直接测试...');
-
-            try {
-                const testResponse = await fetch('http://localhost:3409/health');
-                const testResult = await testResponse.json();
-
-                if (testResult.success) {
-                    console.log('✅ 直接测试成功，更新状态');
-                    apiConnected = true;
-                } else {
-                    throw new Error('API测试失败');
-                }
-            } catch (testError) {
-                console.error('❌ 直接API测试失败:', testError);
-                throw new Error('API服务未连接，请检查服务状态');
-            }
+    const result = await window.electronAPI.createAccountTab(
+        `标签页`,   // 第1个参数
+        'other',       // 第2个参数  
+        'about:blank'  // 第3个参数（可选）
+    );
+    if (result.success) {
+        activeTabId = result.tabId;
+        
+        // 🔥 关键：延迟调用现有的刷新机制
+        setTimeout(() => {
+            refreshTabList(); // 100ms后异步刷新，不阻塞用户操作
+        }, 100);
+        
+        // 立即聚焦
+        const urlInput = document.getElementById('url-input') as HTMLInputElement;
+        if (urlInput) {
+            urlInput.focus();
+            urlInput.select();
         }
-
-        // 生成简单的标签页名称
-        const tabNumber = currentTabs.length + 1;
-        const accountName = `标签页 ${tabNumber}`;
-
-        console.log('🔍 调用 electronAPI.createAccountTab:', {
-            accountName,
-            platform: 'other',
-            url: 'about:blank'
-        });
-
-        // 🔥 修复3：创建标签页 - 使用默认值
-        const result = await window.electronAPI.createAccountTab(
-            accountName,
-            'other',  // 默认平台类型
-            'about:blank'  // 空白页面
-        );
-
-        console.log('🔍 electronAPI.createAccountTab 结果:', result);
-
-        if (result.success) {
-            const tabId = result.tabId;
-            activeTabId = tabId;
-
-            // 刷新标签页列表
-            await refreshTabList();
-
-            // 聚焦到URL输入框
-            setTimeout(() => {
-                const urlInput = document.getElementById('url-input') as HTMLInputElement;
-                if (urlInput) {
-                    urlInput.focus();
-                    urlInput.select();
-                }
-            }, 800);
-
-            //showNotification(`已创建新标签页: ${accountName}`, 'success');
-            console.log('✅ 标签页创建成功:', tabId);
-        } else {
-            throw new Error(result.error || '创建失败');
-        }
-    } catch (error) {
-        console.error('❌ 创建标签页失败:', error);
-        //showNotification(`创建标签页失败: ${handleError(error)}`, 'error');
-    } finally {
-        hideLoading();
     }
 }
 // ========================================
@@ -1905,11 +1847,11 @@ function setupKeyboardShortcuts(): void {
             openCurrentTabDevTools();
         }
         // Ctrl/Cmd + Shift + I: 测试隔离
-        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'I') {
-            e.preventDefault();
-            e.stopPropagation();
-            testIsolation();
-        }
+        //if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'I') {
+        //    e.preventDefault();
+        //    e.stopPropagation();
+        //    testIsolation();
+        //}
     });
 
     console.log('✅ 键盘快捷键设置完成');
@@ -1950,18 +1892,6 @@ function selectCookieFile(): void {
 // 快速功能
 // ========================================
 
-/**
- * 运行快速测试
- */
-async function runQuickTest(): Promise<void> {
-    if (testPanel && typeof testPanel.runComprehensiveTest === 'function') {
-        await testPanel.runComprehensiveTest();
-    } else {
-        // 如果测试面板不可用，运行基础测试
-        await testIsolation();
-        await checkAPIStatus();
-    }
-}
 
 /**
  * 打开当前标签页的开发者工具
@@ -2173,7 +2103,7 @@ function delay(ms: number): Promise<void> {
 (window as any).refreshTab = refreshTab;
 (window as any).duplicateTab = duplicateTab;
 (window as any).selectCookieFile = selectCookieFile;
-(window as any).runQuickTest = runQuickTest;
+
 (window as any).hideScreenshotModal = hideScreenshotModal;
 (window as any).downloadScreenshot = downloadScreenshot;
 (window as any).refreshCurrentTab = refreshCurrentTab;
@@ -2266,34 +2196,6 @@ function getAppState(): object {
         return apiConnected;
     },
 
-    testAPIConnection: async () => {
-        console.log('🔧 直接测试API连接...');
-        try {
-            const response = await fetch('http://localhost:3409/health');
-            const result = await response.json();
-            console.log('🔧 API测试结果:', result);
-            return result;
-        } catch (error) {
-            console.error('🔧 API测试失败:', error);
-            return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-        }
-    },
-
-    forceCreateTab: async () => {
-        console.log('🔧 强制创建标签页（忽略API状态）...');
-        try {
-            const result = await window.electronAPI.createAccountTab(
-                `强制标签页 ${Date.now()}`,
-                'other',
-                'about:blank'
-            );
-            console.log('🔧 强制创建结果:', result);
-            return result;
-        } catch (error) {
-            console.error('🔧 强制创建失败:', error);
-            return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-        }
-    }
 };
 
 /**
@@ -2302,36 +2204,7 @@ function getAppState(): object {
 (window as any).getAppState = getAppState;
 (window as any).getCurrentTabs = () => currentTabs;
 (window as any).getActiveTabId = () => activeTabId;
-// 添加调试函数
-(window as any).debugBrowserView = async () => {
-    if (!activeTabId) {
-        console.log('No active tab');
-        return;
-    }
 
-    const response = await fetch('http://localhost:3409/api/account/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            tabId: activeTabId,
-            script: `
-                console.log('BrowserView info:', {
-                    url: window.location.href,
-                    title: document.title,
-                    visible: document.visibilityState,
-                    dimensions: {
-                        width: window.innerWidth,
-                        height: window.innerHeight
-                    }
-                });
-                'Debug info logged';
-            `
-        })
-    });
-
-    const result = await response.json();
-    console.log('Debug result:', result);
-};
 console.log('🎨 渲染进程脚本加载完成');
 
 // 暴露调试接口
