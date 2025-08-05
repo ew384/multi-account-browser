@@ -563,9 +563,9 @@ class MultiAccountBrowser {
                 return;
             }
             
-            console.log(`🚀 执行 ${command} 脚本...`);
+            //console.log(`🚀 执行 ${command} 脚本...`);
             const result = await activeTab.webContentsView.webContents.executeJavaScript(script);
-            console.log(`✅ ${command} executed:`, result);
+            //console.log(`✅ ${command} executed:`, result);
             
             // 可选：显示结果通知
             if (this.mainWindow) {
