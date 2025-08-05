@@ -204,7 +204,7 @@ async function refreshTabList(): Promise<void> {
                 updateTabBar();
                 updateCurrentTabInfo();
                 updateNoTabsMessage();
-                console.log(`📑 刷新了 ${currentTabs.length} 个标签页（Chrome风格显示）`);
+                console.log(`刷新了 ${currentTabs.length} 个标签页（Chrome风格显示）`);
                 return;
             }
         }
@@ -461,7 +461,7 @@ async function navigateToUrl(): Promise<void> {
             url = 'https://' + url;
         }
         if (url.includes('localhost') && !url.includes(' ')) {
-            url = 'https://' + url;
+            url = 'http://' + url;
         }
          else {
             url = 'https://www.google.com/search?q=' + encodeURIComponent(url);
