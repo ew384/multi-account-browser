@@ -458,13 +458,18 @@ async function navigateToUrl(): Promise<void> {
     // URL处理逻辑
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
         if (url.includes('.') && !url.includes(' ')) {
-            url = 'https://' + url;
+            // 检查是否已经包含www，如果不包含则添加
+            if (!url.startsWith('www.')) {
+                url = 'https://www.' + url;
+            } else {
+                url = 'https://' + url;
+            }
         }
-        if (url.includes('localhost') && !url.includes(' ')) {
+        else if (url.includes('localhost') && !url.includes(' ')) {
             url = 'http://' + url;
         }
-         else {
-            url = 'https://www.google.com/search?q=' + encodeURIComponent(url);
+        else {
+            url = 'https://www.baidu.com/s?wd=' + encodeURIComponent(url);
         }
     }
 
