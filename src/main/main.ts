@@ -5,6 +5,7 @@ import { TabManager } from './TabManager';
 import { APIServer } from './APIServer';
 import { AutomationEngine } from './automation/AutomationEngine';
 import { AccountStorage } from './plugins/login/base/AccountStorage';
+import { PublishRecordStorage } from './plugins/uploader/base/PublishRecordStorage';
 import { HeadlessManager } from './HeadlessManager';
 class MultiAccountBrowser {
     private mainWindow: BrowserWindow | null = null;
@@ -972,8 +973,10 @@ class MultiAccountBrowser {
             try {
                 // 🔥 步骤0：首先初始化数据库
                 console.log('🗄️ 初始化数据库...');
-                await AccountStorage.ensureDatabaseInitialized();
+                AccountStorage.ensureDatabaseInitialized();
                 console.log('✅ 数据库初始化完成');
+                PublishRecordStorage.ensureDatabaseInitialized();
+                console.log('✅ 发布记录数据库初始化完成');
                 // 🔥 步骤1：初始化 TabManager
                 console.log('📋 初始化 TabManager...');
                 this.tabManager = new TabManager(this.mainWindow, this.sessionManager);
@@ -1108,6 +1111,15 @@ class MultiAccountBrowser {
                 if (this.automationEngine) {
                     console.log('🔌 销毁插件系统...');
                     await this.automationEngine.getPluginManager().destroyAllPlugins();
+                }
+                // 🔥 步骤4：关闭数据库连接
+                console.log('🗄️ 关闭数据库连接...');
+                try {
+                    AccountStorage.closeDatabase();
+                    PublishRecordStorage.closeDatabase();
+                    console.log('✅ 数据库连接已关闭');
+                } catch (dbError) {
+                    console.warn('⚠️ 关闭数据库连接时出现错误:', dbError);
                 }
                 // 新增：清理 HeadlessManager
                 console.log('🔇 清理 HeadlessManager...');
