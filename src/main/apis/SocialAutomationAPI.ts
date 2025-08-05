@@ -1,7 +1,7 @@
 // src/main/apis/SocialAutomationAPI.ts
 import express from 'express';
 import { AutomationEngine } from '../automation/AutomationEngine';
-//import { TabManager } from '../TabManager';
+import { PublishRecordStorage } from '../plugins/uploader/base/PublishRecordStorage';
 import { AccountStorage } from '../plugins/login/base/AccountStorage';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -27,6 +27,7 @@ export class SocialAutomationAPI {
         this.setupUploadRoutes();
         this.setupValidationRoutes();
         this.setupAutomationRoutes();
+        this.setupPublishRecordRoutes();
         this.router.get('/assets/avatar/:platform/:accountName/:filename', this.handleGetAvatar.bind(this));
     }
 
@@ -38,7 +39,13 @@ export class SocialAutomationAPI {
         this.router.post('/updateUserinfo', this.handleUpdateUserinfo.bind(this));
         this.router.post('/account', this.handleAddAccount.bind(this));
     }
-
+    private setupPublishRecordRoutes(): void {
+        // 发布记录管理API
+        this.router.get('/getPublishRecords', this.handleGetPublishRecords.bind(this));
+        this.router.get('/getPublishRecordDetail', this.handleGetPublishRecordDetail.bind(this));
+        this.router.post('/deletePublishRecords', this.handleDeletePublishRecords.bind(this));
+        this.router.get('/exportPublishRecords', this.handleExportPublishRecords.bind(this));
+    }
     private setupGroupRoutes(): void {
         // 分组管理API
         this.router.get('/getGroups', this.handleGetGroups.bind(this));
@@ -542,12 +549,161 @@ export class SocialAutomationAPI {
             this.sendResponse(res, 500, `获取最近上传文件失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
         }
     }
+
+// ==================== 新增发布记录路由设置 ====================
+
+// ==================== 发布记录管理相关处理方法 ====================
+
+    /**
+     * 🔥 获取发布记录列表
+     */
+    private async handleGetPublishRecords(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const {
+                publisher = '全部发布人',
+                content_type = '全部发布类型', 
+                status = '全部推送状态',
+                start_date,
+                end_date,
+                limit = 50,
+                offset = 0
+            } = req.query;
+
+            const filters = {
+                publisher: publisher as string,
+                content_type: content_type as string,
+                status: status as string,
+                start_date: start_date as string,
+                end_date: end_date as string,
+                limit: parseInt(limit as string),
+                offset: parseInt(offset as string)
+            };
+
+            const result = await PublishRecordStorage.getPublishRecords(filters);
+
+            if (result.success) {
+                this.sendResponse(res, 200, result.message, result.data);
+            } else {
+                this.sendResponse(res, 500, result.message, null);
+            }
+
+        } catch (error) {
+            console.error('❌ 获取发布记录失败:', error);
+            this.sendResponse(res, 500, `获取发布记录失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
+        }
+    }
+
+    /**
+     * 🔥 获取发布记录详情
+     */
+    private async handleGetPublishRecordDetail(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const recordId = parseInt(req.query.id as string);
+
+            if (!recordId || isNaN(recordId)) {
+                this.sendResponse(res, 400, '发布记录ID不能为空', null);
+                return;
+            }
+
+            const result = await PublishRecordStorage.getPublishRecordDetail(recordId);
+
+            if (result.success) {
+                this.sendResponse(res, 200, result.message, result.data);
+            } else {
+                const statusCode = result.message.includes('不存在') ? 404 : 500;
+                this.sendResponse(res, statusCode, result.message, null);
+            }
+
+        } catch (error) {
+            console.error('❌ 获取发布记录详情失败:', error);
+            this.sendResponse(res, 500, `获取详情失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
+        }
+    }
+
+    /**
+     * 🔥 批量删除发布记录
+     */
+    private async handleDeletePublishRecords(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const { recordIds } = req.body;
+
+            if (!Array.isArray(recordIds) || recordIds.length === 0) {
+                this.sendResponse(res, 400, '请选择要删除的发布记录', null);
+                return;
+            }
+
+            const validIds = recordIds.filter(id => typeof id === 'number' && id > 0);
+            
+            if (validIds.length === 0) {
+                this.sendResponse(res, 400, '无效的记录ID', null);
+                return;
+            }
+
+            const result = await PublishRecordStorage.deletePublishRecords(validIds);
+
+            if (result.success) {
+                this.sendResponse(res, 200, result.message, result.data);
+            } else {
+                this.sendResponse(res, 500, result.message, null);
+            }
+
+        } catch (error) {
+            console.error('❌ 删除发布记录失败:', error);
+            this.sendResponse(res, 500, `删除失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
+        }
+    }
+
+    /**
+     * 🔥 导出发布记录
+     */
+    private async handleExportPublishRecords(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const {
+                publisher,
+                content_type, 
+                status,
+                start_date,
+                end_date
+            } = req.query;
+
+            const filters = {
+                publisher: publisher as string,
+                content_type: content_type as string,
+                status: status as string,
+                start_date: start_date as string,
+                end_date: end_date as string
+            };
+
+            const result = await PublishRecordStorage.exportPublishRecords(filters);
+
+            if (result.success) {
+                // 设置下载响应头
+                const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+                const filename = `publish_records_${timestamp}.csv`;
+                
+                res.setHeader('Content-Type', 'application/csv');
+                res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+                
+                // 转换为CSV格式
+                const csvContent = this.convertToCSV(result.data);
+                res.send(csvContent);
+            } else {
+                this.sendResponse(res, 500, result.message, null);
+            }
+
+        } catch (error) {
+            console.error('❌ 导出发布记录失败:', error);
+            this.sendResponse(res, 500, `导出失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
+        }
+    }
+
     // ==================== 视频发布相关处理方法 ====================
 
     /**
      * 🔥 视频发布 - 对应 Python 的 postVideo
      */
     private async handlePostVideo(req: express.Request, res: express.Response): Promise<void> {
+        let recordId: number | null = null;
         try {
             const {
                 fileList = [],
@@ -597,6 +753,34 @@ export class SocialAutomationAPI {
                 return;
             }
 
+            // 🔥 1. 创建发布记录
+            const publishRecordData = {
+                title: title || '未命名发布任务',
+                video_files: fileList,
+                account_list: accountList.map((account: any) => ({
+                    accountName: account.accountName,
+                    platform: platform,
+                    filePath: account.filePath,
+                    accountId: account.accountId
+                })),
+                platform_type: parseInt(typeVal),
+                status: 'pending' as const,
+                total_accounts: accountList.length,
+                success_accounts: 0,
+                failed_accounts: 0,
+                created_by: 'system' // 后续可以从认证信息中获取
+            };
+
+            const recordResult = await PublishRecordStorage.savePublishRecord(publishRecordData);
+            
+            if (!recordResult.success) {
+                this.sendResponse(res, 500, `创建发布记录失败: ${recordResult.message}`, null);
+                return;
+            }
+
+            recordId = recordResult.data.recordId;
+            console.log(`✅ 发布记录已创建: ID ${recordId}`);
+
             // 🔥 构造批量上传请求
             const batchRequest = {
                 platform,
@@ -622,11 +806,51 @@ export class SocialAutomationAPI {
             };
 
             // 🔥 执行批量上传
+            console.log(`🚀 开始执行批量上传，记录ID: ${recordId}`);
             const uploadResults = await this.automationEngine.batchUpload(batchRequest);
 
             // 统计结果
             const successCount = uploadResults.filter(r => r.success).length;
             const failedCount = uploadResults.length - successCount;
+            const totalCount = uploadResults.length;
+            // 确定最终状态
+            let finalStatus: string;
+            if (failedCount === 0) {
+                finalStatus = 'success';
+            } else if (successCount === 0) {
+                finalStatus = 'failed';
+            } else {
+                finalStatus = 'partial';
+            }
+
+            // 🔥 5. 更新发布记录状态
+            const updateResult = await PublishRecordStorage.updatePublishRecordStatus(recordId!, finalStatus, {
+                success: successCount,
+                failed: failedCount,
+                total: totalCount
+            });
+
+            if (!updateResult.success) {
+                console.error(`❌ 更新发布记录状态失败: ${updateResult.message}`);
+            }
+
+            // 🔥 6. 更新每个账号的发布状态
+            for (const result of uploadResults) {
+                if (!result.account) {
+                    console.warn(`⚠️ 跳过更新状态：账号名为空`, result);
+                    continue;
+                }
+                const statusData = {
+                    status: result.success ? 'success' : 'failed',
+                    upload_status: result.success ? '上传成功' : '上传失败',
+                    push_status: result.success ? '推送成功' : '推送失败',
+                    transcode_status: result.success ? '转码成功' : '转码失败',
+                    review_status: result.success ? '审核成功' : '审核失败',
+                    error_message: result.error || undefined
+                };
+
+                await PublishRecordStorage.updateAccountPublishStatus(recordId!, result.account, statusData);
+            }
 
             console.log(`📊 批量上传完成: 成功 ${successCount}, 失败 ${failedCount}`);
 
@@ -637,11 +861,20 @@ export class SocialAutomationAPI {
                     failed: failedCount,
                     platform: platform
                 },
-                results: uploadResults
+                results: uploadResults,
+                recordId: recordId,
+                recordStatus: finalStatus
             });
 
         } catch (error) {
             console.error(`❌ 视频发布失败:`, error);
+            if (recordId) {
+                try {
+                    await PublishRecordStorage.updatePublishRecordStatus(recordId, 'failed');
+                } catch (updateError) {
+                    console.error(`❌ 更新发布记录状态失败:`, updateError);
+                }
+            }
             this.sendResponse(res, 500, `发布失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
         }
     }
@@ -746,7 +979,55 @@ export class SocialAutomationAPI {
     }
 
     // ==================== 验证相关处理方法 ====================
+/**
+ * 🔥 转换数据为CSV格式
+ */
+private convertToCSV(data: any[]): string {
+    if (!data || data.length === 0) {
+        return '';
+    }
 
+    // 获取表头
+    const headers = Object.keys(data[0]);
+    
+    // 转义CSV字段
+    const escapeCSVField = (field: any): string => {
+        if (field === null || field === undefined) {
+            return '';
+        }
+        
+        const stringField = String(field);
+        
+        // 如果包含逗号、引号或换行符，需要用引号包围并转义内部引号
+        if (stringField.includes(',') || stringField.includes('"') || stringField.includes('\n')) {
+            return `"${stringField.replace(/"/g, '""')}"`;
+        }
+        
+        return stringField;
+    };
+
+    // 构建CSV内容
+    const csvHeaders = headers.map(escapeCSVField).join(',');
+    const csvRows = data.map(row => 
+        headers.map(header => escapeCSVField(row[header])).join(',')
+    );
+
+    return [csvHeaders, ...csvRows].join('\n');
+}
+
+/**
+ * 🔥 获取发布记录统计信息（可选，用于仪表板）
+ */
+private async handleGetPublishRecordStats(req: express.Request, res: express.Response): Promise<void> {
+    try {
+        const stats = PublishRecordStorage.getPublishRecordStats();
+        this.sendResponse(res, 200, 'success', stats);
+
+    } catch (error) {
+        console.error('❌ 获取发布记录统计失败:', error);
+        this.sendResponse(res, 500, `获取统计失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
+    }
+}
     /**
      * 🔥 手动验证单个账号
      */

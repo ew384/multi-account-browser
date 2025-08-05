@@ -140,6 +140,7 @@ export class AccountStorage {
                 CREATE INDEX IF NOT EXISTS idx_user_info_group ON user_info(group_id);
                 CREATE INDEX IF NOT EXISTS idx_file_records_filename ON file_records(filename);
             `);
+            
             console.log('✅ 数据库索引创建成功');
 
             // 🔥 插入默认分组数据
