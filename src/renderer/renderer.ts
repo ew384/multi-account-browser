@@ -309,44 +309,42 @@ function setupUrlInputEvents(): void {
         return;
     }
 
-    // 🔥 移除所有现有事件监听器（如果有的话）
-    const newUrlInput = urlInput.cloneNode(true) as HTMLInputElement;
-    urlInput.parentNode?.replaceChild(newUrlInput, urlInput);
+    // 🔥 彻底清理：克隆节点移除所有事件监听器
+    const newInput = urlInput.cloneNode(true) as HTMLInputElement;
+    urlInput.parentNode?.replaceChild(newInput, urlInput);
 
-    // 🔥 只添加最基本的事件，不干扰任何默认行为
-    newUrlInput.addEventListener('keydown', (e: KeyboardEvent) => {
-        console.log('🔍 URL input keydown:', e.key, e.ctrlKey, e.metaKey);
-        
-        // 只处理回车键，其他一概不管
+    // 重新获取清理后的元素
+    const cleanInput = document.getElementById('url-input') as HTMLInputElement;
+    if (!cleanInput) return;
+
+    // 🔥 只处理必要的按键，保持简洁
+    cleanInput.addEventListener('keydown', (e: KeyboardEvent) => {
+        // 只处理 Enter 键，其他按键完全不干扰
         if (e.key === 'Enter') {
             e.preventDefault();
             navigateToUrl();
             return;
         }
         
-        // 🔥 对于复制粘贴，完全不做任何处理
-        // 让浏览器原生处理所有 Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A 等
+        // 🔥 对于所有其他按键（包括方向键、复制粘贴等），完全不做处理
+        // 让浏览器原生处理，确保功能正常
     });
 
-    // 监听输入变化
-    newUrlInput.addEventListener('input', () => {
+    // 监听输入变化（用于 Go 按钮显示）
+    cleanInput.addEventListener('input', () => {
         updateGoButtonVisibility();
     });
 
-    // 调试事件
-    newUrlInput.addEventListener('copy', (e) => {
-        console.log('✅ Copy event fired in URL input');
+    // 焦点事件（用于调试）
+    cleanInput.addEventListener('focus', () => {
+        console.log('🔍 URL input focused');
     });
 
-    newUrlInput.addEventListener('paste', (e) => {
-        console.log('✅ Paste event fired in URL input');
+    cleanInput.addEventListener('blur', () => {
+        console.log('🔍 URL input blurred');
     });
 
-    newUrlInput.addEventListener('cut', (e) => {
-        console.log('✅ Cut event fired in URL input');
-    });
-
-    console.log('✅ URL input events setup complete - zero interference');
+    console.log('✅ URL input events setup complete - 最简化版本');
 }
 /**
  * 更新 Go 按钮的显示状态
