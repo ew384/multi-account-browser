@@ -305,7 +305,7 @@ class MultiAccountBrowser {
                 label: '文件',
                 submenu: [
                     {
-                        label: '新建账号标签页',
+                        label: '新建标签页',
                         accelerator: 'CmdOrCtrl+T',
                         click: () => {
                             this.mainWindow?.webContents.send('menu-new-tab');
@@ -329,20 +329,41 @@ class MultiAccountBrowser {
                 ]
             },
             {
-                label: '工具',
+                label: '编辑',
                 submenu: [
                     {
-                        label: '调试 WebContentsView 边界',
+                        label: '复制',
+                        accelerator: 'CmdOrCtrl+C',
                         click: () => {
-                            this.tabManager?.debugWebContentsViewBounds();
+                            this.executeEditCommand('copy');
                         }
                     },
                     {
-                        label: '强制更新边界',
+                        label: '粘贴',
+                        accelerator: 'CmdOrCtrl+V',
                         click: () => {
-                            this.tabManager?.forceUpdateAllBounds();
+                            this.executeEditCommand('paste');
                         }
                     },
+                    {
+                        label: '剪切',
+                        accelerator: 'CmdOrCtrl+X',
+                        click: () => {
+                            this.executeEditCommand('cut');
+                        }
+                    },
+                    {
+                        label: '全选',
+                        accelerator: 'CmdOrCtrl+A',
+                        click: () => {
+                            this.executeEditCommand('selectAll');
+                        }
+                    }
+                ]
+            },
+            {
+                label: '工具',
+                submenu: [
                     {
                         label: '开发者工具',
                         accelerator: 'F12',
@@ -372,7 +393,7 @@ class MultiAccountBrowser {
                                 type: 'info',
                                 title: '关于',
                                 message: 'Multi-Account Browser v2.0',
-                                detail: 'WebContentsView 版本\n支持多账号 Cookie 隔离'
+                                detail: '支持多账号 Cookie 隔离'
                             });
                         }
                     }
@@ -384,6 +405,190 @@ class MultiAccountBrowser {
         Menu.setApplicationMenu(menu);
     }
 
+    /**
+     * 执行编辑命令 - 修复版本
+     */
+    private async executeEditCommand(command: 'copy' | 'paste' | 'cut' | 'selectAll'): Promise<void> {
+        const activeTab = this.tabManager.getActiveTab();
+        if (!activeTab) {
+            console.log(`❌ 没有活动标签页，无法执行 ${command} 操作`);
+            return;
+        }
+
+        const scripts: Record<string, string> = {
+            copy: `
+                (function() {
+                    try {
+                        const selection = window.getSelection();
+                        if (selection && selection.toString()) {
+                            // 优先使用现代 API
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                navigator.clipboard.writeText(selection.toString()).then(() => {
+                                    console.log('现代API复制成功');
+                                }).catch(() => {
+                                    document.execCommand('copy');
+                                    console.log('备用API复制成功');
+                                });
+                            } else {
+                                document.execCommand('copy');
+                                console.log('传统API复制成功');
+                            }
+                            return '已复制选中内容: ' + selection.toString().slice(0, 50);
+                        } else {
+                            return '没有选中的内容';
+                        }
+                    } catch (e) {
+                        console.error('复制失败:', e);
+                        return '复制失败: ' + e.message;
+                    }
+                })()
+            `,
+            
+            paste: `
+                (function() {
+                    try {
+                        const activeElement = document.activeElement;
+                        console.log('当前焦点元素:', activeElement ? activeElement.tagName : 'null');
+                        
+                        if (activeElement && (
+                            activeElement.tagName === 'INPUT' || 
+                            activeElement.tagName === 'TEXTAREA' || 
+                            activeElement.contentEditable === 'true'
+                        )) {
+                            // 优先使用现代 API
+                            if (navigator.clipboard && navigator.clipboard.readText) {
+                                navigator.clipboard.readText().then(text => {
+                                    if (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA') {
+                                        const input = activeElement;
+                                        const start = input.selectionStart || 0;
+                                        const end = input.selectionEnd || 0;
+                                        const currentValue = input.value || '';
+                                        input.value = currentValue.slice(0, start) + text + currentValue.slice(end);
+                                        input.selectionStart = input.selectionEnd = start + text.length;
+                                        
+                                        // 触发事件
+                                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                                    } else {
+                                        // contentEditable 元素
+                                        document.execCommand('insertText', false, text);
+                                    }
+                                    console.log('现代API粘贴成功');
+                                }).catch(e => {
+                                    console.log('现代API失败，使用备用方案:', e);
+                                    document.execCommand('paste');
+                                });
+                            } else {
+                                document.execCommand('paste');
+                                console.log('传统API粘贴');
+                            }
+                            return '已粘贴到: ' + activeElement.tagName;
+                        } else {
+                            return '当前焦点不在可编辑元素上';
+                        }
+                    } catch (e) {
+                        console.error('粘贴失败:', e);
+                        return '粘贴失败: ' + e.message;
+                    }
+                })()
+            `,
+            
+            cut: `
+                (function() {
+                    try {
+                        const selection = window.getSelection();
+                        if (selection && selection.toString()) {
+                            const selectedText = selection.toString();
+                            
+                            // 优先使用现代 API
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                navigator.clipboard.writeText(selectedText).then(() => {
+                                    // 删除选中内容
+                                    selection.deleteFromDocument();
+                                    console.log('现代API剪切成功');
+                                }).catch(() => {
+                                    document.execCommand('cut');
+                                    console.log('备用API剪切成功');
+                                });
+                            } else {
+                                document.execCommand('cut');
+                                console.log('传统API剪切');
+                            }
+                            return '已剪切内容: ' + selectedText.slice(0, 50);
+                        } else {
+                            return '没有选中的内容';
+                        }
+                    } catch (e) {
+                        console.error('剪切失败:', e);
+                        return '剪切失败: ' + e.message;
+                    }
+                })()
+            `,
+            
+            selectAll: `
+                (function() {
+                    try {
+                        const activeElement = document.activeElement;
+                        
+                        if (activeElement && (
+                            activeElement.tagName === 'INPUT' || 
+                            activeElement.tagName === 'TEXTAREA'
+                        )) {
+                            // 输入框全选
+                            activeElement.select();
+                            return '已选中输入框中所有内容';
+                        } else {
+                            // 页面全选
+                            const selection = window.getSelection();
+                            if (selection) {
+                                selection.removeAllRanges();
+                                const range = document.createRange();
+                                range.selectNodeContents(document.body);
+                                selection.addRange(range);
+                            }
+                            return '已选中页面所有内容';
+                        }
+                    } catch (e) {
+                        console.error('全选失败:', e);
+                        return '全选失败: ' + e.message;
+                    }
+                })()
+            `
+        };
+
+        try {
+            const script = scripts[command];
+            if (!script) {
+                console.error(`❌ Unknown command: ${command}`);
+                return;
+            }
+            
+            console.log(`🚀 执行 ${command} 脚本...`);
+            const result = await activeTab.webContentsView.webContents.executeJavaScript(script);
+            console.log(`✅ ${command} executed:`, result);
+            
+            // 可选：显示结果通知
+            if (this.mainWindow) {
+                this.mainWindow.webContents.executeJavaScript(`
+                    console.log('编辑操作结果: ${result}');
+                `).catch(() => {
+                    // 忽略错误
+                });
+            }
+            
+        } catch (error) {
+            console.error(`❌ ${command} failed:`, error);
+            
+            // 显示用户友好的错误信息
+            const { dialog } = require('electron');
+            dialog.showMessageBox(this.mainWindow!, {
+                type: 'warning',
+                title: '操作失败',
+                message: `${command} 操作失败`,
+                detail: `请确保有活动的标签页并且焦点在正确的元素上`
+            });
+        }
+    }
     private setupIPC(): void {
         // 获取所有标签页 - 修复序列化问题
         ipcMain.handle('get-all-tabs', async () => {
@@ -763,7 +968,6 @@ class MultiAccountBrowser {
         }
 
         this.createWindow();
-
         if (this.mainWindow) {
             try {
                 // 🔥 步骤0：首先初始化数据库

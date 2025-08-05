@@ -8,6 +8,7 @@ interface ElectronAPI {
     closeTab: (tabId: string) => Promise<any>;
     getAllTabs: () => Promise<any>;
     // 新增：标题更新事件监听
+    
     onTabTitleUpdated: (callback: (data: { tabId: string; title: string }) => void) => void;
     onTabFaviconUpdated: (callback: (data: { tabId: string; favicon: string }) => void) => void;
 

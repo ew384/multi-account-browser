@@ -239,11 +239,11 @@ async function initializeApplication(): Promise<void> {
         setupMenuListeners();
         setupPeriodicUpdates();
         setupErrorHandling();
-
+        setupContextMenu();
         appInitialized = true;
         hideLoading();
 
-        console.log('✅ 应用初始化完成（Chrome风格标签页）');
+        console.log('✅ 应用初始化完成');
         //showNotification('应用初始化完成', 'success');
 
     } catch (error) {
@@ -304,61 +304,49 @@ function ensureRequiredElements(): void {
 }
 function setupUrlInputEvents(): void {
     const urlInput = document.getElementById('url-input') as HTMLInputElement;
-    if (!urlInput) return;
+    if (!urlInput) {
+        console.error('❌ URL input not found');
+        return;
+    }
 
-    // 🔥 最小修改：只在keydown中添加一个检查，防止循环输入数字
-    urlInput.addEventListener('keydown', (e: KeyboardEvent) => {
-        // 检测循环输入数字的异常情况
-        if (e.repeat && ['8', '2', '4', '6'].includes(e.key)) {
-            console.log('🚫 Preventing number loop input');
-            e.preventDefault();
-            return false;
-        }
+    // 🔥 移除所有现有事件监听器（如果有的话）
+    const newUrlInput = urlInput.cloneNode(true) as HTMLInputElement;
+    urlInput.parentNode?.replaceChild(newUrlInput, urlInput);
 
-        // 其他所有逻辑保持原样，不添加任何 stopPropagation()
+    // 🔥 只添加最基本的事件，不干扰任何默认行为
+    newUrlInput.addEventListener('keydown', (e: KeyboardEvent) => {
+        console.log('🔍 URL input keydown:', e.key, e.ctrlKey, e.metaKey);
         
-        // 你原来的键盘处理逻辑...
-        const allowedKeys = [
-            'KeyC', 'KeyV', 'KeyX', 'KeyA', 'KeyZ', 'KeyY', // 复制粘贴等
-            'Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
-            'Home', 'End', 'Tab'
-        ];
-
-        const isStandardShortcut = (e.ctrlKey || e.metaKey) && allowedKeys.includes(e.code);
-        const isNavigationKey = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab'].includes(e.code);
-        const isTyping = e.key.length === 1 || e.key === 'Space';
-
-        if (isStandardShortcut || isNavigationKey || isTyping) {
-            // 不阻止任何事件传播，让浏览器正常处理
-        }
-
-        // Enter 键处理导航
+        // 只处理回车键，其他一概不管
         if (e.key === 'Enter') {
             e.preventDefault();
             navigateToUrl();
+            return;
         }
-
-        // Escape 键取消焦点
-        if (e.key === 'Escape') {
-            e.preventDefault();
-            urlInput.blur();
-        }
+        
+        // 🔥 对于复制粘贴，完全不做任何处理
+        // 让浏览器原生处理所有 Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A 等
     });
 
-    // 其他事件监听器保持简单
-    urlInput.addEventListener('input', (e) => {
+    // 监听输入变化
+    newUrlInput.addEventListener('input', () => {
         updateGoButtonVisibility();
     });
 
-    urlInput.addEventListener('focus', () => {
-        console.log('🔍 URL input focused');
+    // 调试事件
+    newUrlInput.addEventListener('copy', (e) => {
+        console.log('✅ Copy event fired in URL input');
     });
 
-    urlInput.addEventListener('blur', () => {
-        console.log('🔍 URL input blurred');
+    newUrlInput.addEventListener('paste', (e) => {
+        console.log('✅ Paste event fired in URL input');
     });
 
-    console.log('✅ URL input events setup complete (minimal fix)');
+    newUrlInput.addEventListener('cut', (e) => {
+        console.log('✅ Cut event fired in URL input');
+    });
+
+    console.log('✅ URL input events setup complete - zero interference');
 }
 /**
  * 更新 Go 按钮的显示状态
@@ -1611,84 +1599,26 @@ async function updateSystemInfo(apiData?: any): Promise<void> {
     }
 }
 
-// ========================================
-// 右键菜单
-// ========================================
-
 /**
- * 设置右键菜单
+ * 设置右键菜单 - 简化版本（只处理URL输入框）
  */
 function setupContextMenu(): void {
-    // 标签页右键菜单
     document.addEventListener('contextmenu', (e) => {
-        const tab = (e.target as HTMLElement).closest('.tab');
-        if (tab) {
+        const urlInput = (e.target as HTMLElement).closest('#url-input');
+        const isUrlInput = (e.target as HTMLElement).id === 'url-input';
+        
+        if (urlInput || isUrlInput) {
+            // URL输入框 - 让浏览器显示原生菜单
+            console.log('🔍 URL input context menu - using browser default');
+            return; // 不阻止默认行为
+        } else {
+            // 页面其他区域 - 阻止默认菜单，因为我们使用顶部菜单栏
             e.preventDefault();
-            const tabId = tab.getAttribute('data-tab-id');
-            if (tabId) {
-                showTabContextMenu(e, tabId);
-            }
+            console.log('🚫 页面右键已禁用，请使用顶部编辑菜单');
         }
     });
 
-    // 点击其他地方关闭菜单
-    document.addEventListener('click', () => {
-        hideContextMenu();
-    });
-}
-
-/**
- * 显示标签页右键菜单
- */
-function showTabContextMenu(event: MouseEvent, tabId: string): void {
-    const contextMenu = document.getElementById('context-menu');
-    if (!contextMenu) return;
-
-    const tab = currentTabs.find(t => t.id === tabId);
-    if (!tab) return;
-
-    // 更新菜单内容
-    contextMenu.innerHTML = `
-        <div class="menu-item" onclick="switchTab('${tabId}')">
-            <span class="icon">🔄</span>
-            切换到此标签页
-        </div>
-        <div class="menu-item" onclick="refreshTab('${tabId}')">
-            <span class="icon">🔄</span>
-            刷新页面
-        </div>
-        <div class="menu-item" onclick="duplicateTab('${tabId}')">
-            <span class="icon">📋</span>
-            复制标签页
-        </div>
-        <div class="menu-separator"></div>
-        <div class="menu-item" onclick="closeTab('${tabId}')">
-            <span class="icon">🗑️</span>
-            关闭标签页
-        </div>
-        <div class="menu-item" onclick="openTabDevTools('${tabId}')">
-            <span class="icon">🛠️</span>
-            开发者工具
-        </div>
-    `;
-
-    // 显示菜单
-    contextMenu.style.display = 'block';
-    contextMenu.style.left = `${event.clientX}px`;
-    contextMenu.style.top = `${event.clientY}px`;
-
-    // 确保菜单在屏幕内
-    const rect = contextMenu.getBoundingClientRect();
-    const windowWidth = window.innerWidth;
-    const windowHeight = window.innerHeight;
-
-    if (rect.right > windowWidth) {
-        contextMenu.style.left = `${windowWidth - rect.width - 10}px`;
-    }
-
-    if (rect.bottom > windowHeight) {
-        contextMenu.style.top = `${windowHeight - rect.height - 10}px`;
-    }
+    console.log('✅ 右键菜单设置完成（仅保留URL输入框）');
 }
 
 /**
@@ -1700,6 +1630,7 @@ function hideContextMenu(): void {
         contextMenu.style.display = 'none';
     }
 }
+
 
 /**
  * 刷新指定标签页
@@ -1767,38 +1698,35 @@ async function duplicateTab(tabId: string): Promise<void> {
 function setupKeyboardShortcuts(): void {
     document.addEventListener('keydown', (e) => {
         const target = e.target as HTMLElement;
+        
+        // 🔥 URL输入框 - 完全跳过，连日志都不打
         if (target && target.id === 'url-input') {
-            console.log('🔍 Ignoring keydown from URL input in global handler');
-            return; // 直接返回，不处理任何全局快捷键
+            return;
         }
-        // 检查当前焦点元素 - 修复类型错误
-        const activeElement = document.activeElement;
-        const isInputFocused = activeElement && (
-            activeElement.tagName === 'INPUT' ||
-            activeElement.tagName === 'TEXTAREA' ||
-            (activeElement as HTMLElement).contentEditable === 'true' // ✅ 类型断言修复
-        );
 
-        // 如果输入框有焦点，只处理特定的全局快捷键
-        if (isInputFocused) {
-            // 只允许这些全局快捷键在输入框焦点时工作
-            const allowedGlobalShortcuts = ['t', 'w', 'F5'];
-            const key = e.key.toLowerCase();
+        // 🔥 任何输入元素 - 只允许全局导航快捷键
+        const isInput = target.tagName === 'INPUT' || 
+                       target.tagName === 'TEXTAREA' || 
+                       target.contentEditable === 'true';
 
-            if (!allowedGlobalShortcuts.includes(key) && !allowedGlobalShortcuts.includes(e.key)) {
-                return; // 让输入框处理其他快捷键
+        if (isInput) {
+            // 只允许全局导航快捷键
+            const globalKeys = ['t', 'w', 'l'];
+            if ((e.ctrlKey || e.metaKey) && globalKeys.includes(e.key.toLowerCase())) {
+                // 继续处理全局快捷键
+            } else {
+                return; // 跳过所有其他快捷键
             }
         }
 
-        // Ctrl/Cmd + T: 新建标签页
-        if ((e.ctrlKey || e.metaKey) && e.key === 't') {
+        // 🔥 全局快捷键处理
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
             e.preventDefault();
             e.stopPropagation();
             createNewTab();
         }
 
-        // Ctrl/Cmd + L: 聚焦到地址栏
-        if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
             e.preventDefault();
             e.stopPropagation();
             const urlInput = document.getElementById('url-input') as HTMLInputElement;
@@ -1808,53 +1736,16 @@ function setupKeyboardShortcuts(): void {
             }
         }
 
-        // Ctrl/Cmd + W: 关闭当前标签页
-        if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w') {
             e.preventDefault();
             e.stopPropagation();
             if (activeTabId) {
                 closeTab(activeTabId);
             }
         }
-
-        // Ctrl/Cmd + R: 刷新当前标签页
-        if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
-            e.preventDefault();
-            e.stopPropagation();
-            refreshCurrentTab();
-        }
-
-        // F5: 刷新当前标签页
-        if (e.key === 'F5') {
-            e.preventDefault();
-            e.stopPropagation();
-            refreshCurrentTab();
-        }
-
-        // Ctrl/Cmd + 数字键: 切换到对应标签页
-        if ((e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key)) {
-            e.preventDefault();
-            e.stopPropagation();
-            const index = parseInt(e.key) - 1;
-            if (currentTabs[index]) {
-                switchTab(currentTabs[index].id);
-            }
-        }
-        if (e.key === 'F12') {
-            console.log('🔧 F12 pressed, activeTabId:', activeTabId);
-            e.preventDefault();
-            e.stopPropagation();
-            openCurrentTabDevTools();
-        }
-        // Ctrl/Cmd + Shift + I: 测试隔离
-        //if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'I') {
-        //    e.preventDefault();
-        //    e.stopPropagation();
-        //    testIsolation();
-        //}
     });
 
-    console.log('✅ 键盘快捷键设置完成');
+    console.log('✅ 全局快捷键设置完成 - 零干扰模式');
 }
 // ========================================
 // 文件处理

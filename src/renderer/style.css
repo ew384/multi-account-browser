@@ -457,7 +457,7 @@ s .url-bar::before,
     align-items: center;
     justify-content: center;
     background: white;
-    z-index: 10;
+    z-index: 1;
 }
 
 .welcome-content {
@@ -1061,6 +1061,7 @@ s .url-bar::before,
     font-size: 14px;
     color: var(--chrome-text-secondary);
 }
+
 @keyframes fadeInUp {
     from {
         opacity: 0;
