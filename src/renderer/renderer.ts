@@ -461,7 +461,11 @@ async function navigateToUrl(): Promise<void> {
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
         if (url.includes('.') && !url.includes(' ')) {
             url = 'https://' + url;
-        } else {
+        }
+        if (url.includes('localhost') && !url.includes(' ')) {
+            url = 'https://' + url;
+        }
+         else {
             url = 'https://www.google.com/search?q=' + encodeURIComponent(url);
         }
     }
