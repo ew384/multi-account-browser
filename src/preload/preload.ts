@@ -5,6 +5,7 @@ interface ElectronAPI {
     // 标签页管理
     createAccountTab: (accountName: string, platform: string, initialUrl?: string) => Promise<any>;
     switchTab: (tabId: string) => Promise<any>;
+    navigateTab: (tabId: string, url: string) => Promise<any>;
     closeTab: (tabId: string) => Promise<any>;
     getAllTabs: () => Promise<any>;
     // 新增：标题更新事件监听
@@ -26,7 +27,9 @@ interface ElectronAPI {
 
     // 窗口事件
     onWindowResize: (callback: (bounds: any) => void) => void;
-
+    onTabCreated: (callback: (data: { tabId: string; tab: TabData }) => void) => void;
+    onTabClosed: (callback: (data: { tabId: string }) => void) => void;
+    onTabSwitched: (callback: (data: { tabId: string }) => void) => void;
     // 系统信息
     getSystemInfo: () => Promise<any>;
 
@@ -52,9 +55,24 @@ const electronAPI: ElectronAPI = {
 
     switchTab: (tabId: string) =>
         ipcRenderer.invoke('switch-tab', tabId),
-
+    navigateTab: (tabId: string, url: string) =>
+        ipcRenderer.invoke('navigate-tab', tabId, url),
     closeTab: (tabId: string) =>
         ipcRenderer.invoke('close-tab', tabId),
+    onTabCreated: (callback) => {
+        ipcRenderer.removeAllListeners('tab-created');
+        ipcRenderer.on('tab-created', (event, data) => callback(data));
+    },
+    
+    onTabClosed: (callback) => {
+        ipcRenderer.removeAllListeners('tab-closed');  
+        ipcRenderer.on('tab-closed', (event, data) => callback(data));
+    },
+    
+    onTabSwitched: (callback) => {
+        ipcRenderer.removeAllListeners('tab-switched');
+        ipcRenderer.on('tab-switched', (event, data) => callback(data));
+    },
 
     getAllTabs: () =>
         ipcRenderer.invoke('get-all-tabs'),
@@ -68,6 +86,7 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.removeAllListeners('tab-favicon-updated');
         ipcRenderer.on('tab-favicon-updated', (event, data) => callback(data));
     },
+    
 
     // 获取显示信息
     getTabDisplayInfo: (tabId: string) =>

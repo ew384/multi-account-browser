@@ -38,7 +38,6 @@ export class APIServer {
         this.app.use(express.json({ limit: '50mb' }));
         this.app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-        // 🔥 新增：文件上传中间件（用于 /upload*所有相关的API）
         const multer = require('multer');
         const upload = multer({
             storage: multer.memoryStorage(),
@@ -1619,57 +1618,6 @@ export class APIServer {
                     const mode = this.headlessManager.getMode();
                     console.log(`🚀 API Server running on http://localhost:${port}`);
                     console.log(`📱 Current mode: ${mode}`);
-                    console.log(`📋 Available endpoints:`);
-                    console.log(`   GET  /api/health - Health check`);
-                    console.log(`   GET  /api/info - Server info`);
-                    console.log(`   GET  /api/mode/status - Get current mode`);
-                    console.log(`   POST /api/mode/switch - Switch mode`);
-                    console.log(`   POST /api/window/show - Show window`);
-                    console.log(`   POST /api/window/hide - Hide window`);
-                    console.log(`   POST /api/window/show-temp - Show temporarily`);
-                    console.log(`   GET  /api/window/status - Get window status`);
-                    console.log(`   GET  /api/modes - Get supported modes`);
-                    console.log(`   GET  /api/tabs/headless - Get headless tabs`);
-                    console.log(`   GET  /api/tabs/visible - Get visible tabs`);
-                    console.log(`   POST /api/tabs/create-headless - Create headless tab`);
-                    console.log(`   GET  /api/accounts - Get all accounts`);
-                    console.log(`   GET  /api/account/:tabId - Get account details`);
-                    console.log(`   GET  /api/account/active - Get active account`);
-                    console.log(`   POST /api/account/create - Create account tab`);
-                    console.log(`   POST /api/account/switch - Switch to tab`);
-                    console.log(`   POST /api/account/execute - Execute script`);
-                    console.log(`   POST /api/account/navigate - Navigate tab`);
-                    console.log(`   POST /api/account/refresh - Refresh tab`);
-                    console.log(`   POST /api/account/screenshot - Take screenshot`);
-                    console.log(`   POST /api/account/load-cookies - Load cookies`);
-                    console.log(`   POST /api/account/save-cookies - Save cookies`);
-                    console.log(`   POST /api/account/close - Close tab`);
-                    console.log(`   POST /api/accounts/close-all - Close all tabs`);
-                    console.log(`   POST /api/account/set-file - Set file to input`);
-                    console.log(`   POST /api/accounts/batch - Batch operations`);
-                    console.log(`   GET  /api/account/:tabId/status - Check tab status`);
-
-                    console.log(`\n💬 消息自动化API:`);
-                    console.log(`   POST /api/messages/sync - 同步单个平台消息`);
-                    console.log(`   POST /api/messages/batch-sync - 批量同步消息`);
-                    console.log(`   POST /api/messages/send - 发送单条消息`);
-                    console.log(`   POST /api/messages/batch-send - 批量发送消息`);
-                    console.log(`   GET  /api/messages/threads - 获取消息线程列表`);
-                    console.log(`   GET  /api/messages/thread/:threadId - 获取线程消息`);
-                    console.log(`   POST /api/messages/mark-read - 标记消息已读`);
-                    console.log(`   GET  /api/messages/search - 搜索消息`);
-                    console.log(`   GET  /api/messages/statistics - 获取消息统计`);
-                    console.log(`   GET  /api/messages/unread-count - 获取未读数`);
-                    console.log(`   POST /api/messages/scheduler/start - 启动消息调度`);
-                    console.log(`   POST /api/messages/scheduler/stop - 停止消息调度`);
-                    console.log(`   GET  /api/messages/scheduler/status - 获取调度状态`);
-                    console.log(`   GET  /api/messages/platforms - 获取支持平台`);
-                    console.log(`   POST /api/messages/maintenance - 执行系统维护`);
-                    console.log(`   GET  /api/messages/engine/status - 获取引擎状态`);
-                    
-                    console.log(`   GET  /api/debug/bounds - Debug bounds info`);
-                    console.log(`   POST /api/debug/update-bounds - Update bounds`);
-                    console.log(`🔄 Using WebContentsView renderer`);
                     resolve();
                 });
 

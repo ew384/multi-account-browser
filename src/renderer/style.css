@@ -46,7 +46,7 @@ body {
     flex-direction: column;
     height: var(--header-height);
     position: relative;
-    z-index: 200;
+    z-index: 1000;
     /* 关键修复：确保没有下边距 */
     margin-bottom: 0;
     padding-bottom: 0;

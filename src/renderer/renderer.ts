@@ -1,7 +1,3 @@
-/**
- * 渲染进程主文件
- * 负责UI初始化、事件处理和与主进程通信
- */
 
 // ========================================
 // 类型定义
@@ -237,7 +233,23 @@ async function refreshTabList(): Promise<void> {
         console.error('刷新标签页列表异常:', error);
     }
 }
-
+function updateConnectionStatus(): void {
+    const connectionStatus = document.getElementById('connection-status');
+    
+    if (connectionStatus) {
+        if (apiConnected) {
+            connectionStatus.innerHTML = `
+                <span class="status-dot online"></span>
+                <span class="status-text">API服务正常</span>
+            `;
+        } else {
+            connectionStatus.innerHTML = `
+                <span class="status-dot offline"></span>
+                <span class="status-text">API服务离线</span>
+            `;
+        }
+    }
+}
 /**
  * 应用初始化时设置标题监听
  */
@@ -249,12 +261,12 @@ async function initializeApplication(): Promise<void> {
         await initializeComponents();
         setupEventListeners();
         setupTabTitleListeners();
-        //await checkAPIStatus();
-        await refreshTabList();
         setupMenuListeners();
-        setupPeriodicUpdates();
+        setupEventDrivenUpdates();
         setupErrorHandling();
         setupContextMenu();
+        apiConnected = true;
+        updateConnectionStatus();
         appInitialized = true;
         hideLoading();
 
@@ -491,16 +503,9 @@ async function navigateToUrl(): Promise<void> {
     try {
         showLoading('正在导航...');
 
-        const response = await fetch('http://localhost:3409/api/account/navigate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                tabId: activeTabId,
-                url: url
-            })
-        });
+        const result = await window.electronAPI.navigateTab(activeTabId, url);
 
-        if (response.ok) {
+        if (result.success) {
             console.log('✅ 导航到:', url);
             // 更新 URL 输入框为实际的 URL
             urlInput.value = url;
@@ -865,27 +870,154 @@ function hideNewTabDialog(): void {
         modal.style.display = 'none';
     }
 }
+// 添加这4个函数（直接复制paste.txt中的）：
+
+/**
+ * 设置事件驱动更新机制
+ */
+function setupEventDrivenUpdates(): void {
+    // 1. 监听主进程的标签页变化事件
+    if (window.electronAPI) {
+        window.electronAPI.onTabCreated?.(({ tabId, tab }) => {
+            console.log('📋 收到标签页创建事件:', { tabId, tab });
+            console.log('📋 当前标签页数量（添加前）:', currentTabs.length);
+            
+            addTabToUI(tab);
+            
+            console.log('📋 当前标签页数量（添加后）:', currentTabs.length);
+            
+            if (!activeTabId) {
+                console.log('📋 设置为活动标签页:', tabId);
+                switchTab(tabId);
+            }
+        });
+
+        // 标签页关闭事件  
+        window.electronAPI.onTabClosed?.(({ tabId }) => {
+            console.log('📋 收到标签页关闭事件:', tabId);
+            removeTabFromUI(tabId);
+        });
+
+        // 标签页切换事件
+        window.electronAPI.onTabSwitched?.(({ tabId }) => {
+            console.log('📋 收到标签页切换事件:', tabId);
+            updateActiveTabInUI(tabId);
+        });
+    }
+
+    console.log('✅ 事件驱动更新机制设置完成');
+}
+
+/**
+ * 添加标签页到UI
+ */
+function addTabToUI(tab: TabData): void {
+    // 检查是否已存在
+    const existingIndex = currentTabs.findIndex(t => t.id === tab.id);
+    if (existingIndex >= 0) {
+        // 更新现有标签页
+        currentTabs[existingIndex] = tab;
+    } else {
+        // 添加新标签页
+        currentTabs.push(tab);
+    }
+    
+    // 立即更新UI
+    updateTabBar();
+    updateCurrentTabInfo();
+    updateNoTabsMessage();
+    
+    console.log(`✅ 标签页已同步添加到UI: ${tab.accountName}`);
+}
+
+/**
+ * 从UI移除标签页（同步操作）
+ */
+function removeTabFromUI(tabId: string): void {
+    const tabIndex = currentTabs.findIndex(t => t.id === tabId);
+    if (tabIndex >= 0) {
+        const removedTab = currentTabs.splice(tabIndex, 1)[0];
+        
+        // 如果关闭的是当前活动标签页
+        if (activeTabId === tabId) {
+            // 切换到下一个标签页
+            if (currentTabs.length > 0) {
+                const nextTabId = currentTabs[Math.min(tabIndex, currentTabs.length - 1)].id;
+                activeTabId = nextTabId;
+            } else {
+                activeTabId = null;
+            }
+        }
+        
+        // 立即更新UI
+        updateTabBar();
+        updateCurrentTabInfo();
+        updateNoTabsMessage();
+        
+        console.log(`✅ 标签页已同步移除: ${removedTab.accountName}`);
+    }
+}
+
+/**
+ * 更新活动标签页（同步操作）
+ */
+function updateActiveTabInUI(tabId: string): void {
+    if (activeTabId !== tabId) {
+        activeTabId = tabId;
+        updateTabBar();
+        updateCurrentTabInfo();
+        console.log(`✅ 活动标签页已切换: ${tabId}`);
+    }
+}
 
 async function createNewTab(): Promise<void> {
-    const result = await window.electronAPI.createAccountTab(
-        `标签页`,   // 第1个参数
-        'other',       // 第2个参数  
-        'about:blank'  // 第3个参数（可选）
-    );
-    if (result.success) {
-        activeTabId = result.tabId;
+    try {
+        // 🚀 第一阶段：立即反馈（0ms）
+        const tempTab: TabData = {
+            id: 'temp-' + Date.now(),
+            accountName: '新标签页',
+            platform: 'other',
+            loginStatus: 'unknown',
+            url: 'about:blank',
+            displayTitle: '新标签页'
+        };
         
-        // 🔥 关键：延迟调用现有的刷新机制
-        setTimeout(() => {
-            refreshTabList(); // 100ms后异步刷新，不阻塞用户操作
-        }, 100);
-        
-        // 立即聚焦
+        addTabToUI(tempTab);
+        activeTabId = tempTab.id;
+
+        // 🎯 用户立即可以操作
         const urlInput = document.getElementById('url-input') as HTMLInputElement;
         if (urlInput) {
             urlInput.focus();
             urlInput.select();
         }
+
+        // 🔄 第二阶段：异步创建实际标签页
+        const result = await window.electronAPI.createAccountTab(
+            '标签页',
+            'other',
+            'about:blank'
+        );
+
+        if (result.success) {
+            // 🎯 第三阶段：替换临时标签页
+            removeTabFromUI(tempTab.id);
+            
+            // 真实标签页会通过事件自动添加到UI
+            // 无需手动调用 addTabToUI 或 refreshTabList
+            activeTabId = result.tabId;
+            
+            console.log('✅ 新标签页创建完成，无需刷新');
+        } else {
+            // 创建失败，移除临时标签页
+            removeTabFromUI(tempTab.id);
+            throw new Error(result.error);
+        }
+    } catch (error) {
+        console.error('创建标签页失败:', error);
+        // 确保移除临时标签页
+        const tempTabs = currentTabs.filter(t => t.id.startsWith('temp-'));
+        tempTabs.forEach(t => removeTabFromUI(t.id));
     }
 }
 // ========================================
@@ -1885,10 +2017,6 @@ function showNotification(message: string, type: 'success' | 'info' | 'warning' 
         });
     }
 
-    // 自动关闭
-    setTimeout(() => {
-        removeNotification(notification);
-    }, 5000);
 
     console.log(`📢 通知[${type}]: ${message}`);
 }
@@ -2063,15 +2191,7 @@ function getAppState(): object {
         timestamp: new Date().toISOString()
     };
 }
-(window as any).debugAPI = {
-    checkAPIStatus: async () => {
-        console.log('🔧 手动检查API状态...');
-        await checkAPIStatus();
-        console.log('🔧 当前 apiConnected:', apiConnected);
-        return apiConnected;
-    },
 
-};
 
 /**
  * 导出应用状态（调试用）

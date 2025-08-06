@@ -469,7 +469,18 @@ class MultiAccountBrowser {
                 };
             }
         });
-
+        //导航url
+        ipcMain.handle('navigate-tab', async (event, tabId: string, url: string) => {
+            try {
+                await this.tabManager.navigateTab(tabId, url);
+                return { success: true };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                };
+            }
+        });
         // 创建账号标签页
         ipcMain.handle('create-account-tab', async (event, accountName: string, platform: string, initialUrl?: string) => {
             try {
@@ -901,10 +912,6 @@ class MultiAccountBrowser {
                 break;
         }
 
-        console.log('📖 使用提示:');
-        console.log('   - 创建标签页: 通过界面或 API');
-        console.log('   - 账号登录: 加载 Cookie 文件');
-        console.log('   - 自动化任务: 使用插件系统');
     }
     private setupAppEvents(): void {
         app.on('window-all-closed', () => {

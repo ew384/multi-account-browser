@@ -136,7 +136,6 @@ export class TabManager {
     }
     private loadStealthScript(): void {
         try {
-            // 假设stealth.min.js在项目根目录的utils文件夹中
             const stealthPath = path.join(__dirname, '../../src/utils/stealth.min.js');
 
             if (fs.existsSync(stealthPath)) {
@@ -437,6 +436,7 @@ export class TabManager {
     }
 
     async createAccountTab(accountName: string, platform: string, initialUrl?: string, headless: boolean = false): Promise<string> {
+        const startTime = performance.now();
         const isGlobalHidden = this.headlessManager.isHidden();
         const finalHeadless = headless || isGlobalHidden;
 
@@ -490,39 +490,7 @@ export class TabManager {
 
             this.tabs.set(tabId, tab);
             this.setupWebContentsViewEvents(tab);
-            /*
-            webContentsView.webContents.once('did-finish-load', async () => {
-                try {
-                    await webContentsView.webContents.executeJavaScript(`
-                        window.__TAB_ID__ = '${tabId}';
-                        window.__ACCOUNT_NAME__ = '${accountName}';
-                        window.__PLATFORM__ = '${platform}';
-                        console.log('🏷️ Tab identity injected:', {
-                            tabId: '${tabId}',
-                            accountName: '${accountName}',
-                            platform: '${platform}'
-                        });
-                    `);
-                    console.log(`✅ Tab ID injected for ${accountName}: ${tabId}`);
-                } catch (error) {
-                    console.warn(`Failed to inject tab_id for ${accountName}:`, error);
-                }
-            });
 
-            // 🔥 页面导航时重新注入
-            webContentsView.webContents.on('did-navigate', async (event, url) => {
-                try {
-                    await webContentsView.webContents.executeJavaScript(`
-                        window.__TAB_ID__ = '${tabId}';
-                        window.__ACCOUNT_NAME__ = '${accountName}';
-                        window.__PLATFORM__ = '${platform}';
-                    `);
-                    console.log(`🔄 Tab ID re-injected after navigation: ${tabId}`);
-                } catch (error) {
-                    console.warn(`Failed to re-inject tab_id after navigation:`, error);
-                }
-            });
-            */
             if (finalHeadless) {
                 // headless tab处理：移到屏幕外但保持运行
                 webContentsView.setBounds({
@@ -534,24 +502,32 @@ export class TabManager {
                 console.log(`🔇 Created headless tab: ${accountName}`);
             } else {
                 // 正常tab：自动切换显示
-                console.log(`🔄 Auto-switching to new tab: ${accountName}`);
+                //console.log(`🔄 Auto-switching to new tab: ${accountName}`);
                 await this.switchToTab(tabId);
             }
-            // 如果有初始URL，开始导航（非阻塞）
-            // if (this.stealthScript) {
-            //     try {
-            //         await this.addInitScript(tabId, this.stealthScript);
-            //         console.log(`📜 反检测脚本已添加到队列: ${accountName}`);
-            //     } catch (error) {
-            //         console.warn(`⚠️ 反检测脚本注入失败 for ${accountName}:`, error);
-            //     }
-            // }
-            if (initialUrl) {
-                console.log(`🔗 Starting immediate navigation for ${accountName}...`);
-                // 不使用 setImmediate，直接开始导航
-                await this.navigateTab(tabId, initialUrl);
+            try {
+                if (initialUrl && initialUrl !== 'about:blank') {
+                    console.log(`🔗 Starting immediate navigation for ${accountName}...`);
+                    await this.navigateTab(tabId, initialUrl); // 🔥 这里可能抛异常
+                }
+                
+                // 🔥 把事件发送移到 try-catch 外面，确保一定执行
+            } catch (error) {
+                console.error(`❌ Navigation failed for ${accountName}:`, error);
+                // 不要抛出异常，继续执行
             }
-
+            this.mainWindow.webContents.send('tab-created', {
+                tabId: tabId,
+                tab: {
+                    id: tabId,
+                    accountName: accountName,
+                    platform: platform,
+                    loginStatus: 'unknown',
+                    url: initialUrl,
+                    displayTitle: accountName
+                }
+            });
+            console.log(`📢 已发送 tab-created 事件: ${tabId}`);
             return tabId;
 
         } catch (error) {
@@ -1084,7 +1060,7 @@ export class TabManager {
 
         webContents.on('page-title-updated', (event: any, title: string, explicitSet: boolean) => {
             if (title && title !== 'about:blank' && !title.includes('Loading')) {
-                console.log(`📝 页面标题更新: ${title} (${tab.accountName})`);
+                //console.log(`📝 页面标题更新: ${title} (${tab.accountName})`);
 
                 // 更新标题缓存
                 this.tabTitles.set(tab.id, title);
@@ -1098,7 +1074,7 @@ export class TabManager {
         webContents.on('page-favicon-updated', (event: any, favicons: string[]) => {
             if (favicons && favicons.length > 0) {
                 const favicon = favicons[0]; // 使用第一个图标
-                console.log(`🎭 页面图标更新: ${favicon} (${tab.accountName})`);
+                //console.log(`🎭 页面图标更新: ${favicon} (${tab.accountName})`);
 
                 // 更新图标缓存
                 this.tabFavicons.set(tab.id, favicon);
@@ -1113,7 +1089,7 @@ export class TabManager {
             const currentUrl = webContents.getURL();
 
             if (currentUrl !== lastLoggedUrl) {
-                console.log(`📄 页面加载完成: ${currentUrl} (${tab.accountName})`);
+                //console.log(`📄 页面加载完成: ${currentUrl} (${tab.accountName})`);
                 lastLoggedUrl = currentUrl;
             }
 
@@ -1336,7 +1312,7 @@ export class TabManager {
             this.activeTabId = tabId;
 
             console.log(`🔄 Switched to tab: ${tab.accountName}`);
-
+            this.mainWindow.webContents.send('tab-switched', { tabId });
         } catch (error) {
             console.error(`❌ Failed to switch to tab ${tabId}:`, error);
             throw error;
@@ -1369,23 +1345,12 @@ export class TabManager {
             const windowBounds = this.mainWindow.getContentBounds();
             const webContentsViewBounds = {
                 x: 0,
-                y: 108,
+                y: this.TOP_OFFSET, // 使用常量而不是硬编码
                 width: windowBounds.width,
-                height: Math.max(0, windowBounds.height - 108)
+                height: Math.max(0, windowBounds.height - this.TOP_OFFSET)
             };
 
             targetView.setBounds(webContentsViewBounds);
-
-            // 注释掉验证边界的代码块
-            // setTimeout(() => {
-            //     try {
-            //         const actualBounds = targetView.getBounds();
-            //         console.log(`📐 Actual WebContentsView bounds:`, actualBounds);
-            //         // ... 验证逻辑
-            //     } catch (error) {
-            //         console.warn('Failed to verify bounds:', error);
-            //     }
-            // }, 50);
 
         } catch (error) {
             console.error(`❌ Failed to update WebContentsView bounds for ${tab.accountName}:`, error);
@@ -1440,6 +1405,7 @@ export class TabManager {
             this.injectedTabs.delete(tabId);
             this.initScripts.delete(tabId);
             console.log(`🗑️ Closed tab: ${tab.accountName}`);
+            this.mainWindow.webContents.send('tab-closed', { tabId });
         } catch (error) {
             console.error(`❌ Failed to close tab ${tabId}:`, error);
             throw error;
@@ -1525,7 +1491,7 @@ export class TabManager {
 
         try {
             tab.url = url;
-            console.log(`🔗 Starting navigation for ${tab.accountName} to: ${url}`);
+            //console.log(`🔗 Starting navigation for ${tab.accountName} to: ${url}`);
 
             const webContents = tab.webContentsView.webContents;
 
@@ -1536,6 +1502,7 @@ export class TabManager {
             await webContents.loadURL(url);
 
             // 简单等待页面稳定
+            /*
             await new Promise((resolve) => {
                 const onLoad = () => {
                     webContents.removeListener('did-finish-load', onLoad);
@@ -1547,11 +1514,11 @@ export class TabManager {
 
                 // 3秒超时保护
                 setTimeout(() => {
-                    webContents.removeListener('did-finish-load', onLoad);
-                    console.log(`⏱️ Navigation timeout for ${tab.accountName}, continuing...`);
-                    resolve(void 0);
-                }, 3000);
-            });
+                //    webContents.removeListener('did-finish-load', onLoad);
+                //    console.log(`⏱️ Navigation timeout for ${tab.accountName}, continuing...`);
+                //    resolve(void 0);
+                //}, 1000);
+            });*/
 
         } catch (error) {
             console.warn(`⚠️ Navigation issue for ${tab.accountName}:`, error instanceof Error ? error.message : error);
