@@ -1192,15 +1192,6 @@ export class TabManager {
             console.log(`✅ Loading completed for ${tab.accountName}`);
         });
 
-        // 防止页面劫持焦点
-        webContents.on('focus', () => {
-            // 确保主窗口保持响应
-            if (this.mainWindow && !this.mainWindow.isFocused()) {
-                this.mainWindow.focus();
-            }
-        });
-
-
     }
     /**
      * 通知前端标题更新
@@ -1345,13 +1336,6 @@ export class TabManager {
             this.activeTabId = tabId;
 
             console.log(`🔄 Switched to tab: ${tab.accountName}`);
-
-            // 确保 WebContentsView 获得焦点
-            setTimeout(() => {
-                if (tab.webContentsView && tab.webContentsView.webContents) {
-                    tab.webContentsView.webContents.focus();
-                }
-            }, 100);
 
         } catch (error) {
             console.error(`❌ Failed to switch to tab ${tabId}:`, error);

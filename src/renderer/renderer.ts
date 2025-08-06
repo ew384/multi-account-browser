@@ -36,6 +36,21 @@ let appInitialized: boolean = false;
 // ========================================
 // 应用初始化
 // ========================================
+document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    
+    // 点击 URL 栏区域
+    if (target.closest('#url-input') || target.closest('.toolbar')) {
+        // 焦点应该在渲染进程
+        console.log('🎯 用户点击了工具栏区域');
+    } 
+    // 点击标签页内容区域
+    else if (target.closest('#tab-content') || !target.closest('.header')) {
+        // 焦点应该在 WebContentsView
+        console.log('🎯 用户点击了内容区域');
+        // 可以通过 IPC 通知主进程
+    }
+});
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🎨 渲染进程启动');
 
@@ -982,44 +997,6 @@ function updateNoTabsMessage(): void {
     }
 }
 
-// ========================================
-// 测试功能
-// ========================================
-
-/**
- * 测试Session隔离
- */
-async function testIsolation(): Promise<void> {
-    try {
-        showLoading('正在测试Session隔离...');
-
-        const result = await window.electronAPI.testIsolation();
-
-        if (result.success) {
-            const message = result.isolated ?
-                'Session隔离测试通过 - 不同标签页Session完全独立' :
-                'Session隔离测试失败 - 存在Session泄露问题';
-
-            //showNotification(message, result.isolated ? 'success' : 'error');
-
-            if (testPanel && typeof testPanel.addResult === 'function') {
-                testPanel.addResult({
-                    name: 'Session隔离测试',
-                    success: result.isolated,
-                    message: (result.isolated ? '✅ ' : '❌ ') + message,
-                    timestamp: new Date().toLocaleTimeString()
-                });
-            }
-        } else {
-            throw new Error(result.error || '测试失败');
-        }
-    } catch (error) {
-        console.error('隔离测试失败:', error);
-        //showNotification(`隔离测试失败: ${handleError(error)}`, 'error');
-    } finally {
-        hideLoading();
-    }
-}
 // ========================================
 // Cookie管理
 // ========================================
@@ -2113,8 +2090,7 @@ if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
         hideLoading,
         checkAPIStatus,
         refreshTabList,
-        getAppState,
-        testIsolation
+        getAppState
     };
     console.log('🛠️ 调试接口已暴露到 window.debugAPI');
 }

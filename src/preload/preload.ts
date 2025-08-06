@@ -19,8 +19,6 @@ interface ElectronAPI {
     loadCookies: (tabId: string, cookieFile: string) => Promise<any>;
     saveCookies: (tabId: string, cookieFile: string) => Promise<any>;
 
-    // 测试功能
-    testIsolation: () => Promise<any>;
 
     // 菜单事件监听
     onMenuNewTab: (callback: () => void) => void;
@@ -84,9 +82,6 @@ const electronAPI: ElectronAPI = {
     saveCookies: (tabId: string, cookieFile: string) =>
         ipcRenderer.invoke('save-cookies', tabId, cookieFile),
 
-    // 测试功能
-    testIsolation: () =>
-        ipcRenderer.invoke('test-isolation'),
 
     // 菜单事件监听
     onMenuNewTab: (callback: () => void) => {
