@@ -674,7 +674,7 @@ export class SocialAutomationAPI {
                 end_date: end_date as string
             };
 
-            const result = await PublishRecordStorage.exportPublishRecords(filters);
+            const result = PublishRecordStorage.exportPublishRecords(filters);
 
             if (result.success) {
                 // 设置下载响应头
