@@ -760,12 +760,25 @@ export class TabManager {
                         webviewReady = true;
                         status.style.display = 'none';
                         log('Webview 准备就绪');
+
+                        // ✅ 添加自动 focus 和点击激活
+                        webview.focus(); // 自动聚焦一次（首次加载）
                         
-                        // 自动开始流程
+                        webview.addEventListener('focus', () => {
+                            console.log('🎯 Webview 获得焦点');
+                            log('Webview 获得焦点');
+                        });
+
+                        webview.addEventListener('click', () => {
+                            console.log('🖱️ Webview 被点击，尝试聚焦');
+                            webview.focus(); // 点击时确保聚焦
+                        });
+
                         setTimeout(() => {
                             loadTarget();
                         }, 1000);
                     });
+
                     
                     webview.addEventListener('did-finish-load', () => {
                         console.log('✅ 页面加载完成');

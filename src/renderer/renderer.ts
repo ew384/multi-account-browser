@@ -507,10 +507,7 @@ async function navigateToUrl(): Promise<void> {
 
         if (result.success) {
             console.log('✅ 导航到:', url);
-            // 更新 URL 输入框为实际的 URL
             urlInput.value = url;
-            //showNotification(`正在加载: ${url}`, 'info');
-
             // 模拟 Chrome 的行为：导航后选中整个 URL
             setTimeout(() => {
                 urlInput.select();
@@ -520,7 +517,6 @@ async function navigateToUrl(): Promise<void> {
         }
     } catch (error) {
         console.error('导航失败:', error);
-        //showNotification('导航失败', 'error');
     } finally {
         hideLoading();
     }
@@ -1814,35 +1810,55 @@ async function duplicateTab(tabId: string): Promise<void> {
 function setupKeyboardShortcuts(): void {
     document.addEventListener('keydown', (e) => {
         const target = e.target as HTMLElement;
-        
-        // 🔥 URL输入框 - 完全跳过，连日志都不打
-        if (target && target.id === 'url-input') {
+        const activeElement = document.activeElement;
+
+        const logKey = `${e.ctrlKey || e.metaKey ? 'Ctrl+' : ''}${e.key}`;
+        console.log(`⚡ KeyDown: ${logKey}, target:`, target?.tagName, 'activeElement:', activeElement?.tagName);
+
+        // 如果是 WebView 触发的事件，应该会看到 activeElement === 'WEBVIEW'
+        if (activeElement && activeElement.tagName === 'WEBVIEW') {
+            console.log('🚫 Focus is in webview, skipping global shortcut handling');
             return;
         }
 
-        // 🔥 任何输入元素 - 只允许全局导航快捷键
-        const isInput = target.tagName === 'INPUT' || 
-                       target.tagName === 'TEXTAREA' || 
-                       target.contentEditable === 'true';
+        // 打印剪贴板类
+        if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'a'].includes(e.key.toLowerCase())) {
+            console.log(`✂️ Clipboard key pressed: ${logKey}`);
+            return;
+        }
+
+        // 🔒 如果焦点在 input/textarea/contentEditable
+        const isInput = target.tagName === 'INPUT' ||
+                        target.tagName === 'TEXTAREA' ||
+                        target.contentEditable === 'true';
 
         if (isInput) {
-            // 只允许全局导航快捷键
+            // 只允许少量全局快捷键
             const globalKeys = ['t', 'w', 'l'];
             if ((e.ctrlKey || e.metaKey) && globalKeys.includes(e.key.toLowerCase())) {
-                // 继续处理全局快捷键
+                // fallthrough
             } else {
-                return; // 跳过所有其他快捷键
+                return; // 其它全部放行
             }
         }
 
-        // 🔥 全局快捷键处理
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
+        const key = e.key.toLowerCase();
+
+        if ((e.ctrlKey || e.metaKey) && key === 't') {
             e.preventDefault();
             e.stopPropagation();
             createNewTab();
         }
 
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+        if ((e.ctrlKey || e.metaKey) && key === 'w') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (activeTabId) {
+                closeTab(activeTabId);
+            }
+        }
+
+        if ((e.ctrlKey || e.metaKey) && key === 'l') {
             e.preventDefault();
             e.stopPropagation();
             const urlInput = document.getElementById('url-input') as HTMLInputElement;
@@ -1851,21 +1867,11 @@ function setupKeyboardShortcuts(): void {
                 urlInput.select();
             }
         }
-
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w') {
-            e.preventDefault();
-            e.stopPropagation();
-            if (activeTabId) {
-                closeTab(activeTabId);
-            }
-        }
     });
 
-    console.log('✅ 全局快捷键设置完成 - 零干扰模式');
+    console.log('✅ 全局快捷键设置完成 - 安全兼容 WebView 剪贴板');
 }
-// ========================================
-// 文件处理
-// ========================================
+
 /**
  * 处理Cookie文件选择
  */
