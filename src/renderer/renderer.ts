@@ -242,6 +242,7 @@ async function initializeApplication(): Promise<void> {
     try {
         showLoading('正在初始化应用...');
         await initializeComponents();
+        console.log('🎯 开始设置事件监听器...');
         setupEventListeners();
         setupTabTitleListeners();
         setupMenuListeners();

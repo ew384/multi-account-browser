@@ -1018,9 +1018,7 @@ export class TabManager {
         return { title, favicon };
     }
 
-    /**
-     * 后退导航
-     */
+
     async navigateBack(tabId: string): Promise<boolean> {
         console.log(`🔙 TabManager.navigateBack 被调用: ${tabId}`);
         
@@ -1031,44 +1029,23 @@ export class TabManager {
         }
 
         console.log(`🔙 找到标签页: ${tab.accountName}`);
-        console.log(`🔙 WebContents 状态:`, {
-            isDestroyed: tab.webContentsView.webContents.isDestroyed(),
-            isLoading: tab.webContentsView.webContents.isLoading(),
-            canGoBack: tab.webContentsView.webContents.canGoBack(),
-            url: tab.webContentsView.webContents.getURL()
-        });
-
+        
         try {
-            // 🔥 关键检查：WebContents 是否支持后退
-            if (!tab.webContentsView.webContents.canGoBack()) {
+            const webContents = tab.webContentsView.webContents;
+            
+            // 🔥 检查是否可以后退
+            if (!webContents.canGoBack()) {
                 console.warn(`⚠️ WebContents 无法后退: ${tab.accountName}`);
                 return false;
             }
 
-            console.log(`⬅️ 执行后退导航: ${tab.accountName}`);
+            console.log(`⬅️ 执行 Electron 原生后退导航: ${tab.accountName}`);
             
-            const result = await tab.webContentsView.webContents.executeJavaScript(`
-                (function() {
-                    try {
-                        if (window.history.length > 1) {
-                            window.history.back();
-                            return { success: true, message: '后退导航成功' };
-                        } else {
-                            return { success: false, message: '没有可后退的页面' };
-                        }
-                    } catch (e) {
-                        return { success: false, message: e.message };
-                    }
-                })()
-            `);
-
-            if (result.success) {
-                console.log(`✅ 后退导航成功: ${tab.accountName}`);
-                return true;
-            } else {
-                console.warn(`⚠️ 后退导航失败: ${result.message}`);
-                return false;
-            }
+            // 🔥 使用 Electron 的原生方法，不是 JavaScript
+            webContents.goBack();
+            
+            console.log(`✅ 后退导航成功: ${tab.accountName}`);
+            return true;
 
         } catch (error) {
             console.error(`❌ 后退导航异常: ${tab.accountName}:`, error);
@@ -1088,41 +1065,22 @@ export class TabManager {
             return false;
         }
 
-
-        console.log(`🔜 WebContents 状态:`, {
-            isDestroyed: tab.webContentsView.webContents.isDestroyed(),
-            isLoading: tab.webContentsView.webContents.isLoading(),
-            canGoForward: tab.webContentsView.webContents.canGoForward(),
-            url: tab.webContentsView.webContents.getURL()
-        });
-
         try {
-            // 🔥 关键检查：WebContents 是否支持前进
-            if (!tab.webContentsView.webContents.canGoForward()) {
-                console.warn('⚠️WebContents 无法前进' );
+            const webContents = tab.webContentsView.webContents;
+            
+            // 🔥 检查是否可以前进
+            if (!webContents.canGoForward()) {
+                console.warn('⚠️ WebContents 无法前进');
                 return false;
             }
 
-            console.log('➡️ 执行前进导航');
+            console.log('➡️ 执行 Electron 原生前进导航');
 
-            const result = await tab.webContentsView.webContents.executeJavaScript(`
-                (function() {
-                    try {
-                        window.history.forward();
-                        return { success: true, message: '前进导航成功' };
-                    } catch (e) {
-                        return { success: false, message: e.message };
-                    }
-                })()
-            `);
-
-            if (result.success) {
-                console.log(`✅ 前进导航成功: ${tab.accountName}`);
-                return true;
-            } else {
-                console.warn(`⚠️ 前进导航失败: ${result.message}`);
-                return false;
-            }
+            // 🔥 使用 Electron 的原生方法
+            webContents.goForward();
+            
+            console.log(`✅ 前进导航成功: ${tab.accountName}`);
+            return true;
 
         } catch (error) {
             console.error(`❌ 前进导航异常: ${tab.accountName}:`, error);
