@@ -264,7 +264,7 @@ async function initializeApplication(): Promise<void> {
         setupMenuListeners();
         setupEventDrivenUpdates();
         setupErrorHandling();
-        setupContextMenu();
+        //setupContextMenu();
         apiConnected = true;
         updateConnectionStatus();
         appInitialized = true;
@@ -408,7 +408,7 @@ function setupEventListeners(): void {
         setupModalEvents();
 
         // 右键菜单
-        setupContextMenu();
+        //setupContextMenu();
 
         // 快捷键 - 在 URL 输入框事件之后设置
         setupKeyboardShortcuts();
@@ -478,7 +478,7 @@ async function navigateToUrl(): Promise<void> {
     }
 
     if (!activeTabId) {
-        //showNotification('无法创建标签页', 'error');
+        console.log('无法创建标签页');
         return;
     }
 
@@ -531,7 +531,7 @@ async function showCookieDialog(): Promise<void> {
         const modal = document.getElementById('cookie-modal');
         if (modal) {
             modal.style.display = 'flex';
-            console.log('🍪 Cookie dialog shown');
+            console.log('Cookie dialog shown');
         }
     } catch (error) {
         console.error('Failed to show cookie dialog:', error);
@@ -738,34 +738,6 @@ function setupMenuListeners(): void {
             console.warn('⚠️ 菜单监听器设置失败:', error);
         }
     }
-}
-
-/**
- * 设置定期更新
- */
-function setupPeriodicUpdates(): void {
-    // 每5秒检查API状态
-    setInterval(async () => {
-        if (appInitialized) {
-            await checkAPIStatus();
-        }
-    }, 5000);
-
-    // 每10秒更新标签页状态
-    setInterval(async () => {
-        if (appInitialized && apiConnected) {
-            await refreshTabList();
-        }
-    }, 10000);
-
-    // 每30秒更新系统信息
-    setInterval(async () => {
-        if (appInitialized && apiConnected) {
-            await updateSystemInfo();
-        }
-    }, 30000);
-
-    console.log('✅ 定期更新任务设置完成');
 }
 
 /**
@@ -1604,7 +1576,7 @@ async function executeBatchOperation(): Promise<void> {
 
 /**
  * 检查API状态
- */
+
 async function checkAPIStatus(): Promise<void> {
     const statusElement = document.getElementById('api-connection-status');
     const connectionStatus = document.getElementById('connection-status');
@@ -1659,10 +1631,10 @@ async function checkAPIStatus(): Promise<void> {
         console.warn('API连接检查失败:', error);
     }
 }
-
+ */
 /**
  * 更新API离线状态
- */
+
 function updateAPIOfflineStatus(): void {
     const statusElement = document.getElementById('api-connection-status');
     const connectionStatus = document.getElementById('connection-status');
@@ -1679,10 +1651,10 @@ function updateAPIOfflineStatus(): void {
         `;
     }
 }
-
+ */
 /**
  * 更新系统信息
- */
+
 async function updateSystemInfo(apiData?: any): Promise<void> {
     const memoryElement = document.getElementById('memory-usage');
     const uptimeElement = document.getElementById('uptime');
@@ -1710,10 +1682,10 @@ async function updateSystemInfo(apiData?: any): Promise<void> {
         activeTabsElement.textContent = currentTabs.length.toString();
     }
 }
-
+ */
 /**
  * 设置右键菜单 - 简化版本（只处理URL输入框）
- */
+
 function setupContextMenu(): void {
     document.addEventListener('contextmenu', (e) => {
         const urlInput = (e.target as HTMLElement).closest('#url-input');
@@ -1732,7 +1704,7 @@ function setupContextMenu(): void {
 
     console.log('✅ 右键菜单设置完成（仅保留URL输入框）');
 }
-
+ */
 /**
  * 隐藏右键菜单
  */
@@ -2167,7 +2139,7 @@ window.addEventListener('beforeunload', () => {
         console.error('页面清理时发生错误:', error);
     }
 });
-
+/*
 // 页面可见性变化处理
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden && appInitialized) {
@@ -2180,7 +2152,7 @@ document.addEventListener('visibilitychange', () => {
         }, 1000);
     }
 });
-
+*/
 // ========================================
 // 应用状态监控
 // ========================================
@@ -2208,17 +2180,5 @@ function getAppState(): object {
 
 console.log('🎨 渲染进程脚本加载完成');
 
-// 暴露调试接口
-if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development') {
-    (window as any).debugAPI = {
-        //showNotification,
-        showLoading,
-        hideLoading,
-        checkAPIStatus,
-        refreshTabList,
-        getAppState
-    };
-    console.log('🛠️ 调试接口已暴露到 window.debugAPI');
-}
 (window as any).openCurrentTabDevTools = openCurrentTabDevTools;
 (window as any).openTabDevTools = openTabDevTools;
