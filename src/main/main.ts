@@ -66,61 +66,6 @@ class MultiAccountBrowser {
         );
     }
 
-    private setupDeveloperTools(): void {
-        if (process.env.NODE_ENV !== 'development') return;
-
-        // 监听开发者工具打开事件
-        this.mainWindow?.webContents.on('devtools-opened', () => {
-            console.log('🛠️ DevTools opened');
-
-            // 确保主窗口不会遮挡开发者工具
-            setTimeout(() => {
-                if (this.mainWindow) {
-                    // 调整窗口大小，为开发者工具让出空间
-                    const bounds = this.mainWindow.getBounds();
-                    this.mainWindow.setBounds({
-                        x: bounds.x,
-                        y: bounds.y,
-                        width: Math.max(800, bounds.width - 400), // 减小宽度
-                        height: bounds.height
-                    });
-                }
-            }, 100);
-        });
-
-        // 监听开发者工具关闭事件
-        this.mainWindow?.webContents.on('devtools-closed', () => {
-            console.log('🛠️ DevTools closed');
-
-            // 恢复窗口大小
-            setTimeout(() => {
-                if (this.mainWindow) {
-                    this.mainWindow.setBounds({
-                        x: 100,
-                        y: 100,
-                        width: 1400,
-                        height: 900
-                    });
-                }
-            }, 100);
-        });
-
-        // 添加菜单项来控制开发者工具
-        const currentMenu = Menu.getApplicationMenu();
-        if (currentMenu) {
-            const toolsMenu = currentMenu.items.find(item => item.label === '工具');
-            if (toolsMenu && toolsMenu.submenu) {
-                toolsMenu.submenu.append(new MenuItem({
-                    label: '独立窗口开发者工具',
-                    accelerator: 'CmdOrCtrl+Shift+I',
-                    click: () => {
-                        this.mainWindow?.webContents.openDevTools({ mode: 'detach' });
-                    }
-                }));
-            }
-        }
-    }
-
     private createWindow(): void {
         const mode = this.headlessManager.getMode();
         console.log(`🚀 创建窗口 - 模式: ${mode}`);
@@ -511,6 +456,90 @@ class MultiAccountBrowser {
             }
         });
 
+        // 后退导航
+        ipcMain.handle('navigate-back', async (event, tabId: string) => {
+            try {
+                console.log(`🔙 IPC navigate-back 收到请求: ${tabId}`);
+                
+                if (!tabId) {
+                    console.error(`❌ IPC navigate-back: tabId 为空`);
+                    return {
+                        success: false,
+                        error: 'tabId is required'
+                    };
+                }
+
+                const result = await this.tabManager.navigateBack(tabId);
+                
+                console.log(`🔙 IPC navigate-back 执行结果: ${result}`);
+                
+                return {
+                    success: result,
+                    data: { tabId, action: 'navigate-back' }
+                };
+            } catch (error) {
+                console.error('❌ IPC navigate-back 失败:', error);
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                };
+            }
+        });
+
+        ipcMain.handle('navigate-forward', async (event, tabId: string) => {
+            try {
+                console.log(`🔜 IPC navigate-forward 收到请求: ${tabId}`);
+                
+                if (!tabId) {
+                    console.error(`❌ IPC navigate-forward: tabId 为空`);
+                    return {
+                        success: false,
+                        error: 'tabId is required'
+                    };
+                }
+
+                const result = await this.tabManager.navigateForward(tabId);
+                
+                console.log(`🔜 IPC navigate-forward 执行结果: ${result}`);
+                
+                return {
+                    success: result,
+                    data: { tabId, action: 'navigate-forward' }
+                };
+            } catch (error) {
+                console.error('❌ IPC navigate-forward 失败:', error);
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                };
+            }
+        });
+
+        // 刷新标签页
+        ipcMain.handle('refresh-tab', async (event, tabId: string) => {
+            try {
+                if (!tabId) {
+                    return {
+                        success: false,
+                        error: 'tabId is required'
+                    };
+                }
+
+                const result = await this.tabManager.refreshTab(tabId);
+                return {
+                    success: result,
+                    data: { tabId, action: 'refresh' }
+                };
+            } catch (error) {
+                console.error('❌ IPC refresh-tab 失败:', error);
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                };
+            }
+        });
+
+
         // 加载Cookie
         ipcMain.handle('load-cookies', async (event, tabId: string, cookieFile: string) => {
             try {
@@ -777,7 +806,35 @@ class MultiAccountBrowser {
                 };
             }
         });
+        ipcMain.handle('open-devtools', async (event, tabId: string) => {
+            try {
+                if (!tabId) {
+                    return {
+                        success: false,
+                        error: 'tabId is required'
+                    };
+                }
 
+                console.log(`🔧 收到开发者工具请求: ${tabId}`);
+
+                const result = await this.tabManager.openDevTools(tabId);
+                
+                return {
+                    success: result,
+                    data: { 
+                        tabId, 
+                        action: 'open-devtools',
+                        message: result ? '开发者工具已打开' : '打开开发者工具失败'
+                    }
+                };
+            } catch (error) {
+                console.error('❌ IPC open-devtools 失败:', error);
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                };
+            }
+        });
         // 获取支持的模式列表
         ipcMain.handle('get-supported-modes', async () => {
             try {
@@ -863,11 +920,9 @@ class MultiAccountBrowser {
                 await this.apiServer.start(3409);
                 console.log('✅ API 服务器启动成功: http://localhost:3409');
 
-                // 只在normal模式下设置开发者工具
+
                 const mode = this.headlessManager.getMode();
-                //if (mode === 'normal') {
-                //    this.setupDeveloperTools();
-                //}
+
                 this.logInitializationComplete(mode);
             } catch (error) {
                 console.error('❌ 初始化过程中发生错误:', error);

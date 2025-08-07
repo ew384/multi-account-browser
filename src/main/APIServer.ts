@@ -999,7 +999,6 @@ export class APIServer {
             }
         });
 
-        // 在现有路由后添加文件上传端点
         this.app.post('/api/account/set-file', async (req, res) => {
             try {
                 const { tabId, selector, filePath } = req.body;
@@ -1013,7 +1012,6 @@ export class APIServer {
 
                 console.log(`📁 Setting file for tab ${tabId}: ${filePath}`);
 
-                // 调用 TabManager 的修复后方法
                 const result = await this.tabManager.setFileInput(tabId, selector, filePath);
 
                 res.json({
@@ -1028,7 +1026,7 @@ export class APIServer {
                 });
             }
         });
-        // 在 APIServer.ts 中添加
+
         this.app.post('/api/account/set-files-streaming', async (req, res) => {
             try {
                 const { tabId, selector, filePath, options = {} } = req.body;
@@ -1057,7 +1055,7 @@ export class APIServer {
             }
         });
 
-        // 在 APIServer.ts 中添加
+
         this.app.post('/api/account/set-files-streaming-v2', async (req, res) => {
             try {
                 const { tabId, selector, filePath, options = {} } = req.body;
@@ -1106,33 +1104,6 @@ export class APIServer {
                 });
             } catch (error) {
                 console.error('Error setting input files:', error);
-                res.status(500).json({
-                    success: false,
-                    error: error instanceof Error ? error.message : 'Unknown error'
-                });
-            }
-        });
-
-        this.app.get('/api/accounts-with-display', (req, res) => {
-            try {
-                const accounts = this.tabManager.getAllTabsWithDisplayInfo().map(tab => ({
-                    id: tab.id,
-                    accountName: tab.accountName,
-                    displayTitle: tab.displayTitle,
-                    displayFavicon: tab.displayFavicon,
-                    platform: tab.platform,
-                    loginStatus: tab.loginStatus,
-                    url: tab.url,
-                    cookieFile: tab.cookieFile,
-                    renderer: 'WebContentsView'
-                }));
-
-                res.json({
-                    success: true,
-                    data: accounts
-                });
-            } catch (error) {
-                console.error('Error getting accounts with display info:', error);
                 res.status(500).json({
                     success: false,
                     error: error instanceof Error ? error.message : 'Unknown error'

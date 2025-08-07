@@ -8,18 +8,21 @@ interface ElectronAPI {
     navigateTab: (tabId: string, url: string) => Promise<any>;
     closeTab: (tabId: string) => Promise<any>;
     getAllTabs: () => Promise<any>;
+
+    navigateBack: (tabId: string) => Promise<any>;
+    navigateForward: (tabId: string) => Promise<any>;
+    refreshTab: (tabId: string) => Promise<any>;
     // 新增：标题更新事件监听
-    
     onTabTitleUpdated: (callback: (data: { tabId: string; title: string }) => void) => void;
     onTabFaviconUpdated: (callback: (data: { tabId: string; favicon: string }) => void) => void;
 
     // 新增：获取标签页显示信息
-    getTabDisplayInfo: (tabId: string) => Promise<any>;
-    getAllTabsWithDisplay: () => Promise<any>;
+    //getTabDisplayInfo: (tabId: string) => Promise<any>;
+    //getAllTabsWithDisplay: () => Promise<any>;
     // Cookie管理
     loadCookies: (tabId: string, cookieFile: string) => Promise<any>;
     saveCookies: (tabId: string, cookieFile: string) => Promise<any>;
-
+    openDevTools: (tabId: string) => Promise<any>;
 
     // 菜单事件监听
     onMenuNewTab: (callback: () => void) => void;
@@ -59,6 +62,14 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.invoke('navigate-tab', tabId, url),
     closeTab: (tabId: string) =>
         ipcRenderer.invoke('close-tab', tabId),
+        navigateBack: (tabId: string) =>
+        ipcRenderer.invoke('navigate-back', tabId),
+
+    navigateForward: (tabId: string) =>
+        ipcRenderer.invoke('navigate-forward', tabId),
+
+    refreshTab: (tabId: string) =>
+        ipcRenderer.invoke('refresh-tab', tabId),
     onTabCreated: (callback) => {
         ipcRenderer.removeAllListeners('tab-created');
         ipcRenderer.on('tab-created', (event, data) => callback(data));
@@ -86,14 +97,15 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.removeAllListeners('tab-favicon-updated');
         ipcRenderer.on('tab-favicon-updated', (event, data) => callback(data));
     },
-    
+    openDevTools: (tabId: string) =>
+        ipcRenderer.invoke('open-devtools', tabId),
 
     // 获取显示信息
-    getTabDisplayInfo: (tabId: string) =>
-        fetch(`http://localhost:3409/api/account/${tabId}/display`).then(r => r.json()),
+    //getTabDisplayInfo: (tabId: string) =>
+    //    fetch(`http://localhost:3409/api/account/${tabId}/display`).then(r => r.json()),
 
-    getAllTabsWithDisplay: () =>
-        fetch('http://localhost:3409/api/accounts-with-display').then(r => r.json()),
+    //getAllTabsWithDisplay: () =>
+    //   fetch('http://localhost:3409/api/accounts-with-display').then(r => r.json()),
     // Cookie管理
     loadCookies: (tabId: string, cookieFile: string) =>
         ipcRenderer.invoke('load-cookies', tabId, cookieFile),

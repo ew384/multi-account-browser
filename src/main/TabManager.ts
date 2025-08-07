@@ -622,28 +622,23 @@ export class TabManager {
         }
     }
 
-    async openDevTools(tabId: string): Promise<void> {
+    async openDevTools(tabId: string): Promise<boolean> {
         const tab = this.tabs.get(tabId);
-        if (!tab) throw new Error(`Tab ${tabId} not found`);
+        if (!tab) {
+            console.error(`❌ Tab不存在: ${tabId}`);
+            return false;
+        }
 
-        const webContents = tab.webContentsView.webContents;
-        
-        console.log('🔧 WebContents状态:', {
-            destroyed: webContents.isDestroyed(),
-            url: webContents.getURL(),
-            devToolsOpened: webContents.isDevToolsOpened()
-        });
-        
         try {
-            // 直接调用原生方法
+            const webContents = tab.webContentsView.webContents;
             webContents.openDevTools({ mode: 'detach' });
-            console.log('✅ DevTools 调用成功');
+            console.log(`✅ 开发者工具已打开: ${tab.accountName}`);
+            return true;
         } catch (error) {
-            console.error('❌ DevTools 调用失败:', error);
-            throw error;
+            console.error(`❌ 打开开发者工具失败: ${tab.accountName}:`, error);
+            return false;
         }
     }
-
     private async injectInitScripts(tabId: string): Promise<void> {
         if (this.injectedTabs.has(tabId)) {
             console.log(`⚠️ Init scripts already injected for ${tabId}, skipping...`);
@@ -1024,19 +1019,149 @@ export class TabManager {
     }
 
     /**
-     * 获取所有标签页（包含显示信息）
+     * 后退导航
      */
-    getAllTabsWithDisplayInfo(): Array<AccountTab & { displayTitle: string; displayFavicon?: string }> {
-        return Array.from(this.tabs.values())
-            .filter(tab => !tab.isHeadless)
-            .map(tab => {
-                const displayInfo = this.getTabDisplayInfo(tab.id);
-                return {
-                    ...tab,
-                    displayTitle: displayInfo.title,
-                    displayFavicon: displayInfo.favicon
-                };
-            });
+    async navigateBack(tabId: string): Promise<boolean> {
+        console.log(`🔙 TabManager.navigateBack 被调用: ${tabId}`);
+        
+        const tab = this.tabs.get(tabId);
+        if (!tab) {
+            console.error(`❌ Tab不存在: ${tabId}`);
+            return false;
+        }
+
+        console.log(`🔙 找到标签页: ${tab.accountName}`);
+        console.log(`🔙 WebContents 状态:`, {
+            isDestroyed: tab.webContentsView.webContents.isDestroyed(),
+            isLoading: tab.webContentsView.webContents.isLoading(),
+            canGoBack: tab.webContentsView.webContents.canGoBack(),
+            url: tab.webContentsView.webContents.getURL()
+        });
+
+        try {
+            // 🔥 关键检查：WebContents 是否支持后退
+            if (!tab.webContentsView.webContents.canGoBack()) {
+                console.warn(`⚠️ WebContents 无法后退: ${tab.accountName}`);
+                return false;
+            }
+
+            console.log(`⬅️ 执行后退导航: ${tab.accountName}`);
+            
+            const result = await tab.webContentsView.webContents.executeJavaScript(`
+                (function() {
+                    try {
+                        if (window.history.length > 1) {
+                            window.history.back();
+                            return { success: true, message: '后退导航成功' };
+                        } else {
+                            return { success: false, message: '没有可后退的页面' };
+                        }
+                    } catch (e) {
+                        return { success: false, message: e.message };
+                    }
+                })()
+            `);
+
+            if (result.success) {
+                console.log(`✅ 后退导航成功: ${tab.accountName}`);
+                return true;
+            } else {
+                console.warn(`⚠️ 后退导航失败: ${result.message}`);
+                return false;
+            }
+
+        } catch (error) {
+            console.error(`❌ 后退导航异常: ${tab.accountName}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * 前进导航
+     */
+    async navigateForward(tabId: string): Promise<boolean> {
+        console.log(`🔜 TabManager.navigateForward 被调用: ${tabId}`);
+        
+        const tab = this.tabs.get(tabId);
+        if (!tab) {
+            console.error(`❌ Tab不存在: ${tabId}`);
+            return false;
+        }
+
+
+        console.log(`🔜 WebContents 状态:`, {
+            isDestroyed: tab.webContentsView.webContents.isDestroyed(),
+            isLoading: tab.webContentsView.webContents.isLoading(),
+            canGoForward: tab.webContentsView.webContents.canGoForward(),
+            url: tab.webContentsView.webContents.getURL()
+        });
+
+        try {
+            // 🔥 关键检查：WebContents 是否支持前进
+            if (!tab.webContentsView.webContents.canGoForward()) {
+                console.warn('⚠️WebContents 无法前进' );
+                return false;
+            }
+
+            console.log('➡️ 执行前进导航');
+
+            const result = await tab.webContentsView.webContents.executeJavaScript(`
+                (function() {
+                    try {
+                        window.history.forward();
+                        return { success: true, message: '前进导航成功' };
+                    } catch (e) {
+                        return { success: false, message: e.message };
+                    }
+                })()
+            `);
+
+            if (result.success) {
+                console.log(`✅ 前进导航成功: ${tab.accountName}`);
+                return true;
+            } else {
+                console.warn(`⚠️ 前进导航失败: ${result.message}`);
+                return false;
+            }
+
+        } catch (error) {
+            console.error(`❌ 前进导航异常: ${tab.accountName}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * 刷新标签页
+     */
+    async refreshTab(tabId: string): Promise<boolean> {
+        const tab = this.tabs.get(tabId);
+        if (!tab) {
+            console.error(`❌ Tab不存在: ${tabId}`);
+            return false;
+        }
+
+        try {
+            console.log(`🔄 执行页面刷新: ${tab.accountName}`);
+            
+            // 方法1: 使用 webContents.reload() - 更安全可靠
+            await tab.webContentsView.webContents.reload();
+            
+            console.log(`✅ 页面刷新成功: ${tab.accountName}`);
+            return true;
+
+        } catch (error) {
+            console.error(`❌ 页面刷新异常: ${tab.accountName}:`, error);
+            
+            // 备用方法2: 使用 JavaScript 刷新
+            try {
+                await tab.webContentsView.webContents.executeJavaScript('window.location.reload(); true;');
+                console.log(`✅ 备用刷新成功: ${tab.accountName}`);
+                return true;
+            } catch (fallbackError) {
+                console.error(`❌ 备用刷新也失败: ${tab.accountName}:`, fallbackError);
+                return false;
+            }
+        }
     }
     async loadAccountCookies(tabId: string, cookieFilePath: string): Promise<void> {
         const tab = this.tabs.get(tabId);
@@ -1118,6 +1243,18 @@ export class TabManager {
 
             // 确保新标签页已添加到窗口
             if (!this.isViewAttached(tab.webContentsView)) {
+                // 确保主窗口HTML已经完全加载
+                if (this.mainWindow.webContents.isLoading()) {
+                    console.log(`⏳ 等待主窗口加载完成...`);
+                    await new Promise<void>(resolve => {
+                        // 🔥 使用 any 类型转换来绕过 TypeScript 类型检查
+                        (this.mainWindow.webContents as any).once('did-finish-load', () => {
+                            resolve();
+                        });
+                    });
+                }
+                
+                console.log(`➕ 添加 WebContentsView 到主窗口: ${tab.accountName}`);
                 this.mainWindow.contentView.addChildView(tab.webContentsView);
             }
 

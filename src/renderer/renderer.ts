@@ -201,38 +201,21 @@ function createChromeTab(tab: TabData): HTMLElement {
 
     return tabElement;
 }
-/**
- * 刷新标签页列表 - 获取包含显示信息的数据
- */
-async function refreshTabList(): Promise<void> {
-    try {
-        // 使用新的API获取包含显示信息的标签页数据
-        const response = await fetch('http://localhost:3409/api/accounts-with-display');
-        if (response.ok) {
-            const result = await response.json();
-            if (result.success) {
-                currentTabs = result.data || [];
-                updateTabBar();
-                updateCurrentTabInfo();
-                updateNoTabsMessage();
-                console.log(`刷新了 ${currentTabs.length} 个标签页（Chrome风格显示）`);
-                return;
-            }
-        }
-
-        // 备选：使用原始API
-        console.warn('显示信息API不可用，使用原始API');
-        const fallbackResult = await window.electronAPI.getAllTabs();
-        if (fallbackResult.success) {
-            currentTabs = fallbackResult.tabs || [];
-            updateTabBar();
-            updateCurrentTabInfo();
-            updateNoTabsMessage();
-        }
-    } catch (error) {
-        console.error('刷新标签页列表异常:', error);
+function setupNavigationButtons(): void {
+    const backBtn = document.getElementById('back-btn') as HTMLButtonElement;
+    const forwardBtn = document.getElementById('forward-btn') as HTMLButtonElement;
+    
+    if (backBtn && forwardBtn) {
+        backBtn.disabled = false;
+        forwardBtn.disabled = false;
+        
+        // 确保光标始终为指针
+        backBtn.style.cursor = 'pointer';
+        forwardBtn.style.cursor = 'pointer';
+        console.log('🧭 导航按钮设置为始终启用（Chrome风格）');
     }
 }
+
 function updateConnectionStatus(): void {
     const connectionStatus = document.getElementById('connection-status');
     
@@ -265,6 +248,8 @@ async function initializeApplication(): Promise<void> {
         setupEventDrivenUpdates();
         setupErrorHandling();
         //setupContextMenu();
+        console.log(`🏠 初始化完成，立即更新欢迎页面状态`);
+        updateNoTabsMessage();
         apiConnected = true;
         updateConnectionStatus();
         appInitialized = true;
@@ -394,15 +379,12 @@ function setupEventListeners(): void {
     try {
         // 设置 URL 输入框事件 - 必须在其他事件之前设置
         setupUrlInputEvents();
-        // 顶部按钮
         addEventListenerSafely('new-tab-btn', 'click', () => createNewTab());
         addEventListenerSafely('back-btn', 'click', () => navigateBack());
         addEventListenerSafely('forward-btn', 'click', () => navigateForward());
-        addEventListenerSafely('refresh-btn', 'click', () => refreshCurrentTab());
-        // Go 按钮
+        addEventListenerSafely('refresh-btn', 'click', () => refreshTab());
         addEventListenerSafely('go-btn', 'click', () => navigateToUrl());
-        // 工具栏按钮
-        addEventListenerSafely('cookie-btn', 'click', () => showCookieDialog());
+        //addEventListenerSafely('cookie-btn', 'click', () => showCookieDialog());
 
         // 模态框相关
         setupModalEvents();
@@ -422,46 +404,59 @@ function setupEventListeners(): void {
 }
 
 async function navigateBack(): Promise<void> {
-    if (!activeTabId) return;
+    console.log(`⬅️ navigateBack 被调用`);
+    console.log(`⬅️ 当前活动标签页ID: ${activeTabId}`);
+    
+    if (!activeTabId) {
+        console.warn('⚠️ 没有活动标签页，无法后退');
+        return;
+    }
 
     try {
-        const response = await fetch('http://localhost:3409/api/account/execute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                tabId: activeTabId,
-                script: 'window.history.back(); true;'
-            })
-        });
+        console.log('⬅️ 开始执行后退导航...');
+        console.log('⬅️ 即将调用 IPC: window.electronAPI.navigateBack');
+        
+        const result = await window.electronAPI.navigateBack(activeTabId);
+        
+        console.log('⬅️ IPC 调用结果:', result);
 
-        if (response.ok) {
-            console.log('✅ 后退导航执行');
+        if (result.success) {
+            console.log('✅ 后退导航成功');
+        } else {
+            console.warn('⚠️ 后退导航失败:', result.error);
         }
     } catch (error) {
-        console.error('后退导航失败:', error);
+        console.error('❌ 后退导航异常:', error);
     }
 }
 
 async function navigateForward(): Promise<void> {
-    if (!activeTabId) return;
+    console.log(`➡️ navigateForward 被调用`);
+    console.log(`➡️ 当前活动标签页ID: ${activeTabId}`);
+    
+    if (!activeTabId) {
+        console.warn('⚠️ 没有活动标签页，无法前进');
+        return;
+    }
 
     try {
-        const response = await fetch('http://localhost:3409/api/account/execute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                tabId: activeTabId,
-                script: 'window.history.forward(); true;'
-            })
-        });
+        console.log('➡️ 开始执行前进导航...');
+        console.log('➡️ 即将调用 IPC: window.electronAPI.navigateForward');
+        
+        const result = await window.electronAPI.navigateForward(activeTabId);
+        
+        console.log('➡️ IPC 调用结果:', result);
 
-        if (response.ok) {
-            console.log('✅ 前进导航执行');
+        if (result.success) {
+            console.log('✅ 前进导航成功');
+        } else {
+            console.warn('⚠️ 前进导航失败:', result.error);
         }
     } catch (error) {
-        console.error('前进导航失败:', error);
+        console.error('❌ 前进导航异常:', error);
     }
 }
+
 
 async function navigateToUrl(): Promise<void> {
     const urlInput = document.getElementById('url-input') as HTMLInputElement;
@@ -501,12 +496,8 @@ async function navigateToUrl(): Promise<void> {
     }
 
     try {
-        showLoading('正在导航...');
-
         const result = await window.electronAPI.navigateTab(activeTabId, url);
-
         if (result.success) {
-            console.log('✅ 导航到:', url);
             urlInput.value = url;
             // 模拟 Chrome 的行为：导航后选中整个 URL
             setTimeout(() => {
@@ -522,157 +513,6 @@ async function navigateToUrl(): Promise<void> {
     }
 }
 (window as any).navigateToUrl = navigateToUrl;
-async function showCookieDialog(): Promise<void> {
-    try {
-        // 先隐藏当前标签页，避免被遮挡
-        await fetch('http://localhost:3409/api/ui/hide-tab-temporarily', { method: 'POST' });
-
-        // 显示模态框
-        const modal = document.getElementById('cookie-modal');
-        if (modal) {
-            modal.style.display = 'flex';
-            console.log('Cookie dialog shown');
-        }
-    } catch (error) {
-        console.error('Failed to show cookie dialog:', error);
-        //showNotification('显示Cookie管理对话框失败', 'error');
-    }
-}
-
-async function hideCookieDialog(): Promise<void> {
-    try {
-        // 隐藏模态框
-        const modal = document.getElementById('cookie-modal');
-        if (modal) {
-            modal.style.display = 'none';
-        }
-
-        // 恢复标签页显示
-        await fetch('http://localhost:3409/api/ui/show-current-tab', { method: 'POST' });
-
-        console.log('🍪 Cookie dialog hidden');
-    } catch (error) {
-        console.error('Failed to hide cookie dialog:', error);
-    }
-}
-/**
- * 加载Cookie文件
- */
-async function loadCookieFile(): Promise<void> {
-    if (!activeTabId) {
-        //showNotification('请先选择一个标签页', 'warning');
-        return;
-    }
-
-    try {
-        // 使用Electron的文件对话框
-        const result = await window.electronAPI.showOpenDialog({
-            title: '选择Cookie文件',
-            filters: [
-                { name: 'JSON Files', extensions: ['json'] },
-                { name: 'All Files', extensions: ['*'] }
-            ],
-            properties: ['openFile']
-        });
-
-        if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
-            return;
-        }
-
-        const cookieFile = result.filePaths[0];
-
-        showLoading('正在加载Cookie...');
-
-        // 🔥 使用现有的API端点
-        const response = await fetch('http://localhost:3409/api/account/load-cookies', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                tabId: activeTabId,
-                cookieFile: cookieFile  // 注意参数名是 cookieFile，不是 cookieFilePath
-            })
-        });
-
-        const result2 = await response.json();
-
-        if (result2.success) {
-            //showNotification(`Cookie加载成功: ${cookieFile.split('/').pop()}`, 'success');
-
-            // 刷新当前标签页
-            setTimeout(() => {
-                refreshCurrentTab();
-            }, 1000);
-        } else {
-            throw new Error(result2.error || '加载失败');
-        }
-
-    } catch (error) {
-        console.error('加载Cookie失败:', error);
-        //showNotification(`加载Cookie失败: ${handleError(error)}`, 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-/**
- * 保存Cookie文件
- */
-async function saveCookieFile(): Promise<void> {
-    if (!activeTabId) {
-        //showNotification('请先选择一个标签页', 'warning');
-        return;
-    }
-
-    try {
-        const currentTab = currentTabs.find(tab => tab.id === activeTabId);
-        const defaultName = currentTab
-            ? `${currentTab.accountName}-cookies-${new Date().toISOString().slice(0, 10)}.json`
-            : `cookies-${new Date().toISOString().slice(0, 10)}.json`;
-
-        // 使用Electron的保存对话框
-        const result = await window.electronAPI.showSaveDialog({
-            title: '保存Cookie文件',
-            defaultPath: defaultName,
-            filters: [
-                { name: 'JSON Files', extensions: ['json'] },
-                { name: 'All Files', extensions: ['*'] }
-            ]
-        });
-
-        if (result.canceled || !result.filePath) {
-            return;
-        }
-
-        const cookieFile = result.filePath;
-
-        showLoading('正在保存Cookie...');
-
-        // 🔥 使用现有的API端点
-        const response = await fetch('http://localhost:3409/api/account/save-cookies', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                tabId: activeTabId,
-                cookieFile: cookieFile  // 注意参数名是 cookieFile，不是 cookieFilePath
-            })
-        });
-
-        const result2 = await response.json();
-
-        if (result2.success) {
-            //showNotification(`Cookie保存成功: ${cookieFile.split('/').pop()}`, 'success');
-        } else {
-            throw new Error(result2.error || '保存失败');
-        }
-
-    } catch (error) {
-        console.error('保存Cookie失败:', error);
-        //showNotification(`保存Cookie失败: ${handleError(error)}`, 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
 
 function updateTabBar(): void {
     const tabBarContent = document.getElementById('tab-bar-content');
@@ -702,7 +542,7 @@ function updateTabBar(): void {
 
 
 // 全局函数
-(window as any).hideCookieDialog = hideCookieDialog;
+//(window as any).hideCookieDialog = hideCookieDialog;
 (window as any).createChromeTab = createChromeTab;
 (window as any).updateTabBar = updateTabBar;
 /**
@@ -847,16 +687,12 @@ function setupEventDrivenUpdates(): void {
     // 1. 监听主进程的标签页变化事件
     if (window.electronAPI) {
         window.electronAPI.onTabCreated?.(({ tabId, tab }) => {
-            console.log('📋 收到标签页创建事件:', { tabId, tab });
-            console.log('📋 当前标签页数量（添加前）:', currentTabs.length);
-            
             addTabToUI(tab);
-            
-            console.log('📋 当前标签页数量（添加后）:', currentTabs.length);
-            
             if (!activeTabId) {
                 console.log('📋 设置为活动标签页:', tabId);
-                switchTab(tabId);
+                activeTabId = tabId;
+                updateCurrentTabInfo();
+                updateNoTabsMessage();
             }
         });
 
@@ -894,8 +730,6 @@ function addTabToUI(tab: TabData): void {
     updateTabBar();
     updateCurrentTabInfo();
     updateNoTabsMessage();
-    
-    console.log(`✅ 标签页已同步添加到UI: ${tab.accountName}`);
 }
 
 /**
@@ -1024,10 +858,6 @@ async function closeTab(tabId: string): Promise<void> {
         //showNotification('标签页不存在', 'warning');
         return;
     }
-
-    //const confirmed = confirm(`确定要关闭标签页 "${tab.accountName}" 吗？`);
-    //if (!confirmed) return;
-
     try {
         showLoading('正在关闭标签页...');
 
@@ -1036,17 +866,11 @@ async function closeTab(tabId: string): Promise<void> {
             if (activeTabId === tabId) {
                 activeTabId = null;
             }
-
-            await refreshTabList();
-            //showNotification(`已关闭标签页: ${tab.accountName}`, 'info');
-
-            console.log('✅ 标签页已关闭:', tabId);
         } else {
             throw new Error(result.error || '关闭失败');
         }
     } catch (error) {
         console.error('关闭标签页失败:', error);
-        //showNotification(`关闭标签页失败: ${handleError(error)}`, 'error');
     } finally {
         hideLoading();
     }
@@ -1075,42 +899,35 @@ function updateCurrentTabInfo(): void {
         }
     }
 
-    // 更新导航按钮状态
-    updateNavigationButtons();
 }
-function updateNavigationButtons(): void {
-    const backBtn = document.getElementById('back-btn') as HTMLButtonElement;
-    const forwardBtn = document.getElementById('forward-btn') as HTMLButtonElement;
 
-    // 这里可以根据实际需要启用/禁用按钮
-    // 暂时保持按钮可用状态
-    if (backBtn) backBtn.disabled = !activeTabId;
-    if (forwardBtn) forwardBtn.disabled = !activeTabId;
-}
 /**
  * 更新无标签页消息显示
  */
 function updateNoTabsMessage(): void {
     const noTabsMessage = document.getElementById('no-tabs-message');
     if (noTabsMessage) {
-        noTabsMessage.style.display = currentTabs.length === 0 ? 'flex' : 'none';
+        const shouldShow = currentTabs.length === 0;
+        console.log(`🏠 updateNoTabsMessage: 标签页数量=${currentTabs.length}, 是否显示欢迎页=${shouldShow}`);
+        console.log(`🏠 当前欢迎页面元素:`, noTabsMessage);
+        console.log(`🏠 当前欢迎页面样式:`, window.getComputedStyle(noTabsMessage).display);
+        
+        noTabsMessage.style.display = shouldShow ? 'flex' : 'none';
     }
 }
 
 // ========================================
 // Cookie管理
 // ========================================
-/**
- * 加载Cookie - 使用 Electron 对话框
- */
 async function loadCookies(): Promise<void> {
     if (!activeTabId) {
-        //showNotification('请先选择一个标签页', 'warning');
+        console.warn('⚠️ 没有活动标签页，无法加载Cookie');
+        // showNotification('请先选择一个标签页', 'warning');
         return;
     }
 
     try {
-        // 使用 Electron 的原生文件对话框
+        // 🔥 使用 Electron 的原生文件对话框
         const result = await window.electronAPI.showOpenDialog({
             title: '选择 Cookie 文件',
             filters: [
@@ -1121,32 +938,38 @@ async function loadCookies(): Promise<void> {
         });
 
         if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+            console.log('用户取消了文件选择');
             return;
         }
 
         const cookieFilePath = result.filePaths[0];
+        const fileName = cookieFilePath.split('/').pop() || cookieFilePath;
 
-        try {
-            showLoading('正在加载Cookie...');
+        // 🔥 添加 loading 状态（从 loadCookieFile 学习）
+        showLoading('正在加载Cookie...');
 
-            const loadResult = await window.electronAPI.loadCookies(activeTabId!, cookieFilePath);
+        console.log(`🍪 开始加载Cookie文件: ${fileName}`);
 
-            if (loadResult.success) {
-                //showNotification('Cookie加载成功', 'success');
-                await refreshCurrentTab();
-            } else {
-                throw new Error(loadResult.error || '加载失败');
-            }
-        } catch (error) {
-            console.error('加载Cookie失败:', error);
-            //showNotification(`Cookie加载失败: ${handleError(error)}`, 'error');
-        } finally {
-            hideLoading();
+        // 🔥 使用 IPC 调用（保持架构一致性）
+        const loadResult = await window.electronAPI.loadCookies(activeTabId, cookieFilePath);
+
+        if (loadResult.success) {
+            console.log(`✅ Cookie加载成功: ${fileName}`);
+            // showNotification(`Cookie加载成功: ${fileName}`, 'success');
+
+            // 🔥 延迟刷新，给Cookie生效一些时间
+            setTimeout(() => {
+                refreshTab(); // 使用合并后的 refreshTab 方法
+            }, 1000);
+        } else {
+            throw new Error(loadResult.error || '加载失败');
         }
 
     } catch (error) {
-        console.error('打开文件对话框失败:', error);
-        //showNotification(`打开文件对话框失败: ${handleError(error)}`, 'error');
+        console.error('❌ 加载Cookie失败:', error);
+        // showNotification(`Cookie加载失败: ${handleError(error)}`, 'error');
+    } finally {
+        hideLoading();
     }
 }
 
@@ -1206,143 +1029,12 @@ async function saveCookies(): Promise<void> {
 }
 
 /**
- * 清除Cookie
- */
-async function clearCookies(): Promise<void> {
-    if (!activeTabId) {
-        //showNotification('请先选择一个标签页', 'warning');
-        return;
-    }
-
-    const confirmed = confirm('确定要清除当前标签页的所有Cookie和存储数据吗？此操作不可恢复。');
-    if (!confirmed) return;
-
-    try {
-        showLoading('正在清除Cookie...');
-
-        const response = await fetch('http://localhost:3409/api/account/execute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                tabId: activeTabId,
-                script: `
-                    // 清除所有Cookie
-                    document.cookie.split(";").forEach(function(c) { 
-                        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
-                    });
-                    
-                    // 清除存储数据
-                    try {
-                        localStorage.clear();
-                        sessionStorage.clear();
-                        console.log('Storage cleared');
-                    } catch(e) {
-                        console.warn('清除存储数据时出错:', e);
-                    }
-                    
-                    'Cookie和存储数据已清除';
-                `
-            })
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            //showNotification('Cookie和存储数据已清除', 'success');
-
-            // 刷新页面
-            await refreshCurrentTab();
-        } else {
-            throw new Error(result.error || '清除失败');
-        }
-
-    } catch (error) {
-        console.error('清除Cookie失败:', error);
-        //showNotification(`清除Cookie失败: ${handleError(error)}`, 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-/**
- * 批量加载 Cookie - 为多个标签页加载相同的 Cookie 文件
- */
-async function batchLoadCookies(): Promise<void> {
-    if (currentTabs.length === 0) {
-        //showNotification('没有可操作的标签页', 'warning');
-        return;
-    }
-
-    try {
-        // 选择 Cookie 文件
-        const result = await window.electronAPI.showOpenDialog({
-            title: '选择要批量加载的 Cookie 文件',
-            filters: [
-                { name: 'JSON Files', extensions: ['json'] },
-                { name: 'All Files', extensions: ['*'] }
-            ],
-            properties: ['openFile']
-        });
-
-        if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
-            return;
-        }
-
-        const cookieFilePath = result.filePaths[0];
-
-        // 选择要操作的标签页
-        const selectedTabs = currentTabs.filter(tab =>
-            confirm(`是否为标签页 "${tab.accountName}" 加载 Cookie？`)
-        );
-
-        if (selectedTabs.length === 0) {
-            //showNotification('没有选择任何标签页', 'info');
-            return;
-        }
-
-        showLoading(`正在为 ${selectedTabs.length} 个标签页加载Cookie...`);
-
-        let successCount = 0;
-        let errorCount = 0;
-
-        for (const tab of selectedTabs) {
-            try {
-                const loadResult = await window.electronAPI.loadCookies(tab.id, cookieFilePath);
-                if (loadResult.success) {
-                    successCount++;
-                } else {
-                    errorCount++;
-                    console.error(`Failed to load cookies for ${tab.accountName}:`, loadResult.error);
-                }
-            } catch (error) {
-                errorCount++;
-                console.error(`Error loading cookies for ${tab.accountName}:`, error);
-            }
-        }
-
-        //showNotification(`批量加载完成: ${successCount} 成功, ${errorCount} 失败`,errorCount === 0 ? 'success' : 'warning');
-
-        // 刷新所有成功加载的标签页
-        if (successCount > 0) {
-            await refreshCurrentTab();
-        }
-
-    } catch (error) {
-        console.error('批量加载Cookie失败:', error);
-        //showNotification(`批量加载Cookie失败: ${handleError(error)}`, 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-/**
  * 导出 Cookie 管理功能到全局
  */
 (window as any).loadCookies = loadCookies;
 (window as any).saveCookies = saveCookies;
-(window as any).clearCookies = clearCookies;
-(window as any).batchLoadCookies = batchLoadCookies;
 
+/*
 // 为模态框中的按钮提供全局访问
 (window as any).handleCookieAction = async (action: string) => {
     switch (action) {
@@ -1352,12 +1044,6 @@ async function batchLoadCookies(): Promise<void> {
         case 'save':
             await saveCookies();
             break;
-        case 'clear':
-            await clearCookies();
-            break;
-        case 'batch-load':
-            await batchLoadCookies();
-            break;
         default:
             console.warn('Unknown cookie action:', action);
     }
@@ -1365,91 +1051,7 @@ async function batchLoadCookies(): Promise<void> {
     // 关闭模态框
     hideCookieDialog();
 };
-// ========================================
-// 标签页操作
-// ========================================
-
-/**
- * 刷新当前标签页
- */
-async function refreshCurrentTab(): Promise<void> {
-    if (!activeTabId) {
-        //showNotification('请先选择一个标签页', 'warning');
-        return;
-    }
-
-    try {
-        const response = await fetch('http://localhost:3409/api/account/refresh', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tabId: activeTabId })
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            //showNotification('页面已刷新', 'info');
-        } else {
-            throw new Error(result.error || '刷新失败');
-        }
-
-    } catch (error) {
-        console.error('刷新页面失败:', error);
-        //showNotification(`刷新页面失败: ${handleError(error)}`, 'error');
-    }
-}
-
-/**
- * 截图
- */
-async function takeScreenshot(): Promise<void> {
-    if (!activeTabId) {
-        //showNotification('请先选择一个标签页', 'warning');
-        return;
-    }
-
-    try {
-        showLoading('正在截图...');
-
-        const response = await fetch('http://localhost:3409/api/account/screenshot', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tabId: activeTabId })
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            showScreenshot(result.data.screenshot);
-            //showNotification('截图完成', 'success');
-        } else {
-            throw new Error(result.error || '截图失败');
-        }
-
-    } catch (error) {
-        console.error('截图失败:', error);
-        //showNotification(`截图失败: ${handleError(error)}`, 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-/**
- * 显示截图
- */
-function showScreenshot(screenshotData: string): void {
-    const modal = document.getElementById('screenshot-modal');
-    const image = document.getElementById('screenshot-image') as HTMLImageElement;
-
-    if (modal && image) {
-        image.src = screenshotData;
-        modal.style.display = 'flex';
-
-        // 保存截图数据供下载使用
-        (window as any).currentScreenshot = screenshotData;
-    }
-}
-
+*/
 /**
  * 隐藏截图模态框
  */
@@ -1460,229 +1062,8 @@ function hideScreenshotModal(): void {
     }
 }
 
-/**
- * 下载截图
- */
-function downloadScreenshot(): void {
-    const screenshotData = (window as any).currentScreenshot;
-    if (!screenshotData) {
-        //showNotification('没有可下载的截图', 'warning');
-        return;
-    }
 
-    try {
-        const link = document.createElement('a');
-        link.href = screenshotData;
-        link.download = `screenshot-${new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-')}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
 
-        //showNotification('截图已下载', 'success');
-    } catch (error) {
-        console.error('下载截图失败:', error);
-        //showNotification('下载截图失败', 'error');
-    }
-}
-
-// ========================================
-// 批量操作
-// ========================================
-
-/**
- * 执行批量操作
- */
-async function executeBatchOperation(): Promise<void> {
-    const operationSelect = document.getElementById('batch-operation') as HTMLSelectElement;
-    const inputElement = document.getElementById('batch-input') as HTMLInputElement;
-
-    const operation = operationSelect?.value || '';
-    const input = inputElement?.value?.trim() || '';
-
-    if (!operation) {
-        //showNotification('请选择批量操作类型', 'warning');
-        operationSelect?.focus();
-        return;
-    }
-
-    if (!input) {
-        //showNotification('请输入操作参数', 'warning');
-        inputElement?.focus();
-        return;
-    }
-
-    if (currentTabs.length === 0) {
-        //showNotification('没有可操作的标签页', 'warning');
-        return;
-    }
-
-    const confirmed = confirm(`确定要对所有 ${currentTabs.length} 个标签页执行 "${operation}" 操作吗？`);
-    if (!confirmed) return;
-
-    try {
-        showLoading(`正在执行批量${operation}操作...`);
-
-        const tabIds = currentTabs.map(tab => tab.id);
-        let data: any = {};
-
-        switch (operation) {
-            case 'navigate':
-                data.url = input;
-                break;
-            case 'execute':
-                data.script = input;
-                break;
-        }
-
-        const response = await fetch('http://localhost:3409/api/accounts/batch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ operation, tabIds, data })
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            const successCount = result.data.filter((r: any) => r.success).length;
-            //showNotification(`批量操作完成: ${successCount}/${tabIds.length} 个标签页操作成功`, 'success');
-
-            // 显示详细结果到测试面板
-            if (testPanel && typeof testPanel.addResult === 'function') {
-                result.data.forEach((r: any) => {
-                    const tab = currentTabs.find(t => t.id === r.tabId);
-                    testPanel.addResult({
-                        name: `批量${operation} - ${tab?.accountName || r.tabId}`,
-                        success: r.success,
-                        message: r.success ? '✅ 操作成功' : `❌ ${r.error}`,
-                        timestamp: new Date().toLocaleTimeString()
-                    });
-                });
-            }
-        } else {
-            throw new Error(result.error || '批量操作失败');
-        }
-
-    } catch (error) {
-        console.error('批量操作失败:', error);
-        //showNotification(`批量操作失败: ${handleError(error)}`, 'error');
-    } finally {
-        hideLoading();
-    }
-}
-
-// ========================================
-// API状态管理
-// ========================================
-
-/**
- * 检查API状态
-
-async function checkAPIStatus(): Promise<void> {
-    const statusElement = document.getElementById('api-connection-status');
-    const connectionStatus = document.getElementById('connection-status');
-
-    try {
-        const response = await fetch('http://localhost:3409/health', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        console.log('🔍 API响应状态:', response.status, response.statusText);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const result = await response.json();
-        console.log('🔍 API响应数据:', result);
-        if (result.success) {
-            apiConnected = true;
-            console.log('✅ API连接成功，设置 apiConnected = true');
-            if (statusElement) {
-                statusElement.textContent = '已连接';
-                statusElement.className = 'value status-logged_in';
-            }
-
-            if (connectionStatus) {
-                connectionStatus.innerHTML = `
-                    <span class="status-dot online"></span>
-                    <span class="status-text">API服务正常</span>
-                `;
-            }
-
-            // 获取API详细信息
-            try {
-                const infoResponse = await fetch('http://localhost:3409/api/info');
-                if (infoResponse.ok) {
-                    const infoResult = await infoResponse.json();
-                    if (infoResult.success) {
-                        updateSystemInfo(infoResult.data);
-                    }
-                }
-            } catch (error) {
-                console.warn('获取API信息失败:', error);
-            }
-        } else {
-            apiConnected = false;
-            console.log('❌ API响应失败，设置 apiConnected = false');
-            updateAPIOfflineStatus();
-        }
-    } catch (error) {
-        apiConnected = false;
-        updateAPIOfflineStatus();
-        console.warn('API连接检查失败:', error);
-    }
-}
- */
-/**
- * 更新API离线状态
-
-function updateAPIOfflineStatus(): void {
-    const statusElement = document.getElementById('api-connection-status');
-    const connectionStatus = document.getElementById('connection-status');
-
-    if (statusElement) {
-        statusElement.textContent = '未连接';
-        statusElement.className = 'value status-logged_out';
-    }
-
-    if (connectionStatus) {
-        connectionStatus.innerHTML = `
-            <span class="status-dot offline"></span>
-            <span class="status-text">API服务离线</span>
-        `;
-    }
-}
- */
-/**
- * 更新系统信息
-
-async function updateSystemInfo(apiData?: any): Promise<void> {
-    const memoryElement = document.getElementById('memory-usage');
-    const uptimeElement = document.getElementById('uptime');
-    const activeTabsElement = document.getElementById('api-active-tabs');
-
-    if (apiData) {
-        if (memoryElement && apiData.memory) {
-            const memoryMB = Math.round(apiData.memory.heapUsed / 1024 / 1024);
-            memoryElement.textContent = `${memoryMB} MB`;
-        }
-
-        if (uptimeElement && typeof apiData.uptime === 'number') {
-            const hours = Math.floor(apiData.uptime / 3600);
-            const minutes = Math.floor((apiData.uptime % 3600) / 60);
-            uptimeElement.textContent = `${hours}h ${minutes}m`;
-        }
-
-        if (activeTabsElement && typeof apiData.totalTabs === 'number') {
-            activeTabsElement.textContent = apiData.totalTabs.toString();
-        }
-    }
-
-    // 更新本地标签页计数
-    if (activeTabsElement && !apiData) {
-        activeTabsElement.textContent = currentTabs.length.toString();
-    }
-}
- */
 /**
  * 设置右键菜单 - 简化版本（只处理URL输入框）
 
@@ -1716,61 +1097,29 @@ function hideContextMenu(): void {
 }
 
 
-/**
- * 刷新指定标签页
- */
-async function refreshTab(tabId: string): Promise<void> {
-    try {
-        const response = await fetch('http://localhost:3409/api/account/refresh', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tabId })
-        });
+async function refreshTab(tabId?: string): Promise<void> {
+    // 如果没有指定 tabId，使用当前活动标签页
+    const targetTabId = tabId || activeTabId;
+    
+    if (!targetTabId) {
+        console.warn('⚠️ 没有可刷新的标签页');
+        return;
+    }
 
-        const result = await response.json();
+    try {
+        console.log(`🔄 执行标签页刷新: ${targetTabId}`);
+        
+        const result = await window.electronAPI.refreshTab(targetTabId);
 
         if (result.success) {
-            const tab = currentTabs.find(t => t.id === tabId);
-            //showNotification(`已刷新标签页: ${tab?.accountName || tabId}`, 'info');
+            const tab = currentTabs.find(t => t.id === targetTabId);
+            console.log(`✅ 标签页刷新成功: ${tab?.accountName || targetTabId}`);
+
         } else {
             throw new Error(result.error || '刷新失败');
         }
     } catch (error) {
-        console.error('刷新标签页失败:', error);
-        //showNotification(`刷新标签页失败: ${handleError(error)}`, 'error');
-    }
-
-    hideContextMenu();
-}
-
-/**
- * 复制标签页
- */
-async function duplicateTab(tabId: string): Promise<void> {
-    const tab = currentTabs.find(t => t.id === tabId);
-    if (!tab) {
-        //showNotification('标签页不存在', 'warning');
-        return;
-    }
-
-    const newName = `${tab.accountName} - 副本`;
-
-    try {
-        showLoading('正在复制标签页...');
-
-        const result = await window.electronAPI.createAccountTab(newName, tab.platform, tab.url);
-
-        if (result.success) {
-            await refreshTabList();
-            //showNotification(`已复制标签页: ${newName}`, 'success');
-        } else {
-            throw new Error(result.error || '复制失败');
-        }
-    } catch (error) {
-        console.error('复制标签页失败:', error);
-        //showNotification(`复制标签页失败: ${handleError(error)}`, 'error');
-    } finally {
-        hideLoading();
+        console.error('❌ 标签页刷新异常:', error);
     }
 
     hideContextMenu();
@@ -1873,78 +1222,24 @@ function selectCookieFile(): void {
     }
 }
 
-// ========================================
-// 快速功能
-// ========================================
-
-
-/**
- * 打开当前标签页的开发者工具
- */
-async function openCurrentTabDevTools(): Promise<void> {
-    console.log('🔧 openCurrentTabDevTools called, activeTabId:', activeTabId);
-
-    if (!activeTabId) {
-        console.log('❌ No active tab');
-        //showNotification('请先选择一个标签页', 'warning');
+async function openDevTools(tabId?: string): Promise<void> {
+    // 如果没有指定 tabId，使用当前活动标签页
+    const targetTabId = tabId || activeTabId;
+    if (!targetTabId) {
         return;
     }
-
     try {
-        console.log('🔧 Sending request to open devtools for tab:', activeTabId);
-
-        showLoading('正在打开开发者工具...');
-
-        const response = await fetch('http://localhost:3409/api/account/open-devtools', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tabId: activeTabId })
-        });
-
-        console.log('🔧 Response status:', response.status);
-
-        const result = await response.json();
-        console.log('🔧 Response result:', result);
-
+        console.log(`🔧 为标签页 ${targetTabId} 打开开发者工具`);
+        const result = await window.electronAPI.openDevTools(targetTabId);
         if (result.success) {
-            //showNotification('开发者工具已在独立窗口中打开', 'success');
+            console.log('✅ 开发者工具已打开');
+
         } else {
             throw new Error(result.error || '打开失败');
         }
     } catch (error) {
         console.error('❌ 打开开发者工具失败:', error);
-        //showNotification(`打开开发者工具失败: ${handleError(error)}`, 'error');
-    } finally {
-        hideLoading();
     }
-}
-
-/**
- * 为指定标签页打开开发者工具（用于右键菜单）
- */
-async function openTabDevTools(tabId: string): Promise<void> {
-    try {
-        showLoading('正在打开开发者工具...');
-
-        const response = await fetch('http://localhost:3409/api/account/open-devtools', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tabId })
-        });
-
-        const result = await response.json();
-        if (result.success) {
-            //showNotification('开发者工具已在独立窗口中打开', 'success');
-        } else {
-            throw new Error(result.error || '打开失败');
-        }
-    } catch (error) {
-        console.error('打开开发者工具失败:', error);
-        //showNotification('打开开发者工具失败', 'error');
-    } finally {
-        hideLoading();
-    }
-
     hideContextMenu();
 }
 // ========================================
@@ -2082,44 +1377,15 @@ function delay(ms: number): Promise<void> {
 (window as any).closeTab = closeTab;
 (window as any).switchTab = switchTab;
 (window as any).refreshTab = refreshTab;
-(window as any).duplicateTab = duplicateTab;
+//(window as any).duplicateTab = duplicateTab;
 (window as any).selectCookieFile = selectCookieFile;
-
 (window as any).hideScreenshotModal = hideScreenshotModal;
-(window as any).downloadScreenshot = downloadScreenshot;
-(window as any).refreshCurrentTab = refreshCurrentTab;
+
 (window as any).closeCurrentTab = () => {
     if (activeTabId) {
         closeTab(activeTabId);
     }
 };
-(window as any).duplicateCurrentTab = () => {
-    if (activeTabId) {
-        duplicateTab(activeTabId);
-    }
-};
-
-(window as any).openTabDevTools = async (tabId: string) => {
-    try {
-        const response = await fetch('http://localhost:3409/api/account/open-devtools', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tabId })
-        });
-
-        const result = await response.json();
-        if (result.success) {
-            //showNotification('开发者工具已打开', 'info');
-        }
-    } catch (error) {
-        console.error('打开开发者工具失败:', error);
-        //showNotification('打开开发者工具失败', 'error');
-    }
-    hideContextMenu();
-};
-// ========================================
-// 页面生命周期
-// ========================================
 
 // 页面卸载时清理资源
 window.addEventListener('beforeunload', () => {
@@ -2180,5 +1446,4 @@ function getAppState(): object {
 
 console.log('🎨 渲染进程脚本加载完成');
 
-(window as any).openCurrentTabDevTools = openCurrentTabDevTools;
-(window as any).openTabDevTools = openTabDevTools;
+(window as any).openDevTools = openDevTools;

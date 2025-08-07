@@ -1,4 +1,4 @@
-/* Chrome风格的简化界面样式 */
+/* Chrome风格的简化界面样式 - 完整修复版 */
 
 :root {
     /* Chrome风格颜色 */
@@ -9,10 +9,10 @@
     --chrome-blue: #1a73e8;
     --chrome-hover: #e8f0fe;
 
-    /* 尺寸 */
-    --header-height: 80px;
-    --tab-height: 36px;
-    --nav-height: 44px;
+    /* 🔥 精确的尺寸定义 */
+    --tab-bar-height: 44px;
+    --nav-bar-height: 48px;
+    --header-total-height: 92px; /* tab-bar + nav-bar */
     --status-height: 24px;
 }
 
@@ -26,6 +26,9 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: var(--chrome-bg);
     overflow: hidden;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
 }
 
 #app {
@@ -34,31 +37,31 @@ body {
     flex-direction: column;
     margin: 0;
     padding: 0;
-    /* 关键：移除子元素之间的间隙 */
     gap: 0;
 }
 
-/* Chrome风格标题栏 */
+/* 🔥 Chrome风格标题栏 - 精确高度控制 */
 .chrome-header {
     background: white;
     border-bottom: 1px solid var(--chrome-border);
     display: flex;
     flex-direction: column;
-    height: var(--header-height);
+    height: var(--header-total-height);
     position: relative;
     z-index: 1000;
-    /* 关键修复：确保没有下边距 */
-    margin-bottom: 0;
-    padding-bottom: 0;
+    margin: 0;
+    padding: 0;
+    flex-shrink: 0; /* 防止被压缩 */
 }
 
-/* 标签页容器 */
+/* 🔥 标签页容器 - 精确高度 */
 .tabs-container {
     display: flex;
     align-items: end;
     padding: 8px 8px 0 8px;
-    height: var(--tab-height);
+    height: var(--tab-bar-height);
     background: var(--chrome-bg);
+    flex-shrink: 0;
 }
 
 .tab-close {
@@ -161,7 +164,6 @@ body {
     justify-content: center;
     opacity: 0.7;
     transition: all 0.15s ease;
-    /* 确保按钮内容正确显示 */
     font-size: 14px;
     line-height: 1;
     color: #5f6368;
@@ -172,7 +174,6 @@ body {
     opacity: 1;
 }
 
-/* 使用 CSS content 属性显示 × 符号 */
 .chrome-tab-close::before {
     content: '×';
     font-size: 16px;
@@ -180,18 +181,15 @@ body {
     font-weight: normal;
 }
 
-/* 确保不会显示重复的文本内容 */
 .chrome-tab-close {
     text-indent: 0;
     overflow: hidden;
 }
 
-/* 移除可能导致重复显示的样式 */
 .chrome-tab .tab-close {
     display: none !important;
 }
 
-/* 确保只有 chrome-tab-close 显示 */
 .chrome-tab-close:not(:empty) {
     text-indent: -9999px;
 }
@@ -221,34 +219,56 @@ body {
     background: var(--chrome-hover);
 }
 
-/* 导航栏 */
+/* 🔥 导航栏 - 精确高度和布局 */
+.navigation-bar {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    background: #fff;
+    border-bottom: 1px solid #e8eaed;
+    height: var(--nav-bar-height);
+    gap: 8px;
+    flex-shrink: 0; /* 防止被压缩 */
+    box-shadow: 0 1px 3px rgba(60, 64, 67, 0.08);
+    position: relative;
+    z-index: 10;
+}
+
+.nav-buttons {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0; /* 防止被压缩 */
+}
+
+/* 🔥 导航按钮 - 移除禁用光标 */
 .nav-btn {
     width: 32px;
     height: 32px;
     border: none;
     background: transparent;
     border-radius: 50%;
-    /* 圆形按钮 */
     display: flex;
     align-items: center;
     justify-content: center;
     color: #5f6368;
-    cursor: pointer;
+    cursor: pointer; /* 🔥 始终保持指针光标 */
     transition: all 0.15s ease;
     margin: 0 2px;
 }
 
-.nav-btn:hover:not(:disabled) {
+.nav-btn:hover {
     background-color: #f1f3f4;
 }
 
-.nav-btn:active:not(:disabled) {
+.nav-btn:active {
     background-color: #e8eaed;
 }
 
+/* 🔥 移除禁用状态的光标问题 */
 .nav-btn:disabled {
     color: #dadce0;
-    cursor: not-allowed;
+    cursor: pointer; /* 保持指针光标，不要 not-allowed */
 }
 
 .nav-btn svg {
@@ -256,87 +276,65 @@ body {
     height: 18px;
 }
 
-/* 导航栏整体样式 */
-.navigation-bar {
-    display: flex;
-    align-items: center;
-    padding: 8px 16px;
-    background: #fff;
-    border-bottom: 1px solid #e8eaed;
-    min-height: 48px;
-    gap: 8px;
-    /* 添加间距 */
-}
-
-.nav-buttons {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-}
-
-/* URL输入框 */
+/* 🔥 URL输入框 - Chrome风格，占据最大空间 */
 .url-bar {
     display: flex;
     align-items: center;
-    flex: 1;
-    max-width: 600px;
-    margin: 0 var(--spacing-md);
+    flex: 1; /* 占据所有可用空间 */
+    min-width: 300px; /* 最小宽度确保可用性 */
+    max-width: none; /* 🔥 移除最大宽度限制 */
+    margin: 0 40px 0 40px;
     position: relative;
 }
 
 .url-input {
     width: 100%;
-    height: 32px;
-    padding: 0 40px 0 14px;
+    height: 32px; /* 🔥 增加高度，更像 Chrome */
+    padding: 0 50px 0 16px; /* 🔥 增加左右内边距 */
     border: 1px solid #dadce0;
-    border-radius: 16px;
+    border-radius: 18px; /* 🔥 更圆润的圆角 */
     font-size: 14px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #fff;
     color: #202124;
     outline: none;
     transition: all 0.2s ease;
-    box-shadow: none;
-    line-height: 32px;
+    box-shadow: 0 1px 3px rgba(60, 64, 67, 0.08);
+    line-height: 36px; /* 匹配高度 */
 }
 
 .url-input:focus {
     border-color: #1a73e8;
-    box-shadow: 0 1px 6px rgba(26, 115, 232, 0.15);
+    box-shadow: 0 2px 8px rgba(26, 115, 232, 0.2);
     outline: none;
     background: #fff;
 }
 
-/* Chrome 风格的悬停状态 */
 .url-input:hover:not(:focus) {
-    border-color: #c0c0c0;
-    box-shadow: 0 1px 3px rgba(60, 64, 67, 0.1);
+    border-color: #b0b0b0;
+    box-shadow: 0 2px 6px rgba(60, 64, 67, 0.12);
 }
 
-/* 占位符样式 */
 .url-input::placeholder {
     color: #5f6368;
     font-size: 14px;
 }
 
-/* 选中文本样式 */
 .url-input::selection {
-    background-color: rgba(26, 115, 232, 0.2);
-    /* 20% 透明度的蓝色 */
+    background-color: rgba(26, 115, 232, 0.25);
     color: #202124;
-    /* 保持原文本颜色 */
 }
 
 .go-btn {
     position: absolute;
-    right: 6px;
+    right: 8px;
     top: 50%;
     transform: translateY(-50%);
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     border: none;
     background: transparent;
-    border-radius: 10px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -352,23 +350,14 @@ body {
     color: #1a73e8;
 }
 
-.url-input:not(:placeholder-shown)+.go-btn {
+.url-input:not(:placeholder-shown) + .go-btn {
     opacity: 1;
     pointer-events: auto;
 }
 
-.go-btn:hover {
-    background-color: #f1f3f4;
-    color: #1a73e8;
-}
-
-.go-btn:active {
-    background-color: #e8eaed;
-}
-
 .go-btn svg {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
 }
 
 /* 工具栏按钮 */
@@ -376,6 +365,7 @@ body {
     display: flex;
     align-items: center;
     gap: 2px;
+    flex-shrink: 0; /* 防止被压缩 */
 }
 
 .toolbar-btn {
@@ -384,7 +374,6 @@ body {
     border: none;
     background: transparent;
     border-radius: 50%;
-    /* 圆形按钮 */
     display: flex;
     align-items: center;
     justify-content: center;
@@ -406,77 +395,109 @@ body {
     height: 18px;
 }
 
-s .url-bar::before,
-.url-bar::after {
-    display: none;
-}
-
-.url-input::-webkit-outer-spin-button,
-.url-input::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-}
-
-/* 确保没有额外的边框或阴影 */
-.url-input:focus-visible {
-    outline: none;
-}
-
+/* 🔥 浏览器内容区域 - 精确计算高度，消除空白 */
 .browser-content {
     flex: 1;
     position: relative;
     background: white;
     overflow: hidden;
-    z-index: 1;
-    /* 关键修复：去除顶部边距和边框，确保紧贴头部 */
     margin: 0;
     padding: 0;
     border: none;
+    /* 🔥 精确计算高度，消除工具栏下方空白 */
+    height: calc(100vh - var(--header-total-height) - var(--status-height));
+    min-height: 0; /* 允许缩小 */
 }
 
 .browser-view-container {
     width: 100%;
     height: 100%;
     background: #f8f9fa;
-    /* 关键修复：去除边距和边框 */
     margin: 0;
     padding: 0;
     border: none;
-    /* 确保容器完全贴合 */
     display: block;
 }
 
-/* 欢迎页面 */
+/* 🔥 欢迎页面 - 修复启动时空白问题 */
 .no-tabs-message {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    display: flex;
+    display: flex; /* 🔥 默认显示，不要设置 display: none */
     align-items: center;
     justify-content: center;
     background: white;
     z-index: 1;
 }
 
+/* 🔥 当有标签页时隐藏欢迎页面 */
+.no-tabs-message.hidden {
+    display: none;
+}
+
 .welcome-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     text-align: center;
-    color: var(--chrome-text-secondary);
+    animation: fadeInUp 0.6s ease-out;
 }
 
 .welcome-icon {
-    font-size: 48px;
-    margin-bottom: 16px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.welcome-icon-img {
+    width: 80px;
+    height: 80px;
+    object-fit: contain;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+    display: block;
 }
 
 .welcome-content h2 {
-    margin-bottom: 8px;
-    color: var(--chrome-text);
-    font-weight: 400;
+    font-size: 2rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin: 0 0 0.5rem 0;
+    letter-spacing: -0.025em;
+    text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
-/* 状态栏 */
+.welcome-content p {
+    font-size: 1.1rem;
+    font-weight: 400;
+    color: #6b7280;
+    margin: 0.5rem 0 0 0;
+    line-height: 1.6;
+    text-align: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 🔥 状态栏 - 精确高度 */
 .status-bar {
     height: var(--status-height);
     background: var(--chrome-bg);
@@ -489,9 +510,9 @@ s .url-bar::before,
     color: var(--chrome-text-secondary);
     position: relative;
     z-index: 100;
-    /* 合并的修复样式 */
     box-sizing: border-box;
     margin: 0;
+    flex-shrink: 0; /* 防止被压缩 */
 }
 
 .status-left,
@@ -512,6 +533,10 @@ s .url-bar::before,
     height: 8px;
     border-radius: 50%;
     background: #34a853;
+}
+
+.status-dot.offline {
+    background: #ea4335;
 }
 
 /* 模态框样式 */
@@ -673,6 +698,16 @@ s .url-bar::before,
     background: var(--chrome-hover);
 }
 
+.btn-warning {
+    border-color: #f39c12;
+    color: #f39c12;
+}
+
+.btn-warning:hover {
+    background-color: #f39c12;
+    color: white;
+}
+
 /* 加载动画 */
 .loading-overlay {
     position: fixed;
@@ -707,13 +742,8 @@ s .url-bar::before,
 }
 
 @keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-
-    100% {
-        transform: rotate(360deg);
-    }
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 /* 通知系统 */
@@ -792,153 +822,75 @@ s .url-bar::before,
         opacity: 0;
         transform: translateX(100%);
     }
-
     to {
         opacity: 1;
         transform: translateX(0);
     }
 }
 
-
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-    .url-bar {
-        max-width: none;
-        margin: 0 var(--spacing-sm);
-    }
-
-    .navigation-bar {
-        padding: 6px 12px;
-        gap: 4px;
-    }
-
-    .url-input {
-        height: 30px;
-        line-height: 30px;
-        font-size: 13px;
-    }
-
-    .nav-btn,
-    .toolbar-btn {
-        width: 28px;
-        height: 28px;
-    }
-
-    .nav-btn svg,
-    .toolbar-btn svg {
-        width: 16px;
-        height: 16px;
-    }
-}
-
-.chrome-header .navigation-bar .url-bar {
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    outline: none;
-}
-
-/* 移除任何可能导致双重边框的样式 */
-.url-bar input[type="text"] {
-    box-sizing: border-box;
-}
-
-/* 确保 Go 按钮正确定位 */
-.url-bar {
-    position: relative;
-    overflow: visible;
-}
-
-.go-btn {
-    z-index: 10;
-}
-
-/* 隐藏滚动条但保持功能 */
-::-webkit-scrollbar {
-    width: 0px;
-    background: transparent;
-}
-
+/* Cookie 管理样式 */
 .cookie-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: var(--spacing-md);
-    margin-bottom: var(--spacing-lg);
+    gap: 12px;
+    margin-bottom: 16px;
 }
 
 .cookie-actions .btn {
     display: flex;
     align-items: center;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-md);
+    gap: 8px;
+    padding: 12px;
     text-align: left;
     transition: all 0.2s ease;
 }
 
 .cookie-actions .btn:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-}
-
-.cookie-actions .btn-warning {
-    border-color: #f39c12;
-    color: #f39c12;
-}
-
-.cookie-actions .btn-warning:hover {
-    background-color: #f39c12;
-    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
 .cookie-info {
-    border-top: 1px solid var(--border-color);
-    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--chrome-border);
+    padding-top: 16px;
 }
 
 .cookie-info h4 {
-    margin: 0 0 var(--spacing-sm) 0;
-    color: var(--text-primary);
-    font-size: var(--font-size-md);
+    margin: 0 0 8px 0;
+    color: var(--chrome-text);
+    font-size: 14px;
 }
 
 .cookie-info ul {
-    margin: 0 0 var(--spacing-md) 0;
-    padding-left: var(--spacing-lg);
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
+    margin: 0 0 16px 0;
+    padding-left: 16px;
+    color: var(--chrome-text-secondary);
+    font-size: 12px;
     line-height: 1.6;
 }
 
 .cookie-info li {
-    margin-bottom: var(--spacing-xs);
+    margin-bottom: 4px;
 }
 
 .cookie-status {
     display: flex;
     align-items: center;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-sm);
-    background: var(--bg-secondary);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-sm);
+    gap: 8px;
+    padding: 8px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-size: 12px;
 }
 
 .status-label {
     font-weight: 500;
-    color: var(--text-secondary);
+    color: var(--chrome-text-secondary);
 }
 
 .status-value {
-    color: var(--text-primary);
+    color: var(--chrome-text);
     font-family: monospace;
-}
-
-/* 响应式设计 */
-@media (max-width: 600px) {
-    .cookie-actions {
-        grid-template-columns: 1fr;
-    }
 }
 
 /* 标签页加载动画 */
@@ -951,68 +903,58 @@ s .url-bar::before,
     animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-    0% {
-        transform: rotate(0deg);
+/* 标签页默认图标样式 */
+.chrome-tab-icon {
+    font-size: 16px;
+    line-height: 1;
+    text-align: center;
+}
+
+.chrome-tab-icon img[alt="browser"] {
+    filter: none !important;
+    opacity: 0.8;
+}
+
+.chrome-tab-icon img[alt="browser"]:hover {
+    opacity: 1;
+}
+
+.chrome-tab-icon:not(:has(img)):not(:has(.tab-loading-spinner)) {
+    font-size: 14px;
+    color: var(--chrome-text-secondary);
+}
+
+/* 🔥 响应式设计优化 */
+@media (max-width: 1200px) {
+    .url-bar {
+        margin: 0 12px;
     }
+}
 
-    100% {
-        transform: rotate(360deg);
+@media (max-width: 900px) {
+    .url-bar {
+        margin: 0 8px;
+        min-width: 250px;
+    }
+    
+    .navigation-bar {
+        padding: 6px 12px;
     }
 }
 
-.welcome-icon {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    margin-bottom: 1.5rem;
-}
-
-.welcome-icon-img {
-    width: 80px;
-    height: 80px;
-    object-fit: contain;
-    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
-    display: block;
-}
-
-/* 欢迎内容整体布局 */
-.welcome-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    animation: fadeInUp 0.6s ease-out;
-}
-
-/* 欢迎页面字体样式 */
-.welcome-content h2 {
-    font-size: 2rem;
-    font-weight: 600;
-    color: #1f2937;
-    margin: 0 0 0.5rem 0;
-    letter-spacing: -0.025em;
-    text-align: center;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-.welcome-content p {
-    font-size: 1.1rem;
-    font-weight: 400;
-    color: #6b7280;
-    margin: 0.5rem 0 0 0;
-    line-height: 1.6;
-    text-align: center;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-}
-
-/* 响应式调整 */
 @media (max-width: 768px) {
+    .url-bar {
+        margin: 0 4px;
+        min-width: 200px;
+    }
+    
+    .url-input {
+        height: 32px;
+        line-height: 32px;
+        font-size: 13px;
+        border-radius: 16px;
+    }
+    
     .welcome-icon-img {
         width: 64px;
         height: 64px;
@@ -1025,51 +967,20 @@ s .url-bar::before,
     .welcome-content p {
         font-size: 1rem;
     }
-}
-
-/* 添加渐变效果 */
-.welcome-content h2 {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-/* 为整个欢迎内容添加动画 */
-.welcome-content {
-    animation: fadeInUp 0.6s ease-out;
-}
-/* 标签页默认图标样式 */
-.chrome-tab-icon {
-    font-size: 16px;
-    line-height: 1;
-    text-align: center;
-}
-
-/* 确保浏览器图标正确显示 */
-.chrome-tab-icon img[alt="browser"] {
-    filter: none !important;
-    opacity: 0.8;
-}
-
-.chrome-tab-icon img[alt="browser"]:hover {
-    opacity: 1;
-}
-
-/* 地球图标样式 */
-.chrome-tab-icon:not(:has(img)):not(:has(.tab-loading-spinner)) {
-    font-size: 14px;
-    color: var(--chrome-text-secondary);
-}
-
-@keyframes fadeInUp {
-    from {
-        opacity: 0;
-        transform: translateY(20px);
+    
+    .cookie-actions {
+        grid-template-columns: 1fr;
     }
+}
 
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+/* 🔥 确保滚动条隐藏但保持功能 */
+::-webkit-scrollbar {
+    width: 0px;
+    background: transparent;
+}
+
+/* 🔥 自动填充样式修复 */
+.url-input:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 30px white inset !important;
+    -webkit-text-fill-color: #202124 !important;
 }
