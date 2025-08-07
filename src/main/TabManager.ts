@@ -1033,16 +1033,16 @@ export class TabManager {
         try {
             const webContents = tab.webContentsView.webContents;
             
-            // 🔥 检查是否可以后退
-            if (!webContents.canGoBack()) {
+            // 🔥 使用新的 navigationHistory API
+            if (!webContents.navigationHistory.canGoBack()) {
                 console.warn(`⚠️ WebContents 无法后退: ${tab.accountName}`);
                 return false;
             }
 
             console.log(`⬅️ 执行 Electron 原生后退导航: ${tab.accountName}`);
             
-            // 🔥 使用 Electron 的原生方法，不是 JavaScript
-            webContents.goBack();
+            // 🔥 使用新的 navigationHistory API
+            webContents.navigationHistory.goBack();
             
             console.log(`✅ 后退导航成功: ${tab.accountName}`);
             return true;
@@ -1053,9 +1053,6 @@ export class TabManager {
         }
     }
 
-    /**
-     * 前进导航
-     */
     async navigateForward(tabId: string): Promise<boolean> {
         console.log(`🔜 TabManager.navigateForward 被调用: ${tabId}`);
         
@@ -1068,16 +1065,16 @@ export class TabManager {
         try {
             const webContents = tab.webContentsView.webContents;
             
-            // 🔥 检查是否可以前进
-            if (!webContents.canGoForward()) {
+            // 🔥 使用新的 navigationHistory API
+            if (!webContents.navigationHistory.canGoForward()) {
                 console.warn('⚠️ WebContents 无法前进');
                 return false;
             }
 
             console.log('➡️ 执行 Electron 原生前进导航');
 
-            // 🔥 使用 Electron 的原生方法
-            webContents.goForward();
+            // 🔥 使用新的 navigationHistory API
+            webContents.navigationHistory.goForward();
             
             console.log(`✅ 前进导航成功: ${tab.accountName}`);
             return true;
@@ -1087,7 +1084,6 @@ export class TabManager {
             return false;
         }
     }
-
     /**
      * 刷新标签页
      */
