@@ -70,23 +70,23 @@ function handleError(error: unknown): string {
 function setupTabTitleListeners(): void {
     // 监听标题更新
     window.electronAPI.onTabTitleUpdated(({ tabId, title }) => {
-        console.log(`📝 收到标题更新: ${title} (${tabId})`);
+        //console.log(`📝 收到标题更新: ${title} (${tabId})`);
         updateTabTitle(tabId, title);
     });
 
     // 监听图标更新
     window.electronAPI.onTabFaviconUpdated(({ tabId, favicon }) => {
-        console.log(`🎭 收到图标更新: ${favicon} (${tabId})`);
+        //console.log(`🎭 收到图标更新: ${favicon} (${tabId})`);
         updateTabFavicon(tabId, favicon);
     });
     window.electronAPI.onTabUrlUpdated(({ tabId, url }) => {
-        console.log(`🔗 收到URL更新: ${url} (${tabId})`);
+        //console.log(`🔗 收到URL更新: ${url} (${tabId})`);
         
         // 只更新当前活动标签页的URL输入框
         if (tabId === activeTabId) {
             const urlInput = document.getElementById('url-input') as HTMLInputElement;
             if (urlInput) {
-                console.log(`🔗 更新URL输入框: ${url}`);
+                //console.log(`🔗 更新URL输入框: ${url}`);
                 urlInput.value = url;
             }
         }
@@ -239,7 +239,7 @@ function setupNavigationButtons(): void {
         // 确保光标始终为指针
         backBtn.style.cursor = 'pointer';
         forwardBtn.style.cursor = 'pointer';
-        console.log('🧭 导航按钮设置为始终启用（Chrome风格）');
+        //console.log('🧭 导航按钮设置为始终启用（Chrome风格）');
     }
 }
 
@@ -269,14 +269,14 @@ async function initializeApplication(): Promise<void> {
     try {
         showLoading('正在初始化应用...');
         await initializeComponents();
-        console.log('🎯 开始设置事件监听器...');
+        //console.log('🎯 开始设置事件监听器...');
         setupEventListeners();
         setupTabTitleListeners();
         setupMenuListeners();
         setupEventDrivenUpdates();
         setupErrorHandling();
         //setupContextMenu();
-        console.log(`🏠 初始化完成，立即更新欢迎页面状态`);
+        //console.log(`🏠 初始化完成，立即更新欢迎页面状态`);
         updateNoTabsMessage();
         apiConnected = true;
         updateConnectionStatus();
@@ -298,24 +298,10 @@ async function initializeApplication(): Promise<void> {
  */
 async function initializeComponents(): Promise<void> {
     try {
-        // 初始化测试面板
-        if (typeof (window as any).TestPanel !== 'undefined' &&
-            typeof process !== 'undefined' &&
-            process.env?.NODE_ENV === 'development') {
-
-            // 检查测试结果容器是否存在
-            const testResultsContainer = document.getElementById('test-results');
-            if (testResultsContainer) {
-                testPanel = new (window as any).TestPanel('test-results');
-                console.log('✅ 测试面板初始化完成');
-            } else {
-                console.log('ℹ️ 测试结果容器不存在，跳过测试面板初始化');
-            }
-        }
 
         // 确保必要的DOM元素存在
         ensureRequiredElements();
-        console.log('✅ 组件初始化完成');
+        //console.log('✅ 组件初始化完成');
     } catch (error) {
         console.error('组件初始化失败:', error);
         throw new Error(`组件初始化失败: ${handleError(error)}`);
@@ -377,11 +363,11 @@ function setupUrlInputEvents(): void {
 
     // 焦点事件（用于调试）
     cleanInput.addEventListener('focus', () => {
-        console.log('🔍 URL input focused');
+        //console.log('🔍 URL input focused');
     });
 
     cleanInput.addEventListener('blur', () => {
-        console.log('🔍 URL input blurred');
+        //console.log('🔍 URL input blurred');
     });
 
     console.log('✅ URL input events setup complete - 最简化版本');
@@ -397,7 +383,7 @@ function updateGoButtonVisibility(): void {
 
     // CSS 会自动处理显示隐藏，这里只是为了调试
     const hasContent = urlInput.value.trim().length > 0;
-    console.log(`🔍 Go button should be ${hasContent ? 'visible' : 'hidden'}`);
+    //console.log(`🔍 Go button should be ${hasContent ? 'visible' : 'hidden'}`);
 }
 (window as any).setupUrlInputEvents = setupUrlInputEvents;
 /**
@@ -423,7 +409,7 @@ function setupEventListeners(): void {
         // 快捷键 - 在 URL 输入框事件之后设置
         setupKeyboardShortcuts();
 
-        console.log('✅ 事件监听器设置完成');
+        //console.log('✅ 事件监听器设置完成');
 
     } catch (error) {
         console.error('事件监听器设置失败:', error);
@@ -432,8 +418,8 @@ function setupEventListeners(): void {
 }
 
 async function navigateBack(): Promise<void> {
-    console.log(`⬅️ navigateBack 被调用`);
-    console.log(`⬅️ 当前活动标签页ID: ${activeTabId}`);
+    //console.log(`⬅️ navigateBack 被调用`);
+    //console.log(`⬅️ 当前活动标签页ID: ${activeTabId}`);
     
     if (!activeTabId) {
         console.warn('⚠️ 没有活动标签页，无法后退');
@@ -441,12 +427,12 @@ async function navigateBack(): Promise<void> {
     }
 
     try {
-        console.log('⬅️ 开始执行后退导航...');
-        console.log('⬅️ 即将调用 IPC: window.electronAPI.navigateBack');
+        //console.log('⬅️ 开始执行后退导航...');
+        //console.log('⬅️ 即将调用 IPC: window.electronAPI.navigateBack');
         
         const result = await window.electronAPI.navigateBack(activeTabId);
         
-        console.log('⬅️ IPC 调用结果:', result);
+        //console.log('⬅️ IPC 调用结果:', result);
 
         if (result.success) {
             console.log('✅ 后退导航成功');
@@ -459,8 +445,8 @@ async function navigateBack(): Promise<void> {
 }
 
 async function navigateForward(): Promise<void> {
-    console.log(`➡️ navigateForward 被调用`);
-    console.log(`➡️ 当前活动标签页ID: ${activeTabId}`);
+    //console.log(`➡️ navigateForward 被调用`);
+    //console.log(`➡️ 当前活动标签页ID: ${activeTabId}`);
     
     if (!activeTabId) {
         console.warn('⚠️ 没有活动标签页，无法前进');
@@ -468,12 +454,12 @@ async function navigateForward(): Promise<void> {
     }
 
     try {
-        console.log('➡️ 开始执行前进导航...');
-        console.log('➡️ 即将调用 IPC: window.electronAPI.navigateForward');
+        //console.log('➡️ 开始执行前进导航...');
+        //console.log('➡️ 即将调用 IPC: window.electronAPI.navigateForward');
         
         const result = await window.electronAPI.navigateForward(activeTabId);
         
-        console.log('➡️ IPC 调用结果:', result);
+        //console.log('➡️ IPC 调用结果:', result);
 
         if (result.success) {
             console.log('✅ 前进导航成功');
@@ -565,7 +551,7 @@ function updateTabBar(): void {
         tabBarContent.appendChild(tabElement);
     });
 
-    console.log(`📑 更新了 ${currentTabs.length} 个标签页`);
+    //console.log(`📑 更新了 ${currentTabs.length} 个标签页`);
 }
 
 
@@ -717,7 +703,7 @@ function setupEventDrivenUpdates(): void {
         window.electronAPI.onTabCreated?.(({ tabId, tab }) => {
             addTabToUI(tab);
             if (!activeTabId) {
-                console.log('📋 设置为活动标签页:', tabId);
+                //console.log('📋 设置为活动标签页:', tabId);
                 activeTabId = tabId;
                 updateCurrentTabInfo();
                 updateNoTabsMessage();
@@ -726,18 +712,18 @@ function setupEventDrivenUpdates(): void {
 
         // 标签页关闭事件  
         window.electronAPI.onTabClosed?.(({ tabId }) => {
-            console.log('📋 收到标签页关闭事件:', tabId);
+            //console.log('📋 收到标签页关闭事件:', tabId);
             removeTabFromUI(tabId);
         });
 
         // 标签页切换事件
         window.electronAPI.onTabSwitched?.(({ tabId }) => {
-            console.log('📋 收到标签页切换事件:', tabId);
+            //console.log('📋 收到标签页切换事件:', tabId);
             updateActiveTabInUI(tabId);
         });
     }
 
-    console.log('✅ 事件驱动更新机制设置完成');
+    //console.log('✅ 事件驱动更新机制设置完成');
 }
 
 /**
@@ -784,7 +770,7 @@ function removeTabFromUI(tabId: string): void {
         updateCurrentTabInfo();
         updateNoTabsMessage();
         
-        console.log(`✅ 标签页已同步移除: ${removedTab.accountName}`);
+        //console.log(`✅ 标签页已同步移除: ${removedTab.accountName}`);
     }
 }
 
@@ -796,7 +782,7 @@ function updateActiveTabInUI(tabId: string): void {
         activeTabId = tabId;
         updateTabBar();
         updateCurrentTabInfo();
-        console.log(`✅ 活动标签页已切换: ${tabId}`);
+        //console.log(`✅ 活动标签页已切换: ${tabId}`);
     }
 }
 
@@ -837,7 +823,7 @@ async function createNewTab(): Promise<void> {
             // 无需手动调用 addTabToUI 或 refreshTabList
             activeTabId = result.tabId;
             
-            console.log('✅ 新标签页创建完成，无需刷新');
+            //console.log('✅ 新标签页创建完成，无需刷新');
         } else {
             // 创建失败，移除临时标签页
             removeTabFromUI(tempTab.id);
@@ -867,7 +853,7 @@ async function switchTab(tabId: string): Promise<void> {
             updateCurrentTabInfo();
             updateNoTabsMessage();
             updateTabBar();
-            console.log('✅ Switched to tab:', tabId);
+            //console.log('✅ Switched to tab:', tabId);
         } else {
             throw new Error(result.error || '切换失败');
         }
@@ -936,9 +922,9 @@ function updateNoTabsMessage(): void {
     const noTabsMessage = document.getElementById('no-tabs-message');
     if (noTabsMessage) {
         const shouldShow = currentTabs.length === 0;
-        console.log(`🏠 updateNoTabsMessage: 标签页数量=${currentTabs.length}, 是否显示欢迎页=${shouldShow}`);
-        console.log(`🏠 当前欢迎页面元素:`, noTabsMessage);
-        console.log(`🏠 当前欢迎页面样式:`, window.getComputedStyle(noTabsMessage).display);
+        //console.log(`🏠 updateNoTabsMessage: 标签页数量=${currentTabs.length}, 是否显示欢迎页=${shouldShow}`);
+        //console.log(`🏠 当前欢迎页面元素:`, noTabsMessage);
+        //console.log(`🏠 当前欢迎页面样式:`, window.getComputedStyle(noTabsMessage).display);
         
         noTabsMessage.style.display = shouldShow ? 'flex' : 'none';
     }
@@ -966,7 +952,7 @@ async function loadCookies(): Promise<void> {
         });
 
         if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
-            console.log('用户取消了文件选择');
+            //console.log('用户取消了文件选择');
             return;
         }
 
@@ -976,13 +962,13 @@ async function loadCookies(): Promise<void> {
         // 🔥 添加 loading 状态（从 loadCookieFile 学习）
         showLoading('正在加载Cookie...');
 
-        console.log(`🍪 开始加载Cookie文件: ${fileName}`);
+        //console.log(`🍪 开始加载Cookie文件: ${fileName}`);
 
         // 🔥 使用 IPC 调用（保持架构一致性）
         const loadResult = await window.electronAPI.loadCookies(activeTabId, cookieFilePath);
 
         if (loadResult.success) {
-            console.log(`✅ Cookie加载成功: ${fileName}`);
+            //console.log(`✅ Cookie加载成功: ${fileName}`);
             // showNotification(`Cookie加载成功: ${fileName}`, 'success');
 
             // 🔥 延迟刷新，给Cookie生效一些时间
@@ -1130,18 +1116,18 @@ async function refreshTab(tabId?: string): Promise<void> {
     const targetTabId = tabId || activeTabId;
     
     if (!targetTabId) {
-        console.warn('⚠️ 没有可刷新的标签页');
+        //console.warn('⚠️ 没有可刷新的标签页');
         return;
     }
 
     try {
-        console.log(`🔄 执行标签页刷新: ${targetTabId}`);
+        //console.log(`🔄 执行标签页刷新: ${targetTabId}`);
         
         const result = await window.electronAPI.refreshTab(targetTabId);
 
         if (result.success) {
             const tab = currentTabs.find(t => t.id === targetTabId);
-            console.log(`✅ 标签页刷新成功: ${tab?.accountName || targetTabId}`);
+            //console.log(`✅ 标签页刷新成功: ${tab?.accountName || targetTabId}`);
 
         } else {
             throw new Error(result.error || '刷新失败');
@@ -1162,17 +1148,17 @@ function setupKeyboardShortcuts(): void {
         const activeElement = document.activeElement;
 
         const logKey = `${e.ctrlKey || e.metaKey ? 'Ctrl+' : ''}${e.key}`;
-        console.log(`⚡ KeyDown: ${logKey}, target:`, target?.tagName, 'activeElement:', activeElement?.tagName);
+        //console.log(`⚡ KeyDown: ${logKey}, target:`, target?.tagName, 'activeElement:', activeElement?.tagName);
 
         // 如果是 WebView 触发的事件，应该会看到 activeElement === 'WEBVIEW'
         if (activeElement && activeElement.tagName === 'WEBVIEW') {
-            console.log('🚫 Focus is in webview, skipping global shortcut handling');
+            //console.log('🚫 Focus is in webview, skipping global shortcut handling');
             return;
         }
 
         // 打印剪贴板类
         if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'a'].includes(e.key.toLowerCase())) {
-            console.log(`✂️ Clipboard key pressed: ${logKey}`);
+            //console.log(`✂️ Clipboard key pressed: ${logKey}`);
             return;
         }
 
@@ -1218,7 +1204,7 @@ function setupKeyboardShortcuts(): void {
         }
     });
 
-    console.log('✅ 全局快捷键设置完成 - 安全兼容 WebView 剪贴板');
+    //console.log('✅ 全局快捷键设置完成 - 安全兼容 WebView 剪贴板');
 }
 
 /**
@@ -1257,7 +1243,7 @@ async function openDevTools(tabId?: string): Promise<void> {
         return;
     }
     try {
-        console.log(`🔧 为标签页 ${targetTabId} 打开开发者工具`);
+        //console.log(`🔧 为标签页 ${targetTabId} 打开开发者工具`);
         const result = await window.electronAPI.openDevTools(targetTabId);
         if (result.success) {
             console.log('✅ 开发者工具已打开');
@@ -1319,7 +1305,7 @@ function showNotification(message: string, type: 'success' | 'info' | 'warning' 
     }
 
 
-    console.log(`📢 通知[${type}]: ${message}`);
+    //console.log(`📢 通知[${type}]: ${message}`);
 }
 
 /**
@@ -1428,7 +1414,7 @@ window.addEventListener('beforeunload', () => {
             window.electronAPI.removeAllListeners('menu-close-tab');
         }
 
-        console.log('🧹 页面资源清理完成');
+        //console.log('🧹 页面资源清理完成');
     } catch (error) {
         console.error('页面清理时发生错误:', error);
     }
@@ -1472,6 +1458,6 @@ function getAppState(): object {
 (window as any).getCurrentTabs = () => currentTabs;
 (window as any).getActiveTabId = () => activeTabId;
 
-console.log('🎨 渲染进程脚本加载完成');
+//console.log('🎨 渲染进程脚本加载完成');
 
 (window as any).openDevTools = openDevTools;
