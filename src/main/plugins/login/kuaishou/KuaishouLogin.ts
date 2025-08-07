@@ -21,7 +21,7 @@ export class KuaishouLogin implements PluginLogin {
 
     async init(tabManager: any): Promise<void> {
         this.tabManager = tabManager;
-        console.log('✅ 快手登录插件初始化完成');
+        //console.log('✅ 快手登录插件初始化完成');
     }
 
     async destroy(): Promise<void> {
@@ -31,7 +31,7 @@ export class KuaishouLogin implements PluginLogin {
             pending.reject(new Error('插件正在销毁'));
         }
         this.pendingLogins.clear();
-        console.log('🧹 快手登录插件已销毁');
+        //console.log('🧹 快手登录插件已销毁');
     }
 
     /**

@@ -11,17 +11,20 @@ export class KuaiShouVideoUploader implements PluginUploader {
 
     async init(tabManager: TabManager): Promise<void> {
         this.tabManager = tabManager;
-        console.log(`✅ ${this.name} 初始化完成`);
+        //console.log(`✅ ${this.name} 初始化完成`);
     }
 
     async uploadVideoComplete(params: UploadParams): Promise<boolean> {
+        const headless = params.headless ?? true; // 默认headless模式
+        let tabId: string | null = null;        
         try {
             console.log(`🎭 开始快手视频完整上传流程... (${params.title})`);
 
-            const tabId = await this.tabManager.getOrCreateTab(
+            const tabId = await this.tabManager.createAccountTab(
                 params.cookieFile,
                 'kuaishou',
-                'https://cp.kuaishou.com/article/publish/video'
+                'https://cp.kuaishou.com/article/publish/video',
+                headless
             );
 
             // 1. 上传视频文件
@@ -48,6 +51,16 @@ export class KuaiShouVideoUploader implements PluginUploader {
         } catch (error) {
             console.error('❌ 快手视频上传流程失败:', error);
             throw error;
+        }finally {
+            // 🔥 自动关闭tab
+            if (tabId) {
+                try {
+                    await this.tabManager.closeTab(tabId);
+                    console.log(`✅ 已关闭微信视频号上传tab: ${tabId}`);
+                } catch (closeError) {
+                    console.warn(`⚠️ 关闭tab失败: ${closeError}`);
+                }
+            }
         }
     }
 

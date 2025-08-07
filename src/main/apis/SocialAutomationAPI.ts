@@ -715,13 +715,14 @@ export class SocialAutomationAPI {
                 enableTimer,
                 videosPerDay,
                 dailyTimes,
-                startDays
+                startDays,
+                mode = 'background'
             } = req.body;
 
             console.log(`📤 接收到视频发布请求:`);
             console.log(`   文件数: ${fileList.length}`);
             console.log(`   账号数: ${accountList.length}`);
-
+            console.log(`   发布模式: ${mode}`);
             // 验证必要参数
             if (!fileList || !Array.isArray(fileList) || fileList.length === 0) {
                 this.sendResponse(res, 400, '文件列表不能为空', null);
@@ -801,7 +802,8 @@ export class SocialAutomationAPI {
                     category: category === 0 ? undefined : category,
                     enableOriginal: true,
                     addToCollection: false,
-                    publishDate: enableTimer ? this.calculatePublishDate(videosPerDay, dailyTimes, startDays) : undefined
+                    publishDate: enableTimer ? this.calculatePublishDate(videosPerDay, dailyTimes, startDays) : undefined,
+                    headless: mode === 'background'
                 }
             };
 

@@ -554,6 +554,43 @@ export class TabManager {
         }
     }
 
+    async createAccountTab(cookieFile: string, platform: string, initialUrl: string, headless: boolean = false): Promise<string> {
+        try {
+            // 从cookieFile生成账号名
+            let accountName: string;
+            if (path.isAbsolute(cookieFile)) {
+                // 如果是绝对路径，提取文件名
+                accountName = path.basename(cookieFile, '.json');
+            } else {
+                // 如果是相对路径，直接使用
+                accountName = path.basename(cookieFile, '.json');
+            }
+            
+            // 尝试从文件名解析出更友好的账号名
+            const parts = accountName.split('_');
+            if (parts.length > 2) {
+                // 格式如: platform_username_timestamp.json
+                accountName = parts.slice(1, -1).join('_') || 'unknown';
+            }
+            
+            console.log(`🚀 创建账号专用Tab: ${accountName} (${platform})`);
+            
+            // 创建tab
+            const tabId = await this.createTab(accountName, platform, initialUrl, headless);
+            
+            // 加载cookies
+            await this.loadAccountCookies(tabId, cookieFile);
+            
+            console.log(`✅ 账号Tab创建完成: ${tabId}`);
+            return tabId;
+            
+        } catch (error) {
+            console.error(`❌ 创建账号Tab失败:`, error);
+            throw error;
+        }
+    }
+
+
     async getOrCreateTab(cookieFile: string, platform: string, initialUrl: string, tabNamePrefix?: string): Promise<string> {
         console.log(`🚀 Getting or creating tab for ${cookieFile} on ${platform}...`);
 

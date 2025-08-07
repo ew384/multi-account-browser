@@ -21,7 +21,6 @@ export interface UploadParams {
     // 账号相关
     cookieFile: string;        // Cookie文件路径，如 'wechat_account1.json'
     platform: string;         // 平台标识，如 'wechat', 'douyin', 'xiaohongshu'
-
     // 视频相关
     filePath: string;          // 视频文件路径
     title: string;             // 视频标题
@@ -32,6 +31,7 @@ export interface UploadParams {
     enableOriginal?: boolean;  // 是否启用原创声明
     addToCollection?: boolean; // 是否添加到合集
     category?: string;         // 视频分类，如 '生活', '美食' 等
+    headless?: boolean;
 }
 
 /**
