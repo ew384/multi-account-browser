@@ -785,7 +785,7 @@ export class SocialAutomationAPI {
                 created_by: 'system' // 后续可以从认证信息中获取
             };
         
-            const recordResult = await PublishRecordStorage.savePublishRecord(publishRecordData);
+            const recordResult = PublishRecordStorage.savePublishRecord(publishRecordData);
             
             if (!recordResult.success) {
                 this.sendResponse(res, 500, `创建发布记录失败: ${recordResult.message}`, null);
