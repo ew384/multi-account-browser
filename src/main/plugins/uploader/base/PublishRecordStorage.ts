@@ -172,7 +172,17 @@ export class PublishRecordStorage {
             CREATE INDEX IF NOT EXISTS idx_publish_records_created_by ON publish_records(created_by);
             CREATE INDEX IF NOT EXISTS idx_publish_account_status_record_id ON publish_account_status(record_id);
         `);
-
+        try {
+            const columns = db.pragma('table_info(publish_records)') as Array<{name: string}>;
+            const hasCoverScreenshots = columns.some(col => col.name === 'cover_screenshots');
+            
+            if (!hasCoverScreenshots) {
+                console.log('🔧 添加 cover_screenshots 字段到 publish_records 表');
+                db.exec('ALTER TABLE publish_records ADD COLUMN cover_screenshots TEXT');
+            }
+        } catch (error) {
+            console.warn('⚠️ 添加 cover_screenshots 字段失败:', error);
+        }
         console.log('✅ 发布记录表创建成功');
     }
 
@@ -295,7 +305,7 @@ export class PublishRecordStorage {
                 // 1. 插入主记录
                 const insertRecord = db.prepare(`
                     INSERT INTO publish_records (
-                        title, video_files, account_list, platform_type, status,
+                        title, video_files, account_list, cover_screenshots, platform_type, status,
                         total_accounts, success_accounts, failed_accounts,
                         start_time, end_time, duration, created_by, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -428,6 +438,7 @@ export class PublishRecordStorage {
                 ...record,
                 video_files: JSON.parse(record.video_files),
                 account_list: JSON.parse(record.account_list),
+                cover_screenshots: record.cover_screenshots ? JSON.parse(record.cover_screenshots) : [],
                 // 计算耗时显示
                 duration_display: record.duration ? `${Math.floor(record.duration / 60)}分${record.duration % 60}秒` : '0秒',
                 // 状态显示
@@ -482,6 +493,7 @@ export class PublishRecordStorage {
                 ...record,
                 video_files: JSON.parse(record.video_files),
                 account_list: JSON.parse(record.account_list),
+                cover_screenshots: record.cover_screenshots ? JSON.parse(record.cover_screenshots) : [],
                 account_statuses: accountStatuses,
                 // 统计数据
                 stats: {
