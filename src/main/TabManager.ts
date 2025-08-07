@@ -524,7 +524,8 @@ export class TabManager {
                     platform: platform,
                     loginStatus: 'unknown',
                     url: initialUrl,
-                    displayTitle: accountName
+                    displayTitle: accountName,
+                    isHeadless: finalHeadless
                 }
             });
             console.log(`📢 已发送 tab-created 事件: ${tabId}`);

@@ -1,18 +1,5 @@
-/**
- * 标签页栏组件
- * 负责标签页的显示、切换、管理等功能
- */
 
-interface TabData {
-    id: string;
-    accountName: string;        // 内部标识符：wx_a7342fe8-5ff6-11f0-b1ab-a45e60e0141b
-    displayTitle?: string;      // 页面标题（Chrome风格）
-    displayFavicon?: string;    // 页面图标
-    platform: string;
-    loginStatus: 'logged_in' | 'logged_out' | 'unknown';
-    url?: string;
-}
-
+import { TabData } from '../types.js';
 class TabBar {
     private container: HTMLElement;
     private tabBarContent: HTMLElement;

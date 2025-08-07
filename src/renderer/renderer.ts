@@ -1,23 +1,5 @@
 
-// ========================================
-// 类型定义
-// ========================================
-interface TabData {
-    id: string;
-    accountName: string;        // 内部标识符
-    displayTitle?: string;      // 页面标题（Chrome风格）
-    displayFavicon?: string;    // 页面图标
-    platform: string;
-    loginStatus: 'logged_in' | 'logged_out' | 'unknown';
-    url?: string;
-    cookieFile?: string;
-}
-
-interface APIResponse<T = any> {
-    success: boolean;
-    data?: T;
-    error?: string;
-}
+import { TabData, APIResponse } from './types.js';
 
 // ========================================
 // 全局状态
@@ -730,7 +712,10 @@ function setupEventDrivenUpdates(): void {
  * 添加标签页到UI
  */
 function addTabToUI(tab: TabData): void {
-    // 检查是否已存在
+    if ((tab as any).isHeadless) {
+        console.log(`跳过headless tab: ${tab.accountName}`);
+        return;
+    }
     const existingIndex = currentTabs.findIndex(t => t.id === tab.id);
     if (existingIndex >= 0) {
         // 更新现有标签页
