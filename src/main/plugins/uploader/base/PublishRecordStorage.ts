@@ -297,7 +297,7 @@ export class PublishRecordStorage {
                         title, video_files, account_list, cover_screenshots, platform_type, status,
                         total_accounts, success_accounts, failed_accounts,
                         start_time, end_time, duration, created_by, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `);
 
                 const result = insertRecord.run(
