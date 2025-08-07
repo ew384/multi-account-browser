@@ -172,17 +172,6 @@ export class PublishRecordStorage {
             CREATE INDEX IF NOT EXISTS idx_publish_records_created_by ON publish_records(created_by);
             CREATE INDEX IF NOT EXISTS idx_publish_account_status_record_id ON publish_account_status(record_id);
         `);
-        try {
-            const columns = db.pragma('table_info(publish_records)') as Array<{name: string}>;
-            const hasCoverScreenshots = columns.some(col => col.name === 'cover_screenshots');
-            
-            if (!hasCoverScreenshots) {
-                console.log('🔧 添加 cover_screenshots 字段到 publish_records 表');
-                db.exec('ALTER TABLE publish_records ADD COLUMN cover_screenshots TEXT');
-            }
-        } catch (error) {
-            console.warn('⚠️ 添加 cover_screenshots 字段失败:', error);
-        }
         console.log('✅ 发布记录表创建成功');
     }
 
