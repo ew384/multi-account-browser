@@ -28,7 +28,7 @@ export class TabManager {
     // 添加窗口布局常量
     private readonly HEADER_HEIGHT = 60;
     private readonly TAB_BAR_HEIGHT = 48;
-    private readonly TOP_OFFSET = 108; // 60px header + 48px tab-bar
+    private readonly TOP_OFFSET = 92; // 60px header + 48px tab-bar
     private initScripts: Map<string, string[]> = new Map();
     private stealthScript: string | null = null;
     private readonly LOCK_PRIORITIES: Record<string, number> = {
