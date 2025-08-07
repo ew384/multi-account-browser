@@ -33,6 +33,7 @@ interface ElectronAPI {
     onTabCreated: (callback: (data: { tabId: string; tab: TabData }) => void) => void;
     onTabClosed: (callback: (data: { tabId: string }) => void) => void;
     onTabSwitched: (callback: (data: { tabId: string }) => void) => void;
+    onTabUrlUpdated: (callback: (data: { tabId: string; url: string }) => void) => void;
     // 系统信息
     getSystemInfo: () => Promise<any>;
 
@@ -84,7 +85,10 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.removeAllListeners('tab-switched');
         ipcRenderer.on('tab-switched', (event, data) => callback(data));
     },
-
+    onTabUrlUpdated: (callback: (data: { tabId: string; url: string }) => void) => {
+        ipcRenderer.removeAllListeners('tab-url-updated');
+        ipcRenderer.on('tab-url-updated', (event, data) => callback(data));
+    },
     getAllTabs: () =>
         ipcRenderer.invoke('get-all-tabs'),
     // 标题更新事件监听

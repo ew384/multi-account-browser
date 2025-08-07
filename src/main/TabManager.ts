@@ -28,7 +28,7 @@ export class TabManager {
     // 添加窗口布局常量
     private readonly HEADER_HEIGHT = 60;
     private readonly TAB_BAR_HEIGHT = 48;
-    private readonly TOP_OFFSET = 92; // 60px header + 48px tab-bar
+    private readonly TOP_OFFSET = 92;
     private initScripts: Map<string, string[]> = new Map();
     private stealthScript: string | null = null;
     private readonly LOCK_PRIORITIES: Record<string, number> = {
@@ -848,14 +848,30 @@ export class TabManager {
                 }
             }
         });
-
-        // 注释掉这个事件监听器，它会在每次导航时触发脚本注入
-        // webContents.on('did-navigate', async (event, url, isInPlace, isMainFrame) => {
-        //     if (isMainFrame) {
-        //         console.log(`🔄 Navigation started for ${tab.accountName}: ${url}`);
-        //         //await this.injectInitScripts(tab.id);
-        //     }
-        // });
+        webContents.on('did-navigate', (event, url) => {
+            tab.url = url;
+            
+            // 🔥 新增：通知渲染进程更新URL输入框
+            this.mainWindow.webContents.send('tab-url-updated', {
+                tabId: tab.id,
+                url: url,
+                timestamp: new Date().toISOString()
+            });
+            
+            console.log(`🔗 Tab URL updated: ${tab.accountName} -> ${url}`);
+        });
+        webContents.on('did-navigate-in-page', (event, url) => {
+            tab.url = url;
+            
+            // 🔥 新增：通知渲染进程更新URL输入框
+            this.mainWindow.webContents.send('tab-url-updated', {
+                tabId: tab.id,
+                url: url,
+                timestamp: new Date().toISOString()
+            });
+            
+            console.log(`🔗 Tab URL updated (in-page): ${tab.accountName} -> ${url}`);
+        });
         webContents.on('did-fail-load', (event: any, errorCode: number, errorDescription: string, validatedURL: string) => {
             if (errorCode !== -3) {
                 console.error(`❌ 页面加载失败: ${errorDescription} (${errorCode}) - ${tab.accountName}`);

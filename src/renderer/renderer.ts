@@ -79,6 +79,34 @@ function setupTabTitleListeners(): void {
         console.log(`🎭 收到图标更新: ${favicon} (${tabId})`);
         updateTabFavicon(tabId, favicon);
     });
+    window.electronAPI.onTabUrlUpdated(({ tabId, url }) => {
+        console.log(`🔗 收到URL更新: ${url} (${tabId})`);
+        
+        // 只更新当前活动标签页的URL输入框
+        if (tabId === activeTabId) {
+            const urlInput = document.getElementById('url-input') as HTMLInputElement;
+            if (urlInput) {
+                console.log(`🔗 更新URL输入框: ${url}`);
+                urlInput.value = url;
+            }
+        }
+        
+        // 更新内存中的标签页数据
+        const tab = currentTabs.find(t => t.id === tabId);
+        if (tab) {
+            tab.url = url;
+            tab.displayFavicon = undefined;
+            
+            // 立即更新DOM为加载状态
+            const tabElement = document.querySelector(`[data-tab-id="${tabId}"]`);
+            if (tabElement) {
+                const iconElement = tabElement.querySelector('.chrome-tab-icon');
+                if (iconElement) {
+                    iconElement.innerHTML = '<div class="tab-loading-spinner"></div>';
+                }
+            }
+        }
+    });
 }
 let titleUpdateTimeout: NodeJS.Timeout | null = null;
 let faviconUpdateTimeout: NodeJS.Timeout | null = null;
@@ -132,9 +160,8 @@ function updateTabFavicon(tabId: string, favicon: string): void {
         if (tabElement) {
             const iconElement = tabElement.querySelector('.chrome-tab-icon');
             if (iconElement) {
-                // 🔥 使用网站的 favicon，失败时显示地球图标
                 iconElement.innerHTML = `<img src="${favicon}" alt="icon" style="width: 16px; height: 16px; border-radius: 2px;" 
-                                        onerror="this.style.display='none'; this.parentElement.textContent='🌍';">`;
+                        onerror="this.src='../../assets/tray-icon.png'; this.alt='browser';">`;
             }
         }
         titleUpdateTimeout = null;
@@ -157,7 +184,7 @@ function createChromeTab(tab: TabData): HTMLElement {
     if (tab.displayFavicon) {
         // 有 favicon 时使用网站图标
         iconContent = `<img src="${tab.displayFavicon}" alt="icon" style="width: 16px; height: 16px; border-radius: 2px;" 
-                    onerror="this.style.display='none'; this.parentElement.innerHTML='<img src=\\'../../assets/tray-icon.png\\' style=\\'width: 16px; height: 16px;\\' alt=\\'browser\\'>';">`;
+            onerror="this.src='../../assets/tray-icon.png'; this.alt='browser';">`;
     } else if (tab.url === 'about:blank' || !tab.url) {
         // 🔥 空白页面使用浏览器图标，不显示加载动画
         iconContent = '<img src="../../assets/tray-icon.png" style="width: 16px; height: 16px;" alt="browser">';
@@ -177,9 +204,9 @@ function createChromeTab(tab: TabData): HTMLElement {
     if (spinner) {
         const timeout = parseInt(spinner.getAttribute('data-timeout') || '5000');
         setTimeout(() => {
-            // 如果5秒后还是加载动画，切换为地球图标
+            // 如果超时后还是加载动画，切换为浏览器图标
             if (spinner.parentElement && spinner.parentElement.contains(spinner)) {
-                spinner.parentElement.innerHTML = '🌍';
+                spinner.parentElement.innerHTML = '<img src="../../assets/tray-icon.png" style="width: 16px; height: 16px;" alt="browser">';
             }
         }, timeout);
     }
