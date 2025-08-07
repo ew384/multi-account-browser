@@ -1159,7 +1159,14 @@ function setupKeyboardShortcuts(): void {
             //console.log('🚫 Focus is in webview, skipping global shortcut handling');
             return;
         }
-
+        if (e.key === 'F12') {
+            e.preventDefault();
+            e.stopPropagation();
+            if (activeTabId) {
+                openDevTools(activeTabId);
+            }
+            return;
+        }
         // 打印剪贴板类
         if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'a'].includes(e.key.toLowerCase())) {
             //console.log(`✂️ Clipboard key pressed: ${logKey}`);
