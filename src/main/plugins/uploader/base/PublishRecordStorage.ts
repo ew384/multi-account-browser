@@ -130,6 +130,7 @@ export class PublishRecordStorage {
                 title TEXT NOT NULL,
                 video_files TEXT NOT NULL,        -- JSON数组：["video1.mp4", "video2.mp4"]
                 account_list TEXT NOT NULL,       -- JSON数组：账号信息列表
+                cover_screenshots TEXT,
                 platform_type INTEGER,           -- 主要平台类型
                 status TEXT DEFAULT 'pending',   -- pending/success/partial/failed
                 total_accounts INTEGER DEFAULT 0,
@@ -269,14 +270,15 @@ export class PublishRecordStorage {
     /**
      * 🔥 保存发布记录
      */
-    static savePublishRecord(recordData: PublishRecordData): { success: boolean, message: string, data?: any } {
+    static savePublishRecord(recordData: PublishRecordData & { cover_screenshots?: string[] }): { success: boolean, message: string, data?: any } {
         try {
             const db = this.getDatabase();
             
             const {
                 title,
                 video_files,
-                account_list, 
+                account_list,
+                cover_screenshots = [], 
                 platform_type,
                 status,
                 total_accounts,
@@ -303,6 +305,7 @@ export class PublishRecordStorage {
                     title,
                     JSON.stringify(video_files),
                     JSON.stringify(account_list),
+                    JSON.stringify(cover_screenshots),
                     platform_type,
                     status,
                     total_accounts,
@@ -707,7 +710,38 @@ export class PublishRecordStorage {
             };
         }
     }
+    /**
+     * 🔥 保存封面截图到本地
+     */
+    static async saveCoverScreenshot(
+        base64Data: string, 
+        videoFileName: string
+    ): Promise<string | null> {
+        try {
+            // 移除 base64 前缀
+            const base64Content = base64Data.replace(/^data:image\/[a-z]+;base64,/, '');
+            const buffer = Buffer.from(base64Content, 'base64');
 
+            // 生成封面文件名
+            const nameWithoutExt = path.parse(videoFileName).name;
+            const coverFileName = `${nameWithoutExt}_cover.jpg`;
+            
+            // 确保封面目录存在
+            const coverDir = path.join(Config.VIDEO_DIR, 'covers');
+            await fs.promises.mkdir(coverDir, { recursive: true });
+            
+            // 保存文件
+            const coverPath = path.join(coverDir, coverFileName);
+            await fs.promises.writeFile(coverPath, buffer);
+            
+            console.log(`✅ 封面截图保存成功: ${coverPath}`);
+            return path.join('covers', coverFileName); // 返回相对路径
+            
+        } catch (error) {
+            console.error('❌ 保存封面截图失败:', error);
+            return null;
+        }
+    }
     // ==================== 辅助方法 ====================
 
     /**

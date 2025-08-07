@@ -704,10 +704,12 @@ export class SocialAutomationAPI {
      */
     private async handlePostVideo(req: express.Request, res: express.Response): Promise<void> {
         let recordId: number | null = null;
+        let savedCoverPaths: string[] = []; // 🔥 保存所有封面路径
         try {
             const {
                 fileList = [],
                 accountList = [],
+                thumbnail, // 接收封面数据
                 type: typeVal,
                 title,
                 tags,
@@ -753,11 +755,22 @@ export class SocialAutomationAPI {
                 this.sendResponse(res, 400, `平台 ${platform} 暂不支持视频上传功能`, null);
                 return;
             }
-
+            if (thumbnail && thumbnail.startsWith('data:image/')) {
+                for (const videoFile of fileList) {
+                    const coverPath = await PublishRecordStorage.saveCoverScreenshot(
+                        thumbnail, 
+                        videoFile
+                    );
+                    if (coverPath) {
+                        savedCoverPaths.push(coverPath);
+                    }
+                }
+            }
             // 🔥 1. 创建发布记录
             const publishRecordData = {
                 title: title || '未命名发布任务',
                 video_files: fileList,
+                cover_screenshots: savedCoverPaths,
                 account_list: accountList.map((account: any) => ({
                     accountName: account.accountName,
                     platform: platform,
@@ -771,7 +784,7 @@ export class SocialAutomationAPI {
                 failed_accounts: 0,
                 created_by: 'system' // 后续可以从认证信息中获取
             };
-
+        
             const recordResult = await PublishRecordStorage.savePublishRecord(publishRecordData);
             
             if (!recordResult.success) {
