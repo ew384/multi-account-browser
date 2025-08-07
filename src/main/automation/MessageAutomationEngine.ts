@@ -47,7 +47,7 @@ export class MessageAutomationEngine {
         // 🔥 设置调度器的同步函数（依赖注入）
         this.messageScheduler.setSyncFunction(this.syncPlatformMessages.bind(this));
         
-        console.log('🔌 MessageAutomationEngine 已初始化 (重构版)');
+        //console.log('🔌 MessageAutomationEngine 已初始化 (重构版)');
     }
 
     // ==================== 插件管理方法（保持不变） ====================
@@ -57,7 +57,7 @@ export class MessageAutomationEngine {
      */
     async initializeMessagePlugin(platform: string): Promise<boolean> {
         try {
-            console.log(`🔌 初始化 ${platform} 消息插件...`);
+            //console.log(`🔌 初始化 ${platform} 消息插件...`);
 
             if (!isMessagePlatformSupported(platform)) {
                 console.error(`❌ 不支持的消息平台: ${platform}`);
@@ -76,7 +76,7 @@ export class MessageAutomationEngine {
             }
 
             this.messagePlugins.set(platform, plugin);
-            console.log(`✅ ${platform} 消息插件初始化成功`);
+            //console.log(`✅ ${platform} 消息插件初始化成功`);
 
             return true;
 
@@ -94,7 +94,7 @@ export class MessageAutomationEngine {
         failed: number; 
         results: Record<string, boolean> 
     }> {
-        console.log('🔌 批量初始化所有消息插件...');
+        //console.log('🔌 批量初始化所有消息插件...');
 
         const platforms = getSupportedMessagePlatforms();
         const results: Record<string, boolean> = {};
@@ -112,7 +112,7 @@ export class MessageAutomationEngine {
             }
         }
 
-        console.log(`📊 消息插件初始化完成: 成功 ${success}, 失败 ${failed}`);
+        //console.log(`📊 消息插件初始化完成: 成功 ${success}, 失败 ${failed}`);
         return { success, failed, results };
     }
 

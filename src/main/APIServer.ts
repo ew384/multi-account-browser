@@ -305,7 +305,7 @@ export class APIServer {
                 }
 
                 console.log(`📱 Creating account tab: ${accountName} (${platform})`);
-                const tabId = await this.tabManager.createAccountTab(accountName, platform, initialUrl);
+                const tabId = await this.tabManager.createTab(accountName, platform, initialUrl);
 
                 if (cookieFile) {
                     console.log(`🍪 Loading cookies from: ${cookieFile}`);

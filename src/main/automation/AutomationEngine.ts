@@ -18,7 +18,7 @@ import * as fs from 'fs';
 export class AutomationEngine {
     private tabManager: TabManager;
     private pluginManager: PluginManager;
-
+    private activeLogins: Map<string, LoginStatus> = new Map();
 
     constructor(tabManager: TabManager) {
         this.tabManager = tabManager;
@@ -29,7 +29,6 @@ export class AutomationEngine {
         return this.pluginManager;
     }
 
-    private activeLogins: Map<string, LoginStatus> = new Map();
 
     async startLogin(platform: string, userId: string): Promise<LoginResult> {
         try {
@@ -125,7 +124,14 @@ export class AutomationEngine {
             }
         } catch (error) {
             console.error(`❌ 登录处理失败: ${userId}:`, error);
+        }finally {
+            try {
+                await this.tabManager.closeTab(tabId);
+                console.log(`🗑️ 登录完成，已关闭tab: ${tabId}`);
+            } catch (error) {
+                console.error(`❌ 关闭登录tab失败: ${tabId}:`, error);
         }
+    }
     }
 
     getLoginStatus(userId: string): LoginStatus | null {

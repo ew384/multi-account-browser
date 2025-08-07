@@ -429,7 +429,7 @@ class MultiAccountBrowser {
         // 创建账号标签页
         ipcMain.handle('create-account-tab', async (event, accountName: string, platform: string, initialUrl?: string) => {
             try {
-                const tabId = await this.tabManager.createAccountTab(accountName, platform, initialUrl);
+                const tabId = await this.tabManager.createTab(accountName, platform, initialUrl);
                 return { success: true, tabId };
             } catch (error) {
                 return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };

@@ -42,7 +42,7 @@ export class DouyinLogin implements PluginLogin {
             console.log(`🔐 开始抖音登录流程: ${params.userId}`);
 
             // 创建标签页
-            const tabId = await this.tabManager.createAccountTab(
+            const tabId = await this.tabManager.createTab(
                 `抖音登录_${params.userId}`,
                 'douyin',
                 'https://creator.douyin.com/'

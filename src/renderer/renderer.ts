@@ -809,7 +809,7 @@ async function createNewTab(): Promise<void> {
         }
 
         // 🔄 第二阶段：异步创建实际标签页
-        const result = await window.electronAPI.createAccountTab(
+        const result = await window.electronAPI.createTab(
             '标签页',
             'other',
             'about:blank'

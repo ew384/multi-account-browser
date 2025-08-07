@@ -42,7 +42,7 @@ export class XiaohongshuLogin implements PluginLogin {
             console.log(`🔐 开始小红书登录流程: ${params.userId}`);
 
             // 创建标签页
-            const tabId = await this.tabManager.createAccountTab(
+            const tabId = await this.tabManager.createTab(
                 `小红书登录_${params.userId}`,
                 'xiaohongshu',
                 'https://creator.xiaohongshu.com/'

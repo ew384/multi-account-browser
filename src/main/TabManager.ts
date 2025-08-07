@@ -435,7 +435,7 @@ export class TabManager {
         }
     }
 
-    async createAccountTab(accountName: string, platform: string, initialUrl?: string, headless: boolean = false): Promise<string> {
+    async createTab(accountName: string, platform: string, initialUrl?: string, headless: boolean = false): Promise<string> {
         const startTime = performance.now();
         const isGlobalHidden = this.headlessManager.isHidden();
         const finalHeadless = headless || isGlobalHidden;
@@ -609,7 +609,7 @@ export class TabManager {
                 fullTabName = `${prefix}${accountName}`;
             }
 
-            const tabId = await this.createAccountTab(
+            const tabId = await this.createTab(
                 fullTabName,
                 platform,
                 initialUrl
@@ -858,7 +858,7 @@ export class TabManager {
                 timestamp: new Date().toISOString()
             });
             
-            console.log(`🔗 Tab URL updated: ${tab.accountName} -> ${url}`);
+            //console.log(`🔗 Tab URL updated: ${tab.accountName} -> ${url}`);
         });
         webContents.on('did-navigate-in-page', (event, url) => {
             tab.url = url;
@@ -870,7 +870,7 @@ export class TabManager {
                 timestamp: new Date().toISOString()
             });
             
-            console.log(`🔗 Tab URL updated (in-page): ${tab.accountName} -> ${url}`);
+            //console.log(`🔗 Tab URL updated (in-page): ${tab.accountName} -> ${url}`);
         });
         webContents.on('did-fail-load', (event: any, errorCode: number, errorDescription: string, validatedURL: string) => {
             if (errorCode !== -3) {
@@ -966,7 +966,7 @@ export class TabManager {
 
         // 处理新窗口 - 防止弹出窗口影响主界面
         webContents.setWindowOpenHandler(({ url }: { url: string }) => {
-            console.log(`🔗 Redirecting popup to current tab for ${tab.accountName}: ${url}`);
+            //console.log(`🔗 Redirecting popup to current tab for ${tab.accountName}: ${url}`);
             webContents.loadURL(url).catch((error) => {
                 console.warn(`⚠️ Failed to load redirected URL for ${tab.accountName}: ${error.message}`);
             });
@@ -976,7 +976,7 @@ export class TabManager {
         // 处理证书错误
         webContents.on('certificate-error', (event, url, error, certificate, callback) => {
             if (process.env.NODE_ENV === 'development') {
-                console.log(`🔒 Ignoring certificate error for ${tab.accountName}: ${error}`);
+                //console.log(`🔒 Ignoring certificate error for ${tab.accountName}: ${error}`);
                 event.preventDefault();
                 callback(true);
             } else {
@@ -986,11 +986,11 @@ export class TabManager {
         });
 
         webContents.on('did-start-loading', () => {
-            console.log(`⏳ Loading started for ${tab.accountName}`);
+            //console.log(`⏳ Loading started for ${tab.accountName}`);
         });
 
         webContents.on('did-stop-loading', () => {
-            console.log(`✅ Loading completed for ${tab.accountName}`);
+            //console.log(`✅ Loading completed for ${tab.accountName}`);
         });
 
     }
@@ -1036,7 +1036,7 @@ export class TabManager {
 
 
     async navigateBack(tabId: string): Promise<boolean> {
-        console.log(`🔙 TabManager.navigateBack 被调用: ${tabId}`);
+        //console.log(`🔙 TabManager.navigateBack 被调用: ${tabId}`);
         
         const tab = this.tabs.get(tabId);
         if (!tab) {
@@ -1044,7 +1044,7 @@ export class TabManager {
             return false;
         }
 
-        console.log(`🔙 找到标签页: ${tab.accountName}`);
+        //console.log(`🔙 找到标签页: ${tab.accountName}`);
         
         try {
             const webContents = tab.webContentsView.webContents;
@@ -1055,12 +1055,12 @@ export class TabManager {
                 return false;
             }
 
-            console.log(`⬅️ 执行 Electron 原生后退导航: ${tab.accountName}`);
+            //console.log(`⬅️ 执行 Electron 原生后退导航: ${tab.accountName}`);
             
             // 🔥 使用新的 navigationHistory API
             webContents.navigationHistory.goBack();
             
-            console.log(`✅ 后退导航成功: ${tab.accountName}`);
+            //console.log(`✅ 后退导航成功: ${tab.accountName}`);
             return true;
 
         } catch (error) {
@@ -1070,7 +1070,7 @@ export class TabManager {
     }
 
     async navigateForward(tabId: string): Promise<boolean> {
-        console.log(`🔜 TabManager.navigateForward 被调用: ${tabId}`);
+        //console.log(`🔜 TabManager.navigateForward 被调用: ${tabId}`);
         
         const tab = this.tabs.get(tabId);
         if (!tab) {
@@ -1087,12 +1087,12 @@ export class TabManager {
                 return false;
             }
 
-            console.log('➡️ 执行 Electron 原生前进导航');
+            //console.log('➡️ 执行 Electron 原生前进导航');
 
             // 🔥 使用新的 navigationHistory API
             webContents.navigationHistory.goForward();
             
-            console.log(`✅ 前进导航成功: ${tab.accountName}`);
+            //console.log(`✅ 前进导航成功: ${tab.accountName}`);
             return true;
 
         } catch (error) {
@@ -1111,12 +1111,12 @@ export class TabManager {
         }
 
         try {
-            console.log(`🔄 执行页面刷新: ${tab.accountName}`);
+            //console.log(`🔄 执行页面刷新: ${tab.accountName}`);
             
             // 方法1: 使用 webContents.reload() - 更安全可靠
-            await tab.webContentsView.webContents.reload();
+            tab.webContentsView.webContents.reload();
             
-            console.log(`✅ 页面刷新成功: ${tab.accountName}`);
+            //console.log(`✅ 页面刷新成功: ${tab.accountName}`);
             return true;
 
         } catch (error) {
@@ -1147,14 +1147,14 @@ export class TabManager {
                 // 如果是相对路径，才拼接 Config.COOKIE_DIR
                 fullCookiePath = path.join(Config.COOKIE_DIR, cookieFilePath);
             }
-            console.log(`🔍 准备加载Cookie:`);
-            console.log(`   cookieFilePath: ${cookieFilePath}`);
-            console.log(`   完整路径: ${fullCookiePath}`);
-            console.log(`   文件是否存在: ${fs.existsSync(fullCookiePath)}`);
+            //console.log(`🔍 准备加载Cookie:`);
+            //console.log(`   cookieFilePath: ${cookieFilePath}`);
+            //console.log(`   完整路径: ${fullCookiePath}`);
+            //console.log(`   文件是否存在: ${fs.existsSync(fullCookiePath)}`);
 
             await this.cookieManager.loadCookiesToSession(tab.session, fullCookiePath);  // 🔥 传递完整路径
             tab.cookieFile = cookieFilePath;
-            console.log(`🍪 Loaded cookies for tab: ${tab.accountName}`);
+            //console.log(`🍪 Loaded cookies for tab: ${tab.accountName}`);
 
             if (tab.webContentsView.webContents.getURL()) {
                 await tab.webContentsView.webContents.reload();
@@ -1215,7 +1215,7 @@ export class TabManager {
             if (!this.isViewAttached(tab.webContentsView)) {
                 // 确保主窗口HTML已经完全加载
                 if (this.mainWindow.webContents.isLoading()) {
-                    console.log(`⏳ 等待主窗口加载完成...`);
+                    //console.log(`⏳ 等待主窗口加载完成...`);
                     await new Promise<void>(resolve => {
                         // 🔥 使用 any 类型转换来绕过 TypeScript 类型检查
                         (this.mainWindow.webContents as any).once('did-finish-load', () => {
@@ -1224,7 +1224,7 @@ export class TabManager {
                     });
                 }
                 
-                console.log(`➕ 添加 WebContentsView 到主窗口: ${tab.accountName}`);
+                //console.log(`➕ 添加 WebContentsView 到主窗口: ${tab.accountName}`);
                 this.mainWindow.contentView.addChildView(tab.webContentsView);
             }
 
@@ -1232,7 +1232,7 @@ export class TabManager {
             this.updateActiveWebContentsViewBounds(tab.webContentsView);
             this.activeTabId = tabId;
 
-            console.log(`🔄 Switched to tab: ${tab.accountName}`);
+            //console.log(`🔄 Switched to tab: ${tab.accountName}`);
             this.mainWindow.webContents.send('tab-switched', { tabId });
         } catch (error) {
             console.error(`❌ Failed to switch to tab ${tabId}:`, error);
@@ -1254,12 +1254,12 @@ export class TabManager {
         const targetView = specificView || (this.activeTabId ? this.tabs.get(this.activeTabId)?.webContentsView : null);
 
         if (!targetView) {
-            return; // 移除console.log
+            return;
         }
 
         const tab = Array.from(this.tabs.values()).find(t => t.webContentsView === targetView);
         if (!tab) {
-            return; // 移除console.log
+            return;
         }
 
         try {
@@ -1286,7 +1286,7 @@ export class TabManager {
             // 🔥 清理锁定状态
             const extendedTab = tab as any;
             if (extendedTab.isLocked) {
-                console.log(`🔓 清理已锁定Tab的锁定状态: ${tab.accountName}`);
+                //console.log(`🔓 清理已锁定Tab的锁定状态: ${tab.accountName}`);
                 delete extendedTab.lockInfo;
                 extendedTab.isLocked = false;
             }
@@ -1499,7 +1499,7 @@ export class TabManager {
 
     // 🔥 新增：创建headless tab的便捷方法
     async createHeadlessTab(accountName: string, platform: string, initialUrl?: string): Promise<string> {
-        return await this.createAccountTab(accountName, platform, initialUrl, true);
+        return await this.createTab(accountName, platform, initialUrl, true);
     }
     async saveCookies(tabId: string, cookieFilePath: string): Promise<void> {
         const tab = this.tabs.get(tabId);

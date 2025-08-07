@@ -42,7 +42,7 @@ export class WeChatLogin implements PluginLogin {
             console.log(`🔐 开始微信视频号登录流程: ${params.userId}`);
 
             // 创建标签页
-            const tabId = await this.tabManager.createAccountTab(
+            const tabId = await this.tabManager.createTab(
                 `微信登录_${params.userId}`,
                 'wechat',
                 'https://channels.weixin.qq.com'

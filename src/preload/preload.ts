@@ -3,7 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 // 定义API接口类型
 interface ElectronAPI {
     // 标签页管理
-    createAccountTab: (accountName: string, platform: string, initialUrl?: string) => Promise<any>;
+    createTab: (accountName: string, platform: string, initialUrl?: string) => Promise<any>;
     switchTab: (tabId: string) => Promise<any>;
     navigateTab: (tabId: string, url: string) => Promise<any>;
     closeTab: (tabId: string) => Promise<any>;
@@ -54,7 +54,7 @@ interface ElectronAPI {
 // 安全地暴露API给渲染进程
 const electronAPI: ElectronAPI = {
     // 标签页管理
-    createAccountTab: (accountName: string, platform: string, initialUrl?: string) =>
+    createTab: (accountName: string, platform: string, initialUrl?: string) =>
         ipcRenderer.invoke('create-account-tab', accountName, platform, initialUrl),
 
     switchTab: (tabId: string) =>

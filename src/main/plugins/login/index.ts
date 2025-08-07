@@ -47,14 +47,14 @@ export async function createLoginPlugin(platform: string, tabManager: TabManager
 
     const plugin = new PluginClass();
     await plugin.init(tabManager);
-    console.log(`✅ ${platform} 登录插件创建成功`);
+    //console.log(`✅ ${platform} 登录插件创建成功`);
     return plugin;
 }
 
 // 🔥 测试指定平台的登录插件
 export async function testLoginPlugin(platform: string, tabManager: TabManager): Promise<boolean> {
     try {
-        console.log(`🧪 测试 ${platform} 登录插件...`);
+        //console.log(`🧪 测试 ${platform} 登录插件...`);
         const plugin = await createLoginPlugin(platform, tabManager);
 
         if (!plugin) {
@@ -62,11 +62,11 @@ export async function testLoginPlugin(platform: string, tabManager: TabManager):
         }
 
         // 基本功能测试
-        console.log(`   插件名称: ${plugin.name}`);
-        console.log(`   支持平台: ${plugin.platform}`);
-        console.log(`   插件类型: ${plugin.type}`);
+        //log(`   插件名称: ${plugin.name}`);
+        //console.log(`   支持平台: ${plugin.platform}`);
+        //console.log(`   插件类型: ${plugin.type}`);
 
-        console.log(`✅ ${platform} 登录插件测试通过`);
+        //console.log(`✅ ${platform} 登录插件测试通过`);
         return true;
 
     } catch (error) {
@@ -77,7 +77,7 @@ export async function testLoginPlugin(platform: string, tabManager: TabManager):
 
 // 🔥 批量测试所有登录插件
 export async function testAllLoginPlugins(tabManager: TabManager): Promise<void> {
-    console.log('🧪 开始测试所有登录插件...');
+    //log('🧪 开始测试所有登录插件...');
 
     const platforms = getSupportedLoginPlatforms();
     const results: Record<string, boolean> = {};

@@ -42,7 +42,7 @@ export class KuaishouLogin implements PluginLogin {
             console.log(`🔐 开始快手登录流程: ${params.userId}`);
 
             // 创建标签页
-            const tabId = await this.tabManager.createAccountTab(
+            const tabId = await this.tabManager.createTab(
                 `快手登录_${params.userId}`,
                 'kuaishou',
                 'https://cp.kuaishou.com'

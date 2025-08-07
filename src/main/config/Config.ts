@@ -12,8 +12,8 @@ export class Config {
     // 🔥 基础路径配置 (替代 Python 的 BASE_DIR)
     static get BASE_DIR(): string {
         const userData = app.getPath('userData');
-        console.log(`🔍 BASE_DIR 路径: ${userData}`);
-        console.log(`🔍 COOKIE_DIR 路径: ${path.join(userData, 'cookiesFile')}`);
+        //console.log(`🔍 BASE_DIR 路径: ${userData}`);
+        //console.log(`🔍 COOKIE_DIR 路径: ${path.join(userData, 'cookiesFile')}`);
         return userData;
     }
 
