@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { TabData } from '../renderer/types.js';
+
 // 定义API接口类型
 interface ElectronAPI {
     // 标签页管理

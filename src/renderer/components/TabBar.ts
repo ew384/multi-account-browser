@@ -1,5 +1,20 @@
+/**
+ * 标签页栏组件
+ * 负责标签页的显示、切换、管理等功能
+ */
 
-import { TabData } from '../types.js';
+interface TabData {
+    id: string;
+    accountName: string;        // 内部标识符
+    displayTitle?: string;      // 页面标题
+    displayFavicon?: string;    // 页面图标
+    platform: string;
+    loginStatus: 'logged_in' | 'logged_out' | 'unknown';
+    url?: string;
+    cookieFile?: string;
+    isHeadless?: boolean;
+}
+
 class TabBar {
     private container: HTMLElement;
     private tabBarContent: HTMLElement;

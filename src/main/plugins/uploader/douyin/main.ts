@@ -74,10 +74,60 @@ export class DouyinVideoUploader implements PluginUploader {
             }
         }
     }
+    private async waitForFileInput(tabId: string): Promise<boolean> {
+        const waitScript = `
+            new Promise((resolve) => {
+                const timeout = 50000; // 30秒超时
+                const startTime = Date.now();
+                
+                const checkInput = () => {
+                    if (Date.now() - startTime > timeout) {
+                        console.log('❌ 文件输入框等待超时');
+                        resolve(false);
+                        return;
+                    }
+                    
+                    // 查找抖音的文件输入框
+                    let fileInput = document.querySelector('input[type="file"][accept*="video"]');
+                    if (!fileInput) {
+                        fileInput = document.querySelector('input[type="file"]');
+                    }
+                    
+                    if (fileInput) {
+                        console.log('✅ 文件输入框已找到');
+                        resolve(true);
+                        return;
+                    }
+                    
+                    console.log('🔍 继续查找文件输入框...');
+                    setTimeout(checkInput, 500);
+                };
+                
+                checkInput();
+            })
+        `;
 
+        try {
+            const result = await this.tabManager.executeScript(tabId, waitScript);
+            return Boolean(result);
+        } catch (error) {
+            console.error('❌ 等待文件输入框失败:', error);
+            return false;
+        }
+    }
     private async uploadFile(filePath: string, tabId: string): Promise<void> {
         console.log('📤 上传文件到抖音...');
+        // 🔥 步骤1：等待页面完全加载
+        console.log('⏳ 等待抖音创作者页面完全加载...');
+        await new Promise(resolve => setTimeout(resolve, 3000)); // 给页面3秒加载时间
 
+        // 🔥 步骤2：等待文件输入框出现
+        console.log('⏳ 等待文件输入框准备...');
+        const inputReady = await this.waitForFileInput(tabId);
+        if (!inputReady) {
+            throw new Error('文件输入框准备超时');
+        }
+        console.log('✅ 文件输入框已准备好');
         const uploadScript = `
         (async function() {
             try {
@@ -274,7 +324,7 @@ export class DouyinVideoUploader implements PluginUploader {
                 }
 
                 console.log('📤 视频上传中...');
-                setTimeout(checkUpload, 2000);
+                setTimeout(checkUpload, 1000);
             };
 
             checkUpload();

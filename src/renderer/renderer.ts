@@ -1,5 +1,24 @@
 
-import { TabData, APIResponse } from './types.js';
+// ========================================
+// 类型定义
+// ========================================
+interface TabData {
+    id: string;
+    accountName: string;        // 内部标识符
+    displayTitle?: string;      // 页面标题（Chrome风格）
+    displayFavicon?: string;    // 页面图标
+    platform: string;
+    loginStatus: 'logged_in' | 'logged_out' | 'unknown';
+    url?: string;
+    cookieFile?: string;
+    isHeadless?: boolean;
+}
+
+interface APIResponse<T = any> {
+    success: boolean;
+    data?: T;
+    error?: string;
+}
 
 // ========================================
 // 全局状态
