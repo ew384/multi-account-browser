@@ -20,7 +20,7 @@ export class DouyinVideoUploader implements PluginUploader {
         try {
             console.log(`🎭 开始抖音视频完整上传流程... (${params.title})`);
 
-            const tabId = await this.tabManager.createAccountTab(
+            tabId = await this.tabManager.createAccountTab(
                 params.cookieFile,
                 'douyin',
                 'https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page',

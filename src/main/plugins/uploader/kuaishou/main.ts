@@ -20,7 +20,7 @@ export class KuaiShouVideoUploader implements PluginUploader {
         try {
             console.log(`🎭 开始快手视频完整上传流程... (${params.title})`);
 
-            const tabId = await this.tabManager.createAccountTab(
+            tabId = await this.tabManager.createAccountTab(
                 params.cookieFile,
                 'kuaishou',
                 'https://cp.kuaishou.com/article/publish/video',

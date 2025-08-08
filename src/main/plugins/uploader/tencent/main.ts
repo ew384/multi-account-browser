@@ -19,7 +19,7 @@ export class WeChatVideoUploader implements PluginUploader {
         let tabId: string | null = null;
         try {
             console.log(`🎭 开始微信视频号完整上传流程... (${params.title})`);
-            const tabId = await this.tabManager.createAccountTab(
+            tabId = await this.tabManager.createAccountTab(
                 params.cookieFile,
                 'wechat',
                 'https://channels.weixin.qq.com/platform/post/create',

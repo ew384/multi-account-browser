@@ -20,7 +20,7 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
         try {
             console.log(`🎭 开始小红书视频完整上传流程... (${params.title})`);
 
-            const tabId = await this.tabManager.createAccountTab(
+            tabId = await this.tabManager.createAccountTab(
                 params.cookieFile,
                 'xiaohongshu',
                 'https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video',
