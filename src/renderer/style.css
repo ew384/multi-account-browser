@@ -463,8 +463,8 @@ body {
 }
 
 .welcome-content h2 {
-    font-size: 2rem;
-    font-weight: 600;
+    font-size: 2.5rem;
+    font-weight: 700;
     color: #1f2937;
     margin: 0 0 0.5rem 0;
     letter-spacing: -0.025em;
@@ -477,7 +477,7 @@ body {
 }
 
 .welcome-content p {
-    font-size: 1.1rem;
+    font-size: 1.0rem;
     font-weight: 400;
     color: #6b7280;
     margin: 0.5rem 0 0 0;
@@ -961,7 +961,7 @@ body {
     }
 
     .welcome-content h2 {
-        font-size: 1.75rem;
+        font-size: 1.55rem;
     }
 
     .welcome-content p {
