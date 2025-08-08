@@ -247,9 +247,23 @@ export class WeChatVideoUploader implements PluginUploader {
                             const buttonText = btn.textContent.trim();
                             if (buttonText.includes('发表')) {
                                 const isDisabled = btn.disabled || btn.className.includes('weui-desktop-btn_disabled');
+                                const hasDeleteBtn = !!shadowDoc.querySelector('.delete-btn, [class*="delete"]');
+                                const noCancelUpload = !shadowDoc.querySelector('.media-opr .finder-tag-wrap .tag-inner');
+                                let isCancelUploadGone = true;
+                                if (!noCancelUpload) {
+                                    const cancelElements = shadowDoc.querySelectorAll('.media-opr .finder-tag-wrap .tag-inner');
+                                    for (const el of cancelElements) {
+                                        if (el.textContent && el.textContent.includes('取消上传')) {
+                                            isCancelUploadGone = false;
+                                            break;
+                                        }
+                                    }
+                                }
                                 return {
                                     found: true,
                                     disabled: isDisabled,
+                                    hasDeleteBtn: hasDeleteBtn,
+                                    isCancelUploadGone: isCancelUploadGone,
                                     buttonText: buttonText,
                                     className: btn.className
                                 };
@@ -265,8 +279,8 @@ export class WeChatVideoUploader implements PluginUploader {
 
                 const result = await this.tabManager.executeScript(tabId, checkButtonScript);
 
-                if (result.found && !result.disabled) {
-                    console.log("✅ 发表按钮已激活，上传完成!");
+                if (result.found && !result.disabled && result.hasDeleteBtn && result.isCancelUploadGone) {
+                    console.log("✅ 发表按钮已激活、删除按钮存在且取消上传按钮已消失，视频上传完毕!");
                     break;
                 }
 
