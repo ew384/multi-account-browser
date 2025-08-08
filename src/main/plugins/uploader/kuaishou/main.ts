@@ -14,7 +14,7 @@ export class KuaiShouVideoUploader implements PluginUploader {
         //console.log(`✅ ${this.name} 初始化完成`);
     }
 
-    async uploadVideoComplete(params: UploadParams): Promise<boolean> {
+    async uploadVideoComplete(params: UploadParams): Promise<{ success: boolean; tabId?: string }> {
         const headless = params.headless ?? true; // 默认headless模式
         let tabId: string | null = null;        
         try {
@@ -47,20 +47,10 @@ export class KuaiShouVideoUploader implements PluginUploader {
             // 6. 点击发布
             await this.clickPublish(tabId);
 
-            return true;
+            return { success: true, tabId: tabId };
         } catch (error) {
             console.error('❌ 快手视频上传流程失败:', error);
             throw error;
-        }finally {
-            // 🔥 自动关闭tab
-            if (tabId) {
-                try {
-                    await this.tabManager.closeTab(tabId);
-                    console.log(`✅ 已关闭微信视频号上传tab: ${tabId}`);
-                } catch (closeError) {
-                    console.warn(`⚠️ 关闭tab失败: ${closeError}`);
-                }
-            }
         }
     }
 

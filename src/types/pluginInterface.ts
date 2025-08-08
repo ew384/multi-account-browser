@@ -127,7 +127,7 @@ export interface PluginUploader extends BasePlugin {
      * @param params 上传参数
      * @returns 是否成功
      */
-    uploadVideoComplete(params: UploadParams): Promise<boolean>;
+    uploadVideoComplete(params: UploadParams): Promise<{ success: boolean; tabId?: string }>;
 
     /**
      * 获取账号信息（可选）

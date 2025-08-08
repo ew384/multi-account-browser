@@ -201,6 +201,7 @@ export class AutomationEngine {
      * @returns 是否成功
      */
     async uploadVideo(params: UploadParams): Promise<boolean> {
+        let tabId: string | null = null;
         try {
             console.log(`🚀 开始 ${params.platform} 平台视频上传: ${params.title}`);
 
@@ -212,13 +213,38 @@ export class AutomationEngine {
 
             // 🔥 调用插件的上传方法
             const result = await uploader.uploadVideoComplete(params);
-
-            console.log(`${result ? '✅ 上传成功' : '❌ 上传失败'}: ${params.title}`);
-            return result;
+            
+            if (result.success && result.tabId) {
+                tabId = result.tabId;
+                
+                // 🔥 新增：等待URL跳转确认上传成功
+                console.log(`⏳ 等待 ${params.platform} 上传完成，监听URL跳转...`);
+                const urlChanged = await this.tabManager.waitForUrlChange(tabId, 300000); // 5分钟超时
+                
+                if (urlChanged) {
+                    console.log(`✅ ${params.platform} 视频发布成功，URL已跳转`);
+                } else {
+                    console.warn(`⚠️ ${params.platform} 上传超时，URL未跳转，保留tab供排查`);
+                    tabId = null; // 不关闭tab
+                }
+            }
+            
+            return result.success;
 
         } catch (error) {
-            console.error(`❌ ${params.platform} 视频上传失败:`, error);
-            throw error;
+        console.error(`❌ ${params.platform} 视频上传失败:`, error);
+        tabId = null; // 出错时不关闭tab，供排查
+        throw error;
+        } finally {
+            // 🔥 只有确认成功后才关闭tab
+            if (tabId) {
+                try {
+                    await this.tabManager.closeTab(tabId);
+                    console.log(`🗑️ ${params.platform} 上传完成，已关闭tab: ${tabId}`);
+                } catch (error) {
+                    console.error(`❌ 关闭上传tab失败: ${tabId}:`, error);
+                }
+            }
         }
     }
 
@@ -285,8 +311,8 @@ export class AutomationEngine {
                         };
 
                         // 执行上传
-                        const success = await uploader.uploadVideoComplete(uploadParams);
-
+                        const result = await uploader.uploadVideoComplete(uploadParams);
+                        const success = result.success;
                         results.push({
                             success,
                             file: file,

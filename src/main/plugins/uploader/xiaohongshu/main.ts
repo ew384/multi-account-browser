@@ -14,7 +14,7 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
         //console.log(`✅ ${this.name} 初始化完成`);
     }
 
-    async uploadVideoComplete(params: UploadParams): Promise<boolean> {
+    async uploadVideoComplete(params: UploadParams): Promise<{ success: boolean; tabId?: string }> {
         const headless = params.headless ?? true; // 默认headless模式
         let tabId: string | null = null;        
         try {
@@ -44,7 +44,7 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
             // 5. 点击发布
             await this.clickPublish(tabId, !!params.publishDate);
 
-            return true;
+            return { success: true, tabId: tabId };
         } catch (error) {
             console.error('❌ 小红书视频上传流程失败:', error);
             throw error;
