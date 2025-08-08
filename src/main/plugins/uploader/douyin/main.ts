@@ -263,18 +263,25 @@ export class DouyinVideoUploader implements PluginUploader {
                     }
                 }
 
-                // 添加标签
+                // 添加标签到作品简介
                 const tags = ${JSON.stringify(tags)};
                 if (tags.length > 0) {
-                    const zoneContainer = document.querySelector('.zone-container');
+                    const zoneContainer = document.querySelector('.zone-container[data-placeholder="添加作品简介"]');
                     if (zoneContainer) {
-                        for (const tag of tags) {
-                            // 输入标签
-                            const tagText = '#' + tag + ' ';
-                            document.execCommand('insertText', false, tagText);
-                            
-                            await new Promise(resolve => setTimeout(resolve, 300));
-                        }
+                        // 点击聚焦到简介输入框
+                        zoneContainer.click();
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        // 构建标签文本
+                        const tagText = tags.map(tag => '#' + tag).join(' ') + ' ';
+                        
+                        // 直接设置内容
+                        zoneContainer.innerHTML = '<div class="ace-line" data-node="true"><div data-line-wrapper="true" dir="auto"><span class="" data-leaf="true"><span data-string="true">' + tagText + '</span></span></div></div>';
+                        
+                        // 触发输入事件
+                        zoneContainer.dispatchEvent(new Event('input', { bubbles: true }));
+                        zoneContainer.dispatchEvent(new Event('change', { bubbles: true }));
+                        
                         console.log('✅ 标签添加成功，总共添加了', tags.length, '个标签');
                     }
                 }
@@ -303,20 +310,23 @@ export class DouyinVideoUploader implements PluginUploader {
             
             const checkUpload = async () => {
                 if (Date.now() - startTime > timeout) {
-                    reject(new Error('视频上传超时'));
+                    console.log('⚠️ 视频上传超时，但继续后续流程（抖音支持上传中发布）');
+                    resolve(true);
                     return;
                 }
 
                 // 检查重新上传按钮是否存在
-                const reuploadButton = document.querySelector('[class^="long-card"] div:has-text("重新上传")');
-                if (reuploadButton) {
+                const textElements = document.querySelectorAll('div.text-JK4gL5');
+                const reuploadElement = Array.from(textElements).find(el => el.textContent.trim() === '重新上传');
+                if (reuploadElement) {
                     console.log('✅ 视频上传完成');
                     resolve(true);
                     return;
                 }
 
                 // 检查上传失败
-                const uploadFailed = document.querySelector('div.progress-div > div:has-text("上传失败")');
+                const progressDiv = document.querySelector('div.progress-div');
+                const uploadFailed = progressDiv && Array.from(progressDiv.querySelectorAll('div')).some(div => div.textContent.includes('上传失败'));
                 if (uploadFailed) {
                     console.log('❌ 发现上传失败，需要重新上传');
                     reject(new Error('视频上传失败'));
@@ -341,8 +351,7 @@ export class DouyinVideoUploader implements PluginUploader {
         (async function() {
             try {
                 // 点击选择封面按钮
-                const coverButton = document.querySelector('text="选择封面"') || 
-                                  document.querySelector('[class*="cover"]:has-text("选择封面")');
+                const coverButton = Array.from(document.querySelectorAll('*')).find(el => el.textContent.trim() === '选择封面');
                 if (coverButton) {
                     coverButton.click();
                     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -352,7 +361,7 @@ export class DouyinVideoUploader implements PluginUploader {
                 await new Promise(resolve => setTimeout(resolve, 2000));
 
                 // 点击设置竖封面
-                const verticalCoverButton = document.querySelector('text="设置竖封面"');
+                const verticalCoverButton = Array.from(document.querySelectorAll('*')).find(el => el.textContent.trim() === '设置竖封面');
                 if (verticalCoverButton) {
                     verticalCoverButton.click();
                     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -396,7 +405,7 @@ export class DouyinVideoUploader implements PluginUploader {
 
                 // 点击完成按钮
                 await new Promise(resolve => setTimeout(resolve, 2000));
-                const finishButton = document.querySelector("div[class^='extractFooter'] button:has-text('完成')");
+                const finishButton = Array.from(document.querySelectorAll("div[class^='extractFooter'] button")).find(btn => btn.textContent.trim() === '完成');
                 if (finishButton) {
                     finishButton.click();
                 }
@@ -422,7 +431,7 @@ export class DouyinVideoUploader implements PluginUploader {
         (async function() {
             try {
                 // 点击地理位置选择器
-                const locationSelector = document.querySelector('div.semi-select span:has-text("输入地理位置")');
+                const locationSelector = Array.from(document.querySelectorAll('div.semi-select span')).find(span => span.textContent.includes('输入地理位置'));
                 if (locationSelector) {
                     locationSelector.click();
                     await new Promise(resolve => setTimeout(resolve, 500));
@@ -506,7 +515,7 @@ export class DouyinVideoUploader implements PluginUploader {
         (async function() {
             try {
                 // 选择定时发布选项
-                const scheduleLabel = document.querySelector("label[class^='radio']:has-text('定时发布')");
+                const scheduleLabel = Array.from(document.querySelectorAll("label[class^='radio']")).find(label => label.textContent.includes('定时发布'));
                 if (scheduleLabel) {
                     scheduleLabel.click();
                     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -571,7 +580,9 @@ export class DouyinVideoUploader implements PluginUploader {
                 }
 
                 // 查找发布按钮
-                const publishButton = document.querySelector('button[role="button"]:has-text("发布")');
+                const publishButton = document.querySelector('button.button-dhlUZE.primary-cECiOJ') || 
+                                    Array.from(document.querySelectorAll('button')).find(btn => btn.textContent.trim() === '发布');
+                
                 if (publishButton && !publishButton.disabled) {
                     publishButton.click();
                     
