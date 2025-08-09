@@ -376,31 +376,45 @@ export class WeChatVideoUploader implements PluginUploader {
                     
                     // 等待可能的弹框
                     await new Promise(resolve => setTimeout(resolve, 1000));
-                    
-                    // 如果有"我已阅读并同意"的确认，点击它
-                    const agreeLabels = shadowDoc.querySelectorAll('label');
-                    for (const label of agreeLabels) {
-                        if (label.textContent && label.textContent.includes('我已阅读并同意')) {
-                            const agreeCheckbox = label.querySelector('input[type="checkbox"]');
-                            if (agreeCheckbox && !agreeCheckbox.checked) {
-                                agreeCheckbox.click();
-                                console.log('✅ 已同意使用条款');
-                            }
+                    // 在对话框中查找并勾选"我已阅读并同意"的checkbox
+                    const agreeCheckbox = shadowDoc.querySelector('.weui-desktop-dialog .ant-checkbox-wrapper input[type="checkbox"]');
+                    if (agreeCheckbox && !agreeCheckbox.checked) {
+                        agreeCheckbox.click();
+                        console.log('✅ 已勾选我已阅读并同意');
+                        
+                        // 等待按钮激活
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+
+                    // 点击对话框中的"声明原创"按钮
+                    const dialogButtons = shadowDoc.querySelectorAll('.weui-desktop-dialog__ft button');
+                    let originalButton = null;
+
+                    for (const button of dialogButtons) {
+                        console.log('找到按钮:', button.textContent.trim(), '禁用状态:', button.disabled);
+                        if (button.textContent.trim() === '声明原创') {
+                            originalButton = button;
                             break;
                         }
                     }
-                    
-                    // 如果有确认按钮，点击它
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    const confirmButtons = shadowDoc.querySelectorAll('button');
-                    for (const button of confirmButtons) {
-                        if (button.textContent && (button.textContent.includes('确认') || button.textContent.includes('声明原创'))) {
-                            if (!button.disabled) {
-                                button.click();
-                                console.log('✅ 已点击确认原创按钮');
-                                break;
+
+                    if (originalButton) {
+                        if (!originalButton.disabled) {
+                            originalButton.click();
+                            console.log('✅ 已点击声明原创按钮');
+                        } else {
+                            console.log('⚠️ 声明原创按钮仍被禁用，等待后重试');
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            if (!originalButton.disabled) {
+                                originalButton.click();
+                                console.log('✅ 延迟后成功点击声明原创按钮');
                             }
                         }
+                    } else {
+                        console.log('⚠️ 未找到声明原创按钮');
+                        dialogButtons.forEach((btn, index) => {
+                            console.log('按钮' + index + ': ' + btn.textContent.trim() + ' 禁用:' + btn.disabled);
+                        });
                     }
                 } else if (originalCheckbox && originalCheckbox.checked) {
                     console.log('✅ 原创声明已经勾选');
