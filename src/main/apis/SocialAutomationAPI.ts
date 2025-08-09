@@ -698,18 +698,17 @@ export class SocialAutomationAPI {
     }
 
     // ==================== 视频发布相关处理方法 ====================
-
     /**
      * 🔥 视频发布 - 对应 Python 的 postVideo
      */
     private async handlePostVideo(req: express.Request, res: express.Response): Promise<void> {
-        let recordId: number | null = null;
-        let savedCoverPaths: string[] = []; // 🔥 保存所有封面路径
+        let recordId: number | undefined = undefined;
+        let savedCoverPaths: string[] = [];
         try {
             const {
                 fileList = [],
                 accountList = [],
-                thumbnail, // 接收封面数据
+                thumbnail,
                 type: typeVal,
                 title,
                 tags,
@@ -725,6 +724,7 @@ export class SocialAutomationAPI {
             console.log(`   文件数: ${fileList.length}`);
             console.log(`   账号数: ${accountList.length}`);
             console.log(`   发布模式: ${mode}`);
+            
             // 验证必要参数
             if (!fileList || !Array.isArray(fileList) || fileList.length === 0) {
                 this.sendResponse(res, 400, '文件列表不能为空', null);
@@ -755,6 +755,8 @@ export class SocialAutomationAPI {
                 this.sendResponse(res, 400, `平台 ${platform} 暂不支持视频上传功能`, null);
                 return;
             }
+            
+            // 🔥 保存封面截图
             if (thumbnail && thumbnail.startsWith('data:image/')) {
                 for (const videoFile of fileList) {
                     const coverPath = await PublishRecordStorage.saveCoverScreenshot(
@@ -766,6 +768,7 @@ export class SocialAutomationAPI {
                     }
                 }
             }
+            
             // 🔥 1. 创建发布记录
             const publishRecordData = {
                 title: title || '未命名发布任务',
@@ -782,7 +785,7 @@ export class SocialAutomationAPI {
                 total_accounts: accountList.length,
                 success_accounts: 0,
                 failed_accounts: 0,
-                created_by: 'system' // 后续可以从认证信息中获取
+                created_by: 'system'
             };
         
             const recordResult = PublishRecordStorage.savePublishRecord(publishRecordData);
@@ -795,7 +798,21 @@ export class SocialAutomationAPI {
             recordId = recordResult.data.recordId;
             console.log(`✅ 发布记录已创建: ID ${recordId}`);
 
-            // 🔥 构造批量上传请求
+            // 🔥 2. 设置初始状态 - 添加类型检查
+            if (recordId !== undefined) {
+                for (const account of accountList) {
+                    const statusData = {
+                        status: 'uploading',
+                        upload_status: '待开始',
+                        push_status: '待推送',
+                        review_status: '待审核'
+                    };
+
+                    await PublishRecordStorage.updateAccountPublishStatus(recordId, account.accountName, statusData);
+                }
+            }
+
+            // 🔥 3. 构造批量上传请求
             const batchRequest = {
                 platform,
                 files: fileList,
@@ -820,14 +837,15 @@ export class SocialAutomationAPI {
                 }
             };
 
-            // 🔥 执行批量上传
+            // 🔥 4. 执行批量上传，传递 recordId
             console.log(`🚀 开始执行批量上传，记录ID: ${recordId}`);
-            const uploadResults = await this.automationEngine.batchUpload(batchRequest);
+            const uploadResults = await this.automationEngine.batchUpload(batchRequest, recordId);
 
-            // 统计结果
+            // 🔥 5. 统计结果
             const successCount = uploadResults.filter(r => r.success).length;
             const failedCount = uploadResults.length - successCount;
             const totalCount = uploadResults.length;
+            
             // 确定最终状态
             let finalStatus: string;
             if (failedCount === 0) {
@@ -838,33 +856,17 @@ export class SocialAutomationAPI {
                 finalStatus = 'partial';
             }
 
-            // 🔥 5. 更新发布记录状态
-            const updateResult = await PublishRecordStorage.updatePublishRecordStatus(recordId!, finalStatus, {
-                success: successCount,
-                failed: failedCount,
-                total: totalCount
-            });
+            // 🔥 6. 更新发布记录状态 - 添加类型检查
+            if (recordId !== undefined) {
+                const updateResult = await PublishRecordStorage.updatePublishRecordStatus(recordId, finalStatus, {
+                    success: successCount,
+                    failed: failedCount,
+                    total: totalCount
+                });
 
-            if (!updateResult.success) {
-                console.error(`❌ 更新发布记录状态失败: ${updateResult.message}`);
-            }
-
-            // 🔥 6. 更新每个账号的发布状态
-            for (const result of uploadResults) {
-                if (!result.account) {
-                    console.warn(`⚠️ 跳过更新状态：账号名为空`, result);
-                    continue;
+                if (!updateResult.success) {
+                    console.error(`❌ 更新发布记录状态失败: ${updateResult.message}`);
                 }
-                const statusData = {
-                    status: result.success ? 'success' : 'failed',
-                    upload_status: result.success ? '上传成功' : '上传失败',
-                    push_status: result.success ? '推送成功' : '推送失败',
-                    //transcode_status: result.success ? '转码成功' : '转码失败',
-                    review_status: result.success ? '待审核' : '审核失败',
-                    error_message: result.error || undefined
-                };
-
-                await PublishRecordStorage.updateAccountPublishStatus(recordId!, result.account, statusData);
             }
 
             console.log(`📊 批量上传完成: 成功 ${successCount}, 失败 ${failedCount}`);
@@ -883,7 +885,8 @@ export class SocialAutomationAPI {
 
         } catch (error) {
             console.error(`❌ 视频发布失败:`, error);
-            if (recordId) {
+            // 🔥 添加类型检查
+            if (recordId !== undefined) {
                 try {
                     await PublishRecordStorage.updatePublishRecordStatus(recordId, 'failed');
                 } catch (updateError) {

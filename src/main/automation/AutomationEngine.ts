@@ -201,82 +201,133 @@ export class AutomationEngine {
      * @param params 上传参数
      * @returns 上传结果
      */
-    async uploadVideo(params: UploadParams): Promise<UploadResult> {
+    async uploadVideo(params: UploadParams, recordId?: number): Promise<UploadResult> {
         let tabId: string | null = null;
         const startTime = new Date().toISOString();
+        const accountName = path.basename(params.cookieFile, '.json');
         
         try {
             console.log(`🚀 开始 ${params.platform} 平台视频上传: ${params.title || params.filePath}`);
 
-            // 🔥 验证账号有效性
-            console.log(`🔍 验证账号有效性: ${params.cookieFile}`);
+            // 🔥 步骤1：验证账号
+            if (recordId) {
+                await this.updateUploadProgress(recordId, accountName, {
+                    upload_status: '验证账号中'
+                });
+            }
+
             const isValid = await this.validateAccount(params.platform, params.cookieFile);
-            
             if (!isValid) {
-                console.log(`❌ 账号验证失败，跳过上传: ${params.cookieFile}`);
+                if (recordId) {
+                    await this.updateUploadProgress(recordId, accountName, {
+                        status: 'failed',
+                        upload_status: '账号验证失败',
+                        push_status: '推送失败',
+                        review_status: '发布失败'
+                    });
+                }
                 return {
                     success: false,
                     error: '账号已失效，请重新登录',
                     file: params.filePath,
-                    account: path.basename(params.cookieFile, '.json'),
+                    account: accountName,
                     platform: params.platform,
                     uploadTime: startTime
                 };
             }
-            
-            console.log(`✅ 账号验证通过: ${params.cookieFile}`);
 
-            // 🔥 通过插件管理器获取对应平台的上传器
+            // 🔥 步骤2：开始上传
+            if (recordId) {
+                await this.updateUploadProgress(recordId, accountName, {
+                    upload_status: '上传中'
+                });
+            }
+
             const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, params.platform);
             if (!uploader) {
                 throw new Error(`不支持的平台: ${params.platform}`);
             }
 
-            // 🔥 调用插件的上传方法
             const result = await uploader.uploadVideoComplete(params);
             
             if (result.success && result.tabId) {
                 tabId = result.tabId;
                 
-                // 🔥 等待URL跳转确认上传成功
+                // 🔥 步骤3：上传完成，开始推送
+                if (recordId) {
+                    await this.updateUploadProgress(recordId, accountName, {
+                        upload_status: '上传成功',
+                        push_status: '推送中'
+                    });
+                }
+                
+                // 🔥 步骤4：等待URL跳转（推送完成）
                 console.log(`⏳ 等待 ${params.platform} 上传完成，监听URL跳转...`);
                 try {
-                    const urlChanged = await this.tabManager.waitForUrlChange(tabId, 300000); // 5分钟超时
+                    const urlChanged = await this.tabManager.waitForUrlChange(tabId, 300000);
                     
                     if (urlChanged) {
+                        // 🔥 步骤5：推送成功，进入审核
+                        if (recordId) {
+                            await this.updateUploadProgress(recordId, accountName, {
+                                status: 'success',
+                                push_status: '推送成功',
+                                review_status: '发布成功'  // 或者 '待平台审核'
+                            });
+                        }
                         console.log(`✅ ${params.platform} 视频发布成功，URL已跳转`);
                     } else {
-                        console.warn(`⚠️ ${params.platform} 上传超时，URL未跳转，但视频可能已上传成功`);
+                        // 推送超时
+                        if (recordId) {
+                            await this.updateUploadProgress(recordId, accountName, {
+                                push_status: '推送超时',
+                                review_status: '状态未知'
+                            });
+                        }
+                        console.warn(`⚠️ ${params.platform} 上传超时，URL未跳转`);
                     }
                 } catch (urlWaitError) {
+                    if (recordId) {
+                        await this.updateUploadProgress(recordId, accountName, {
+                            push_status: '推送异常',
+                            review_status: '发布失败'
+                        });
+                    }
                     console.error(`❌ 等待URL跳转异常:`, urlWaitError);
-                    // URL等待异常不影响上传结果判断
                 }
             }
             
-            // 返回统一的结果格式
             return {
                 success: result.success,
                 error: result.success ? undefined : '上传失败',
                 file: params.filePath,
-                account: path.basename(params.cookieFile, '.json'),
+                account: accountName,
                 platform: params.platform,
                 uploadTime: startTime
             };
 
         } catch (error) {
-            console.error(`❌ ${params.platform} 视频上传失败:`, error);
+            // 🔥 异常处理：更新失败状态
+            if (recordId) {
+                await this.updateUploadProgress(recordId, accountName, {
+                    status: 'failed',
+                    upload_status: '上传失败',
+                    push_status: '推送失败',
+                    review_status: '发布失败',
+                    error_message: error instanceof Error ? error.message : '未知错误'
+                });
+            }
             
+            console.error(`❌ ${params.platform} 视频上传失败:`, error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : '未知错误',
                 file: params.filePath,
-                account: path.basename(params.cookieFile, '.json'),
+                account: accountName,
                 platform: params.platform,
                 uploadTime: startTime
             };
         } finally {
-            // 🔥 确保tab被正确关闭
             if (tabId) {
                 try {
                     await this.tabManager.closeTab(tabId);
@@ -288,12 +339,21 @@ export class AutomationEngine {
         }
     }
 
+    // 🔥 新增：状态更新辅助方法
+    private async updateUploadProgress(recordId: number, accountName: string, statusData: any): Promise<void> {
+        try {
+            const { PublishRecordStorage } = await import('../plugins/uploader/base/PublishRecordStorage');
+            await PublishRecordStorage.updateAccountPublishStatus(recordId, accountName, statusData);
+        } catch (error) {
+            console.error('❌ 更新上传进度失败:', error);
+        }
+    }
     /**
      * 🔥 批量视频上传 - 委托给 uploadVideo 处理每个上传
      * @param request 批量上传请求
      * @returns 上传结果列表
      */
-    async batchUpload(request: BatchUploadRequest): Promise<UploadResult[]> {
+    async batchUpload(request: BatchUploadRequest, recordId?: number): Promise<UploadResult[]> {
         try {
             console.log(`🚀 开始批量上传`);
             console.log(`   文件数: ${request.files.length}`);
@@ -331,7 +391,7 @@ export class AutomationEngine {
                         };
 
                         // 🔥 调用 uploadVideo 处理单个上传（包含完整的tab管理）
-                        const result = await this.uploadVideo(uploadParams);
+                        const result = await this.uploadVideo(uploadParams, recordId);
                         
                         results.push(result);
 
