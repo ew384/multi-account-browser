@@ -196,14 +196,35 @@ export class AutomationEngine {
     isLoginSupported(platform: string): boolean {
         return this.pluginManager.isPlatformSupported(PluginType.LOGIN, platform);
     }
-    /*
+    /**
+     * 🔥 单个账号视频上传 - 完整流程包含tab管理
      * @param params 上传参数
-     * @returns 是否成功
+     * @returns 上传结果
      */
-    async uploadVideo(params: UploadParams): Promise<boolean> {
+    async uploadVideo(params: UploadParams): Promise<UploadResult> {
         let tabId: string | null = null;
+        const startTime = new Date().toISOString();
+        
         try {
-            console.log(`🚀 开始 ${params.platform} 平台视频上传: ${params.title}`);
+            console.log(`🚀 开始 ${params.platform} 平台视频上传: ${params.title || params.filePath}`);
+
+            // 🔥 验证账号有效性
+            console.log(`🔍 验证账号有效性: ${params.cookieFile}`);
+            const isValid = await this.validateAccount(params.platform, params.cookieFile);
+            
+            if (!isValid) {
+                console.log(`❌ 账号验证失败，跳过上传: ${params.cookieFile}`);
+                return {
+                    success: false,
+                    error: '账号已失效，请重新登录',
+                    file: params.filePath,
+                    account: path.basename(params.cookieFile, '.json'),
+                    platform: params.platform,
+                    uploadTime: startTime
+                };
+            }
+            
+            console.log(`✅ 账号验证通过: ${params.cookieFile}`);
 
             // 🔥 通过插件管理器获取对应平台的上传器
             const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, params.platform);
@@ -217,39 +238,58 @@ export class AutomationEngine {
             if (result.success && result.tabId) {
                 tabId = result.tabId;
                 
-                // 🔥 新增：等待URL跳转确认上传成功
+                // 🔥 等待URL跳转确认上传成功
                 console.log(`⏳ 等待 ${params.platform} 上传完成，监听URL跳转...`);
-                const urlChanged = await this.tabManager.waitForUrlChange(tabId, 300000); // 5分钟超时
-                
-                if (urlChanged) {
-                    console.log(`✅ ${params.platform} 视频发布成功，URL已跳转`);
-                } else {
-                    console.warn(`⚠️ ${params.platform} 上传超时，URL未跳转，保留tab供排查`);
-                    tabId = null; // 不关闭tab
+                try {
+                    const urlChanged = await this.tabManager.waitForUrlChange(tabId, 300000); // 5分钟超时
+                    
+                    if (urlChanged) {
+                        console.log(`✅ ${params.platform} 视频发布成功，URL已跳转`);
+                    } else {
+                        console.warn(`⚠️ ${params.platform} 上传超时，URL未跳转，但视频可能已上传成功`);
+                    }
+                } catch (urlWaitError) {
+                    console.error(`❌ 等待URL跳转异常:`, urlWaitError);
+                    // URL等待异常不影响上传结果判断
                 }
             }
             
-            return result.success;
+            // 返回统一的结果格式
+            return {
+                success: result.success,
+                error: result.success ? undefined : '上传失败',
+                file: params.filePath,
+                account: path.basename(params.cookieFile, '.json'),
+                platform: params.platform,
+                uploadTime: startTime
+            };
 
         } catch (error) {
-        console.error(`❌ ${params.platform} 视频上传失败:`, error);
-        tabId = null; // 出错时不关闭tab，供排查
-        throw error;
+            console.error(`❌ ${params.platform} 视频上传失败:`, error);
+            
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : '未知错误',
+                file: params.filePath,
+                account: path.basename(params.cookieFile, '.json'),
+                platform: params.platform,
+                uploadTime: startTime
+            };
         } finally {
-            // 🔥 只有确认成功后才关闭tab
+            // 🔥 确保tab被正确关闭
             if (tabId) {
                 try {
                     await this.tabManager.closeTab(tabId);
                     console.log(`🗑️ ${params.platform} 上传完成，已关闭tab: ${tabId}`);
-                } catch (error) {
-                    console.error(`❌ 关闭上传tab失败: ${tabId}:`, error);
+                } catch (closeError) {
+                    console.error(`❌ 关闭上传tab失败: ${tabId}:`, closeError);
                 }
             }
         }
     }
 
     /**
-     * 🔥 改造：批量视频上传 - 支持多文件、多账号
+     * 🔥 批量视频上传 - 委托给 uploadVideo 处理每个上传
      * @param request 批量上传请求
      * @returns 上传结果列表
      */
@@ -267,105 +307,57 @@ export class AutomationEngine {
             for (const file of request.files) {
                 for (const account of request.accounts) {
                     try {
-
-                        // 🔥 关键修改：从账号信息中获取平台类型
-                        let accountPlatform = '';
-                        let cookieFile = '';
-                        let accountName = '';
-                        accountPlatform = account.platform || request.platform;
-                        cookieFile = account.cookieFile || `${account.accountName}.json`;
-                        accountName = account.accountName || 'unknown';
+                        // 🔥 从账号信息中获取平台和cookie信息
+                        const accountPlatform = account.platform || request.platform;
+                        const cookieFile = account.cookieFile || `${account.accountName}.json`;
+                        const accountName = account.accountName || 'unknown';
+                        
                         console.log(`📤 准备上传: ${file} -> ${accountName} (${accountPlatform}平台)`);
-                        console.log(`🔍 验证账号有效性: ${accountName}`);
-                        const isValid = await this.validateAccount(accountPlatform, cookieFile);
-                        
-                        if (!isValid) {
-                            failedCount++;
-                            console.log(`❌ 账号验证失败，跳过上传: ${accountName}`);
-                            
-                            results.push({
-                                success: false,
-                                error: '账号已失效，请重新登录',
-                                file: file,
-                                account: accountName,
-                                platform: accountPlatform,
-                                uploadTime: new Date().toISOString()
-                            });
-                            
-                            continue; // 🔥 跳过后续上传流程
-                        }
-                        
-                        console.log(`✅ 账号验证通过: ${accountName}`);
-                        // 🔥 动态获取对应平台的uploader
-                        const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, accountPlatform);
-                        if (!uploader) {
-                            throw new Error(`不支持的平台: ${accountPlatform}`);
-                        }
-                        console.log(`🔍 准备上传参数:`);
-                        console.log(`   cookieFile: ${cookieFile}`);
-                        console.log(`   完整路径: ${path.join(Config.COOKIE_DIR, cookieFile)}`);
-                        console.log(`   文件是否存在: ${require('fs').existsSync(path.join(Config.COOKIE_DIR, cookieFile))}`);
 
-                        // 构造单次上传参数
+                        // 🔥 构造文件完整路径
                         let fullFilePath: string;
                         if (path.isAbsolute(file)) {
-                            // 如果已经是绝对路径，直接使用
                             fullFilePath = file;
                         } else {
-                            // 如果是文件名，构造完整路径
                             fullFilePath = path.join(Config.VIDEO_DIR, file);
                         }
 
-                        console.log(`🔍 视频文件路径处理:`);
-                        console.log(`   原始file: ${file}`);
-                        console.log(`   完整路径: ${fullFilePath}`);
-                        console.log(`   文件是否存在: ${fs.existsSync(fullFilePath)}`);
-
-                        // 构造单次上传参数
+                        // 🔥 构造单次上传参数
                         const uploadParams: UploadParams = {
                             ...request.params,
                             cookieFile: cookieFile,
                             platform: accountPlatform,
-                            filePath: fullFilePath  // 🔥 使用完整路径
+                            filePath: fullFilePath
                         };
 
-                        // 执行上传
-                        const result = await uploader.uploadVideoComplete(uploadParams);
-                        const success = result.success;
-                        results.push({
-                            success,
-                            file: file,
-                            account: accountName,
-                            platform: accountPlatform, // 🔥 记录实际使用的平台
-                            uploadTime: new Date().toISOString()
-                        });
+                        // 🔥 调用 uploadVideo 处理单个上传（包含完整的tab管理）
+                        const result = await this.uploadVideo(uploadParams);
+                        
+                        results.push(result);
 
-                        if (success) {
+                        if (result.success) {
                             successCount++;
                             console.log(`✅ 成功: ${file} -> ${accountName} (${accountPlatform})`);
                         } else {
                             failedCount++;
-                            console.log(`❌ 失败: ${file} -> ${accountName} (${accountPlatform})`);
+                            console.log(`❌ 失败: ${file} -> ${accountName} (${accountPlatform}): ${result.error}`);
                         }
 
                     } catch (error) {
                         failedCount++;
                         const errorMsg = error instanceof Error ? error.message : '未知错误';
 
+                        // 🔥 构造错误结果
                         results.push({
                             success: false,
                             error: errorMsg,
                             file: file,
-                            account: typeof account === 'string' ?
-                                path.basename(account, '.json').split('_').slice(1, -1).join('_') :
-                                account.accountName,
-                            platform: typeof account === 'string' ?
-                                path.basename(account, '.json').split('_')[0] :
-                                (account.platform || request.platform),
+                            account: account.accountName || 'unknown',
+                            platform: account.platform || request.platform,
                             uploadTime: new Date().toISOString()
                         });
 
-                        console.error(`❌ 上传异常: ${file} -> ${typeof account === 'string' ? account : account.accountName}:`, errorMsg);  // 🔥 修正：使用accountName
+                        console.error(`❌ 上传异常: ${file} -> ${account.accountName}:`, errorMsg);
                     }
 
                     // 🔥 添加间隔，避免请求过快

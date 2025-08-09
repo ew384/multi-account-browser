@@ -859,8 +859,8 @@ export class SocialAutomationAPI {
                     status: result.success ? 'success' : 'failed',
                     upload_status: result.success ? '上传成功' : '上传失败',
                     push_status: result.success ? '推送成功' : '推送失败',
-                    transcode_status: result.success ? '转码成功' : '转码失败',
-                    review_status: result.success ? '审核成功' : '审核失败',
+                    //transcode_status: result.success ? '转码成功' : '转码失败',
+                    review_status: result.success ? '待审核' : '审核失败',
                     error_message: result.error || undefined
                 };
 
