@@ -275,8 +275,27 @@ export class AutomationEngine {
                         accountPlatform = account.platform || request.platform;
                         cookieFile = account.cookieFile || `${account.accountName}.json`;
                         accountName = account.accountName || 'unknown';
-                        console.log(`📤 上传: ${file} -> ${accountName} (${accountPlatform}平台)`);
-
+                        console.log(`📤 准备上传: ${file} -> ${accountName} (${accountPlatform}平台)`);
+                        console.log(`🔍 验证账号有效性: ${accountName}`);
+                        const isValid = await this.validateAccount(accountPlatform, cookieFile);
+                        
+                        if (!isValid) {
+                            failedCount++;
+                            console.log(`❌ 账号验证失败，跳过上传: ${accountName}`);
+                            
+                            results.push({
+                                success: false,
+                                error: '账号已失效，请重新登录',
+                                file: file,
+                                account: accountName,
+                                platform: accountPlatform,
+                                uploadTime: new Date().toISOString()
+                            });
+                            
+                            continue; // 🔥 跳过后续上传流程
+                        }
+                        
+                        console.log(`✅ 账号验证通过: ${accountName}`);
                         // 🔥 动态获取对应平台的uploader
                         const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, accountPlatform);
                         if (!uploader) {
@@ -814,7 +833,7 @@ export class AutomationEngine {
 
     async validateAccount(platform: string, cookieFile: string): Promise<boolean> {
         try {
-            // 1. 调用验证插件（只做验证，不操作数据库）
+            // 1. 调用验证插件
             const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, platform);
             if (!validator) {
                 console.warn(`⚠️ 平台 ${platform} 暂不支持验证功能`);

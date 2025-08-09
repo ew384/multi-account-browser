@@ -1324,18 +1324,24 @@ export class AccountStorage {
     }
 
     /**
-     * 🔥 从数据库获取账号信息（改进版）
+     * 🔥 从数据库获取账号信息
      */
-    static getAccountInfoFromDb(cookieFile: string): { username: string; platform: string; platformType: number } | null {
+    static getAccountInfoFromDb(cookieFile: string): { 
+        username: string; 
+        platform: string; 
+        platformType: number;
+        status: number;  // 🔥 新增状态字段
+    } | null {
         try {
             const cookieFilename = path.basename(cookieFile);
             const db = this.getDatabase();
 
-            const stmt = db.prepare('SELECT userName, type FROM user_info WHERE filePath = ?');
+            // 🔥 查询时增加 status 字段
+            const stmt = db.prepare('SELECT userName, type, status FROM user_info WHERE filePath = ?');
             const result = stmt.get(cookieFilename) as any;
 
             if (result) {
-                const { userName, type: platformType } = result;
+                const { userName, type: platformType, status } = result;
                 const platformMap: Record<number, string> = {
                     1: 'xiaohongshu',
                     2: 'wechat',
@@ -1346,7 +1352,8 @@ export class AccountStorage {
                 return {
                     username: userName,
                     platform: platformMap[platformType] || 'unknown',
-                    platformType: platformType
+                    platformType: platformType,
+                    status: status  // 🔥 直接返回数据库中的状态
                 };
             }
 
