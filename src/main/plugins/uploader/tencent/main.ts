@@ -48,7 +48,7 @@ export class WeChatVideoUploader implements PluginUploader {
 
             // 6: 处理原创声明（在发布前）
             if (params.enableOriginal) {
-                await this.handleOriginalDeclaration(tabId, params.category);
+                await this.handleOriginalDeclaration(tabId, params.enableOriginal);
             }
 
             // 7:  处理定时发布
@@ -338,7 +338,12 @@ export class WeChatVideoUploader implements PluginUploader {
         }
     }
 
-    private async handleOriginalDeclaration(tabId: string, category?: string): Promise<void> {
+    private async handleOriginalDeclaration(tabId: string, enableOriginal: boolean = true): Promise<void> {
+        if (!enableOriginal) {
+            console.log('⏭️ 跳过原创声明');
+            return;
+        }
+        
         console.log('📋 处理原创声明...');
 
         const originalScript = `
@@ -346,54 +351,63 @@ export class WeChatVideoUploader implements PluginUploader {
             try {
                 console.log('🔥 开始处理原创声明...');
                 
-                // 查找并点击原创声明复选框
+                // 在Shadow DOM中查找原创声明复选框
+                const wujieApp = document.querySelector('wujie-app');
+                if (!wujieApp || !wujieApp.shadowRoot) {
+                    throw new Error('未找到Shadow DOM');
+                }
+                
+                const shadowDoc = wujieApp.shadowRoot;
+                
+                // 查找包含"声明后，作品将展示原创标记"的复选框
+                const labels = shadowDoc.querySelectorAll('label.ant-checkbox-wrapper');
                 let originalCheckbox = null;
                 
-                const originalLabels = document.querySelectorAll('label');
-                for (const label of originalLabels) {
-                    if (label.textContent.includes('视频为原创')) {
-                        originalCheckbox = label.querySelector('input[type="checkbox"]') || label;
+                for (const label of labels) {
+                    if (label.textContent && label.textContent.includes('声明后，作品将展示原创标记')) {
+                        originalCheckbox = label.querySelector('input.ant-checkbox-input');
                         break;
                     }
                 }
                 
-                if (originalCheckbox) {
+                if (originalCheckbox && !originalCheckbox.checked) {
                     originalCheckbox.click();
                     console.log('✅ 已点击原创声明复选框');
-                }
-
-                // 等待弹框出现
-                await new Promise(resolve => setTimeout(resolve, 1500));
-
-                // 处理使用条款同意
-                const agreeElements = document.querySelectorAll('label');
-                for (const element of agreeElements) {
-                    if (element.textContent.includes('我已阅读并同意')) {
-                        element.click();
-                        console.log('✅ 已同意使用条款');
-                        break;
+                    
+                    // 等待可能的弹框
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    // 如果有"我已阅读并同意"的确认，点击它
+                    const agreeLabels = shadowDoc.querySelectorAll('label');
+                    for (const label of agreeLabels) {
+                        if (label.textContent && label.textContent.includes('我已阅读并同意')) {
+                            const agreeCheckbox = label.querySelector('input[type="checkbox"]');
+                            if (agreeCheckbox && !agreeCheckbox.checked) {
+                                agreeCheckbox.click();
+                                console.log('✅ 已同意使用条款');
+                            }
+                            break;
+                        }
                     }
-                }
-
-                // 设置原创类型
-                const category = '${category || ''}';
-                if (category) {
-                    // ... 原创类型设置逻辑
-                }
-
-                // 点击声明原创按钮
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                const buttons = document.querySelectorAll('button');
-                for (const button of buttons) {
-                    if (button.textContent.includes('声明原创') && !button.disabled) {
-                        button.click();
-                        console.log('✅ 已点击声明原创按钮');
-                        break;
+                    
+                    // 如果有确认按钮，点击它
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    const confirmButtons = shadowDoc.querySelectorAll('button');
+                    for (const button of confirmButtons) {
+                        if (button.textContent && (button.textContent.includes('确认') || button.textContent.includes('声明原创'))) {
+                            if (!button.disabled) {
+                                button.click();
+                                console.log('✅ 已点击确认原创按钮');
+                                break;
+                            }
+                        }
                     }
+                } else if (originalCheckbox && originalCheckbox.checked) {
+                    console.log('✅ 原创声明已经勾选');
+                } else {
+                    console.log('⚠️ 未找到原创声明复选框');
                 }
 
-                console.log('✅ 原创声明处理完成');
                 return { success: true };
 
             } catch (e) {

@@ -830,7 +830,7 @@ export class SocialAutomationAPI {
                     title: title || '默认标题',
                     tags: Array.isArray(tags) ? tags : (tags ? [tags] : []),
                     category: category === 0 ? undefined : category,
-                    enableOriginal: true,
+                    enableOriginal: platform === 'wechat' ? (req.body.original !== false) : undefined, // 🔥 默认为 true，除非明确设置为 false
                     addToCollection: false,
                     publishDate: enableTimer ? this.calculatePublishDate(videosPerDay, dailyTimes, startDays) : undefined,
                     headless: mode === 'background'
