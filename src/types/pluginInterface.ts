@@ -21,6 +21,7 @@ export interface UploadParams {
     // 账号相关
     cookieFile: string;        // Cookie文件路径，如 'wechat_account1.json'
     platform: string;         // 平台标识，如 'wechat', 'douyin', 'xiaohongshu'
+    accountName?: string;      // 🔥 新增：账号名称（用于状态更新）
     // 视频相关
     filePath: string;          // 视频文件路径
     title: string;             // 视频标题

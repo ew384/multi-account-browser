@@ -204,7 +204,16 @@ export class AutomationEngine {
     async uploadVideo(params: UploadParams, recordId?: number): Promise<UploadResult> {
         let tabId: string | null = null;
         const startTime = new Date().toISOString();
-        const accountName = path.basename(params.cookieFile, '.json');
+        let accountName = params.accountName;
+        
+        if (!accountName) {
+            // 从文件名提取
+            accountName = path.basename(params.cookieFile, '.json');
+            const parts = accountName.split('_');
+            if (parts.length >= 2) {
+                accountName = parts[1]; // 取第二部分作为账号名
+            }
+        }
         
         try {
             console.log(`🚀 开始 ${params.platform} 平台视频上传: ${params.title || params.filePath}`);
@@ -342,8 +351,10 @@ export class AutomationEngine {
     // 🔥 新增：状态更新辅助方法
     private async updateUploadProgress(recordId: number, accountName: string, statusData: any): Promise<void> {
         try {
+            console.log(`🔄 更新账号状态: recordId=${recordId}, account=${accountName}, data=`, statusData); // 🔥 添加日志
             const { PublishRecordStorage } = await import('../plugins/uploader/base/PublishRecordStorage');
             await PublishRecordStorage.updateAccountPublishStatus(recordId, accountName, statusData);
+            console.log(`✅ 状态更新成功: ${accountName}`); // 🔥 添加成功日志
         } catch (error) {
             console.error('❌ 更新上传进度失败:', error);
         }
@@ -387,7 +398,8 @@ export class AutomationEngine {
                             ...request.params,
                             cookieFile: cookieFile,
                             platform: accountPlatform,
-                            filePath: fullFilePath
+                            filePath: fullFilePath,
+                            accountName: accountName
                         };
 
                         // 🔥 调用 uploadVideo 处理单个上传（包含完整的tab管理）
