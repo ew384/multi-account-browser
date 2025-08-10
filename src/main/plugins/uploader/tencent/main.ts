@@ -53,6 +53,7 @@ export class WeChatVideoUploader implements PluginUploader {
 
             // 7:  处理定时发布
             if (params.publishDate) {
+                console.log('🔧 开始处理定时发布，目标时间:', params.publishDate.toLocaleString('zh-CN'));
                 await this.setScheduleTime(params.publishDate, tabId);
             }
 
@@ -289,7 +290,6 @@ export class WeChatVideoUploader implements PluginUploader {
 
         console.log("上传检测完成");
     }
-
     private async setScheduleTime(publishDate: Date, tabId: string): Promise<void> {
         console.log('⏰ 设置定时发布...');
 
@@ -298,31 +298,104 @@ export class WeChatVideoUploader implements PluginUploader {
             try {
                 console.log('🔥 开始设置定时发布...');
                 
-                // 点击定时发布选项
-                const scheduleLabels = Array.from(document.querySelectorAll('label')).filter(label => 
-                    label.textContent.includes('定时')
-                );
-                
-                const scheduleLabel = scheduleLabels[1]; // 第二个定时标签
-                
-                if (scheduleLabel) {
-                    scheduleLabel.click();
-                    console.log('✅ 已点击定时发布选项');
-                } else {
-                    throw new Error('未找到定时发布选项');
+                const wujieApp = document.querySelector('wujie-app');
+                if (!wujieApp || !wujieApp.shadowRoot) {
+                    throw new Error('未找到Shadow DOM');
                 }
-
-                // 等待时间选择器出现
+                
+                const shadowDoc = wujieApp.shadowRoot;
+                
+                // 🔥 步骤1：激活定时发布选项
+                const timeSection = shadowDoc.querySelector('.post-time-wrap');
+                if (!timeSection) {
+                    throw new Error('未找到定时发表区域');
+                }
+                
+                const scheduledRadio = timeSection.querySelector('input[type="radio"][value="1"]');
+                if (!scheduledRadio) {
+                    throw new Error('未找到定时发布单选按钮');
+                }
+                
+                if (!scheduledRadio.checked) {
+                    scheduledRadio.click();
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    console.log('✅ 已激活定时发布');
+                }
+                
+                // 🔥 步骤2：等待时间选择器出现
                 await new Promise(resolve => setTimeout(resolve, 1000));
-
-                // 设置日期和时间逻辑...
+                
                 const targetMonth = ${publishDate.getMonth() + 1};
                 const targetDay = ${publishDate.getDate()};
                 const targetHour = ${publishDate.getHours()};
+                const targetMinute = ${publishDate.getMinutes()};
                 
-                // ... 具体的日期时间设置逻辑
-
-                console.log('✅ 定时发布设置完成');
+                console.log('目标时间:', targetMonth + '月' + targetDay + '日 ' + targetHour + ':' + String(targetMinute).padStart(2, '0'));
+                
+                // 🔥 步骤3：查找并操作时间选择器
+                const dateTimePicker = shadowDoc.querySelector('.weui-desktop-picker__date-time');
+                if (!dateTimePicker) {
+                    throw new Error('激活定时后未找到时间选择器');
+                }
+                
+                const dateInput = dateTimePicker.querySelector('input');
+                if (!dateInput) {
+                    throw new Error('未找到日期输入框');
+                }
+                
+                // 🔥 步骤4：点击日期输入框
+                dateInput.click();
+                console.log('✅ 已点击日期输入框');
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                
+                // 🔥 步骤5：选择日期
+                const dayLinks = shadowDoc.querySelectorAll('a[href="javascript:;"]');
+                const targetDayLink = Array.from(dayLinks).find(link => 
+                    link.textContent.trim() === targetDay.toString() && 
+                    !link.classList.contains('weui-desktop-picker__disabled') && 
+                    !link.classList.contains('weui-desktop-picker__faded')
+                );
+                
+                if (targetDayLink) {
+                    targetDayLink.click();
+                    console.log('✅ 已选择日期:', targetDay + '日');
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                } else {
+                    console.log('⚠️ 未找到目标日期，使用当前选中日期');
+                }
+                
+                // 🔥 步骤6：设置时间
+                const timeInput = shadowDoc.querySelector('.weui-desktop-picker__time input');
+                if (!timeInput) {
+                    throw new Error('未找到时间输入框');
+                }
+                
+                timeInput.click();
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // 设置小时
+                const hourList = shadowDoc.querySelector('.weui-desktop-picker__time__hour');
+                if (hourList) {
+                    const hourItems = hourList.querySelectorAll('li');
+                    if (hourItems[targetHour]) {
+                        hourItems[targetHour].click();
+                        console.log('✅ 已设置小时:', targetHour);
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    }
+                }
+                
+                // 设置分钟
+                const minuteList = shadowDoc.querySelector('.weui-desktop-picker__time__minute');
+                if (minuteList) {
+                    const minuteItems = minuteList.querySelectorAll('li');
+                    if (minuteItems[targetMinute]) {
+                        minuteItems[targetMinute].click();
+                        console.log('✅ 已设置分钟:', String(targetMinute).padStart(2, '0'));
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    }
+                }
+                
+                console.log('✅ 定时发布设置完成:', targetMonth + '月' + targetDay + '日 ' + targetHour + ':' + String(targetMinute).padStart(2, '0'));
                 return { success: true };
 
             } catch (e) {
@@ -333,8 +406,8 @@ export class WeChatVideoUploader implements PluginUploader {
         `;
 
         const result = await this.tabManager.executeScript(tabId, scheduleScript);
-        if (!result.success) {
-            throw new Error(`定时发布设置失败: ${result.error}`);
+        if (!result || !result.success) {
+            throw new Error(`定时发布设置失败: ${result?.error || '未知错误'}`);
         }
     }
 

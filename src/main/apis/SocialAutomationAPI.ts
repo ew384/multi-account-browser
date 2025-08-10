@@ -836,7 +836,12 @@ export class SocialAutomationAPI {
                     headless: mode === 'background'
                 }
             };
-
+            console.log('🔧 handlePostVideo: enableTimer =', enableTimer);
+            console.log('🔧 handlePostVideo: 原始参数 =', { videosPerDay, dailyTimes, startDays });
+            console.log('🔧 handlePostVideo: 计算后的publishDate =', batchRequest.params.publishDate);
+            if (batchRequest.params.publishDate) {
+                console.log('🔧 handlePostVideo: publishDate格式化 =', batchRequest.params.publishDate.toLocaleString('zh-CN'));
+            }
             // 🔥 4. 执行批量上传，传递 recordId
             console.log(`🚀 开始执行批量上传，记录ID: ${recordId}`);
             const uploadResults = await this.automationEngine.batchUpload(batchRequest, recordId);
