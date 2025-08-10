@@ -9,6 +9,7 @@ import { HeadlessManager } from './HeadlessManager';
 
 import { SocialAutomationAPI } from './apis/SocialAutomationAPI';
 import { MessageAutomationAPI } from './apis/MessageAutomationAPI';
+import { AccountStorage } from './plugins/login/base/AccountStorage';
 export class APIServer {
     private app: express.Application;
     private server: any;
@@ -112,8 +113,9 @@ export class APIServer {
     private handleLoginSSE(req: express.Request, res: express.Response): void {
         const type = req.query.type as string;
         const id = (req.query.id as string) || `session_${Date.now()}`;
-
-        console.log(`🔐 SSE登录请求: type=${type}, id=${id}`);
+        const mode = req.query.mode as string; // 🔥 新增
+        const accountId = req.query.accountId as string; // 🔥 新增
+        console.log(`🔐 SSE登录请求: type=${type}, id=${id}, mode=${mode}, accountId=${accountId}`);
 
         // 验证参数
         if (!type) {
@@ -136,10 +138,16 @@ export class APIServer {
         });
 
         // 立即启动登录流程
-        this.startLoginAndStream(type, id, res);
+        this.startLoginAndStream(type, id, res, mode, accountId);
     }
 
-    private async startLoginAndStream(type: string, id: string, res: express.Response) {
+    private async startLoginAndStream(
+        type: string, 
+        id: string, 
+        res: express.Response, 
+        mode?: string, 
+        accountId?: string
+    ) {
         try {
             // 平台类型映射
             const platformMap: Record<string, string> = {
@@ -156,15 +164,19 @@ export class APIServer {
                 return;
             }
 
-            console.log(`🚀 启动登录: ${platform}`);
-            const loginResult = await this.automationEngine.startLogin(platform, id);
+            console.log(`🚀 启动登录: ${platform}${mode === 'recover' ? ' (恢复模式)' : ''}`);
+            const loginOptions = mode === 'recover' && accountId ? {
+                isRecover: true,
+                accountId: parseInt(accountId)
+            } : undefined;
+            const loginResult = await this.automationEngine.startLogin(platform, id, loginOptions);
 
             if (loginResult.success && loginResult.qrCodeUrl) {
                 // 发送二维码URL
                 res.write(`data: ${loginResult.qrCodeUrl}\n\n`);
 
                 // 监听登录完成 - 需要新的方法
-                this.monitorLoginCompletionSSE(id, platform, res);
+                this.monitorLoginCompletionSSE(id, platform, res, mode, accountId);
             } else {
                 res.write(`data: 500\n\n`);
                 res.end();
@@ -177,7 +189,13 @@ export class APIServer {
     }
 
     // 新增：专门为SSE的监听方法
-    private async monitorLoginCompletionSSE(userId: string, platform: string, res: express.Response): Promise<void> {
+    private async monitorLoginCompletionSSE(
+        userId: string, 
+        platform: string, 
+        res: express.Response,
+        mode?: string,
+        accountId?: string
+    ): Promise<void> {
         const checkInterval = setInterval(async () => {
             try {
                 const loginStatus = this.automationEngine.getLoginStatus(userId);
@@ -217,7 +235,33 @@ export class APIServer {
             }
         }, 300000);
     }
-
+    private async handleRecoveryMode(
+        userId: string, 
+        platform: string, 
+        accountId: string, 
+        loginStatus: any
+    ): Promise<void> {
+        try {
+            console.log(`🔄 处理恢复模式: 账号ID ${accountId}`);
+            
+            if (loginStatus.cookieFile && loginStatus.accountInfo) {
+                // 更新现有账号的Cookie和信息
+                const updated = await AccountStorage.updateAccountCookie(
+                    parseInt(accountId),
+                    loginStatus.cookieFile,
+                    loginStatus.accountInfo
+                );
+                
+                if (updated) {
+                    console.log(`✅ 账号恢复成功: ID ${accountId}`);
+                } else {
+                    console.error(`❌ 账号恢复失败: ID ${accountId}`);
+                }
+            }
+        } catch (error) {
+            console.error('❌ 处理恢复模式失败:', error);
+        }
+    }
     private setupSystemAndTabRoutes(): void {
         this.app.post('/api/automation/get-account-info', async (req, res) => {
             try {

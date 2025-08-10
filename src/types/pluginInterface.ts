@@ -202,6 +202,8 @@ export interface LoginCompleteParams {
     tabId: string;
     userId: string;
     platform: string;
+    isRecover?: boolean;  // 🔥 新增
+    accountId?: number;   // 🔥 新增
 }
 
 // 🔥 登录完成处理结果

@@ -535,7 +535,68 @@ export class AccountStorage {
             };
         }
     }
-
+    // 🔥 新增：更新账号Cookie和信息的方法
+    static updateAccountCookie(
+        accountId: number,
+        newCookieFile: string,
+        accountInfo?: AccountInfo
+    ): boolean {
+        try {
+            const db = this.getDatabase();
+            
+            // 获取旧记录
+            const oldRecord = db.prepare('SELECT filePath FROM user_info WHERE id = ?').get(accountId) as any;
+            
+            const updateData: any = {
+                filePath: path.basename(newCookieFile),
+                status: 1, // 恢复为正常状态
+                last_check_time: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+            
+            // 如果有新的账号信息，一并更新
+            if (accountInfo) {
+                Object.assign(updateData, {
+                    account_id: accountInfo.accountId,
+                    real_name: accountInfo.accountName,
+                    followers_count: accountInfo.followersCount,
+                    videos_count: accountInfo.videosCount,
+                    bio: accountInfo.bio,
+                    avatar_url: accountInfo.avatar,
+                    local_avatar: accountInfo.localAvatar
+                });
+            }
+            
+            // 构建SQL
+            const fields = Object.keys(updateData);
+            const placeholders = fields.map(field => `${field} = ?`).join(', ');
+            const values = Object.values(updateData);
+            values.push(accountId);
+            
+            const stmt = db.prepare(`UPDATE user_info SET ${placeholders} WHERE id = ?`);
+            const result = stmt.run(...values);
+            
+            // 删除旧Cookie文件
+            if (oldRecord?.filePath && oldRecord.filePath !== path.basename(newCookieFile)) {
+                const oldCookiePath = path.join(Config.COOKIE_DIR, oldRecord.filePath);
+                try {
+                    if (fs.existsSync(oldCookiePath)) {
+                        fs.unlinkSync(oldCookiePath);
+                        console.log(`🗑️ 已删除旧cookie文件: ${oldRecord.filePath}`);
+                    }
+                } catch (error) {
+                    console.warn(`⚠️ 删除旧cookie文件失败:`, error);
+                }
+            }
+            
+            console.log(`✅ 账号Cookie已更新: ID ${accountId}`);
+            return result.changes > 0;
+            
+        } catch (error) {
+            console.error('❌ 更新账号Cookie失败:', error);
+            return false;
+        }
+    }
     /**
      * 🔥 添加账号 - 基础添加功能
      */

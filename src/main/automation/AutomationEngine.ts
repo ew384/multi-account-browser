@@ -30,7 +30,10 @@ export class AutomationEngine {
     }
 
 
-    async startLogin(platform: string, userId: string): Promise<LoginResult> {
+    async startLogin(platform: string, userId: string, options?: {
+        isRecover?: boolean;
+        accountId?: number;
+    }): Promise<LoginResult> {
         try {
             console.log(`🔐 AutomationEngine: 开始 ${platform} 登录流程`);
 
@@ -68,7 +71,13 @@ export class AutomationEngine {
                 this.activeLogins.set(userId, loginStatus);
 
                 // 🔥 启动后台等待登录完成的任务
-                this.startWaitingForLoginWithProcessor(userId, result.tabId!, platform);
+                this.startWaitingForLoginWithProcessor(
+                    userId, 
+                    result.tabId!, 
+                    platform,
+                    options?.isRecover,
+                    options?.accountId
+                );
             } else {
                 // 登录启动失败，移除状态
                 this.activeLogins.delete(userId);
@@ -92,7 +101,9 @@ export class AutomationEngine {
     private async startWaitingForLoginWithProcessor(
         userId: string,
         tabId: string,
-        platform: string
+        platform: string,
+        isRecover?: boolean,  // 🔥 新增参数
+        accountId?: number    // 🔥 新增参数
     ): Promise<void> {
         try {
             // 🔥 使用 getProcessor 方法
@@ -102,7 +113,9 @@ export class AutomationEngine {
                 const completeResult = await processor.process({
                     tabId,
                     userId,
-                    platform
+                    platform,
+                    isRecover: isRecover || false,  // 🔥 传递恢复模式
+                    accountId: accountId            // 🔥 传递账号ID
                 });
 
                 // 更新登录状态

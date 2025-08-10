@@ -37,81 +37,104 @@ export class LoginCompleteProcessor implements PluginProcessor {
      */
     async process(params: LoginCompleteParams): Promise<LoginCompleteResult> {
         try {
-            console.log(`🎉 开始处理登录完成流程: ${params.platform} - ${params.userId}`);
+            console.log(`🎉 开始处理登录完成流程: ${params.platform} - ${params.userId}${params.isRecover ? ' (恢复模式)' : ''}`);
 
-            // 1. 🔥 等待 URL 变化（登录成功标志）
-            console.log(`⏳ 等待 ${params.platform} 页面 URL 变化: ${params.userId}`);
-            const urlChanged = await this.tabManager.waitForUrlChange(params.tabId, 200000); // 200秒超时
-
+            // 1. 等待 URL 变化（现有逻辑保持不变）
+            const urlChanged = await this.tabManager.waitForUrlChange(params.tabId, 200000);
             if (!urlChanged) {
-                return {
-                    success: false,
-                    error: '登录超时，URL 未变化'
-                };
+                return { success: false, error: '登录超时，URL 未变化' };
             }
 
             console.log(`✅ ${params.platform} 登录成功，URL 已变化: ${params.userId}`);
             await new Promise(resolve => setTimeout(resolve, 5000));
-            // 2. 提取账号信息（通过插件管理器）
-            const accountInfo = await this.extractAccountInfo(params.platform, params.tabId);
 
+            // 2. 提取账号信息（现有逻辑保持不变）
+            const accountInfo = await this.extractAccountInfo(params.platform, params.tabId);
             const realAccountName = accountInfo?.accountName || params.userId;
 
-            // 3. 下载头像（如果有）
+            // 3. 下载头像（现有逻辑保持不变）
             let localAvatarPath: string | null = null;
-            if (accountInfo?.avatar && realAccountName) {  // 🔥 确保账号名称存在
+            if (accountInfo?.avatar && realAccountName) {
                 localAvatarPath = await this.downloadAvatar(
                     params.tabId,
                     accountInfo.avatar,
-                    realAccountName,  // 🔥 使用确保非 undefined 的值
+                    realAccountName,
                     params.platform
                 );
-
                 if (localAvatarPath) {
                     accountInfo.localAvatar = localAvatarPath;
                 }
             }
 
-            // 4. 保存Cookie
+            // 4. 保存Cookie（现有逻辑保持不变）
             const cookiePath = await this.saveCookieFile(
                 params.tabId,
                 params.userId,
                 params.platform,
-                realAccountName  // 🔥 使用确保非 undefined 的值
+                realAccountName
             );
 
             if (!cookiePath) {
                 throw new Error('Cookie保存失败');
             }
 
-            // 5. 保存到数据库
-            const platformType = AccountStorage.getPlatformType(params.platform);
-            // 🔥 构造用于数据库保存的账号信息
-            const dbAccountInfo: AccountInfo = {
-                platform: params.platform,
-                cookieFile: path.basename(cookiePath),
-                accountName: realAccountName,  // 使用真实账号名
-                accountId: accountInfo?.accountId,
-                followersCount: accountInfo?.followersCount,
-                videosCount: accountInfo?.videosCount,
-                avatar: accountInfo?.avatar,
-                bio: accountInfo?.bio,
-                localAvatar: localAvatarPath || undefined,
-                extractedAt: new Date().toISOString()
-            };
+            // 5. 🔥 根据模式决定保存方式
+            if (params.isRecover && params.accountId) {
+                // 恢复模式：更新现有账号
+                console.log(`🔄 恢复模式：更新账号ID ${params.accountId}`);
+                const dbAccountInfo: AccountInfo = {
+                    platform: params.platform,
+                    cookieFile: path.basename(cookiePath),
+                    accountName: realAccountName,
+                    accountId: accountInfo?.accountId,
+                    followersCount: accountInfo?.followersCount,
+                    videosCount: accountInfo?.videosCount,
+                    avatar: accountInfo?.avatar,
+                    bio: accountInfo?.bio,
+                    localAvatar: localAvatarPath || undefined,
+                    extractedAt: new Date().toISOString()
+                };
 
-            const success = await AccountStorage.saveAccountToDatabase(
-                realAccountName,  // 🔥 使用真实账号名而不是临时ID
-                platformType,
-                cookiePath,
-                dbAccountInfo
-            );
+                const success = AccountStorage.updateAccountCookie(
+                    params.accountId,
+                    cookiePath,
+                    dbAccountInfo
+                );
 
-            if (!success) {
-                console.warn('⚠️ 数据库保存失败，但登录成功');
+                if (!success) {
+                    console.warn('⚠️ 账号更新失败，但登录成功');
+                } else {
+                    console.log(`✅ 账号恢复成功: ID ${params.accountId}`);
+                }
+            } else {
+                // 正常模式：新增账号（现有逻辑保持不变）
+                const platformType = AccountStorage.getPlatformType(params.platform);
+                const dbAccountInfo: AccountInfo = {
+                    platform: params.platform,
+                    cookieFile: path.basename(cookiePath),
+                    accountName: realAccountName,
+                    accountId: accountInfo?.accountId,
+                    followersCount: accountInfo?.followersCount,
+                    videosCount: accountInfo?.videosCount,
+                    avatar: accountInfo?.avatar,
+                    bio: accountInfo?.bio,
+                    localAvatar: localAvatarPath || undefined,
+                    extractedAt: new Date().toISOString()
+                };
+
+                const success = await AccountStorage.saveAccountToDatabase(
+                    realAccountName,
+                    platformType,
+                    cookiePath,
+                    dbAccountInfo
+                );
+
+                if (!success) {
+                    console.warn('⚠️ 数据库保存失败，但登录成功');
+                }
             }
 
-            // 🔥 构造返回给调用方的账号信息
+            // 6. 构造返回结果（现有逻辑保持不变）
             const resultAccountInfo: LoginAccountInfo = {
                 platform: params.platform,
                 cookieFile: path.basename(cookiePath),
@@ -122,7 +145,7 @@ export class LoginCompleteProcessor implements PluginProcessor {
                 avatar: accountInfo?.avatar,
                 bio: accountInfo?.bio,
                 localAvatar: localAvatarPath || undefined,
-                localAvatarPath: localAvatarPath || undefined,  // 兼容字段
+                localAvatarPath: localAvatarPath || undefined,
                 extractedAt: new Date().toISOString()
             };
 
