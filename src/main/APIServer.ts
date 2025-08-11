@@ -18,12 +18,17 @@ export class APIServer {
     private headlessManager: HeadlessManager;
     private socialAPI: SocialAutomationAPI;
     private messageAPI: MessageAutomationAPI;
+    private uploadProgressClients: Map<number, Set<express.Response>> = new Map();
+
     constructor(automationEngine: AutomationEngine, tabManager: TabManager) {
         this.automationEngine = automationEngine;
         this.tabManager = tabManager;
         this.headlessManager = HeadlessManager.getInstance();
         this.socialAPI = new SocialAutomationAPI(automationEngine);
         this.messageAPI = new MessageAutomationAPI(tabManager,automationEngine);
+        // 🔥 设置全局进度通知器
+        global.uploadProgressNotifier = this.notifyUploadProgress.bind(this);
+        
         this.app = express();
         this.setupMiddleware();
         this.setupRoutes();
@@ -109,7 +114,114 @@ export class APIServer {
     private setupSpecialRoutes(): void {
         // 🔥 SSE登录接口（需要特殊流处理，保留在APIServer）
         this.app.get('/login', this.handleLoginSSE.bind(this));
+        // 🔥 新增：上传进度SSE接口
+        this.app.get('/api/upload-progress/:recordId', this.handleUploadProgressSSE.bind(this));        
     }
+    // 🔥 新增：上传进度SSE处理
+    private handleUploadProgressSSE(req: express.Request, res: express.Response): void {
+        const recordId = parseInt(req.params.recordId);
+        
+        if (!recordId || isNaN(recordId)) {
+            res.status(400).json({ error: 'Invalid recordId' });
+            return;
+        }
+
+        console.log(`📡 建立上传进度SSE连接: recordId=${recordId}`);
+
+        // 设置SSE响应头
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*'
+        });
+
+        // 添加到客户端集合
+        if (!this.uploadProgressClients.has(recordId)) {
+            this.uploadProgressClients.set(recordId, new Set());
+        }
+        this.uploadProgressClients.get(recordId)!.add(res);
+
+        // 发送当前内存中的状态
+        try {
+            const currentProgress = this.automationEngine.getUploadProgress(recordId);
+            if (currentProgress.length > 0) {
+                res.write(`data: ${JSON.stringify({ 
+                    type: 'initial', 
+                    data: currentProgress 
+                })}\n\n`);
+                console.log(`📤 发送初始进度数据: ${currentProgress.length} 条记录`);
+            }
+        } catch (error) {
+            console.error('❌ 获取初始进度数据失败:', error);
+        }
+
+        // 连接断开处理
+        req.on('close', () => {
+            console.log(`📡 上传进度SSE连接断开: recordId=${recordId}`);
+            const clients = this.uploadProgressClients.get(recordId);
+            if (clients) {
+                clients.delete(res);
+                if (clients.size === 0) {
+                    this.uploadProgressClients.delete(recordId);
+                }
+            }
+        });
+
+        // 发送心跳保持连接
+        const heartbeat = setInterval(() => {
+            try {
+                res.write(`data: ${JSON.stringify({ type: 'heartbeat', timestamp: new Date().toISOString() })}\n\n`);
+            } catch (error) {
+                clearInterval(heartbeat);
+                const clients = this.uploadProgressClients.get(recordId);
+                if (clients) {
+                    clients.delete(res);
+                }
+            }
+        }, 30000); // 30秒心跳
+
+        req.on('close', () => {
+            clearInterval(heartbeat);
+        });
+    }
+
+    // 🔥 新增：推送进度更新
+    notifyUploadProgress(recordId: number, progressData: any): void {
+        const clients = this.uploadProgressClients.get(recordId);
+        if (!clients || clients.size === 0) {
+            return; // 没有客户端连接，直接返回
+        }
+
+        const message = `data: ${JSON.stringify({ 
+            type: 'progress', 
+            data: progressData 
+        })}\n\n`;
+
+        console.log(`📤 推送进度更新: recordId=${recordId}, 客户端数=${clients.size}, 账号=${progressData.accountName}`);
+
+        // 遍历所有客户端推送
+        const deadClients = new Set<express.Response>();
+        
+        clients.forEach(client => {
+            try {
+                client.write(message);
+            } catch (error) {
+                console.error('📡 SSE推送失败，标记移除客户端:', error);
+                deadClients.add(client);
+            }
+        });
+
+        // 清理失效的客户端连接
+        deadClients.forEach(client => {
+            clients.delete(client);
+        });
+
+        if (clients.size === 0) {
+            this.uploadProgressClients.delete(recordId);
+        }
+    }
+
     private handleLoginSSE(req: express.Request, res: express.Response): void {
         const type = req.query.type as string;
         const id = (req.query.id as string) || `session_${Date.now()}`;
@@ -1655,13 +1767,32 @@ export class APIServer {
             try {
                 console.log('🛑 正在停止API服务器...');
                 
-                // 先销毁消息API
+                // 🔥 新增：关闭所有SSE连接
+                console.log('🔌 关闭SSE连接...');
+                for (const [recordId, clients] of this.uploadProgressClients.entries()) {
+                    console.log(`📡 关闭recordId=${recordId}的${clients.size}个SSE连接`);
+                    clients.forEach(client => {
+                        try {
+                            client.write(`data: ${JSON.stringify({ type: 'server_shutdown' })}\n\n`);
+                            client.end();
+                        } catch (error) {
+                            // 忽略关闭时的错误
+                        }
+                    });
+                }
+                this.uploadProgressClients.clear();
+                
+                // 🔥 新增：清理全局通知器
+                global.uploadProgressNotifier = undefined;
+                console.log('✅ SSE连接已清理');
+                
+                // 保持原有逻辑：先销毁消息API
                 if (this.messageAPI) {
                     await this.messageAPI.destroy();
                     console.log('✅ 消息API已销毁');
                 }
 
-                // 然后停止HTTP服务器
+                // 保持原有逻辑：然后停止HTTP服务器
                 if (this.server) {
                     this.server.close(() => {
                         console.log('🛑 API Server stopped');

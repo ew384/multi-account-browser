@@ -15,16 +15,39 @@ import {
 import { PluginType, PluginUploader, PluginLogin, PluginValidator } from '../../types/pluginInterface';
 import * as path from 'path';
 import * as fs from 'fs';
+// 🔥 声明全局类型
+declare global {
+    var uploadProgressNotifier: ((recordId: number, progressData: any) => void) | undefined;
+}
 export class AutomationEngine {
     private tabManager: TabManager;
     private pluginManager: PluginManager;
     private activeLogins: Map<string, LoginStatus> = new Map();
+    // 🔥 新增：内存状态管理
+    private uploadProgressMap: Map<string, {
+        recordId: number;
+        accountName: string;
+        status: string;
+        upload_status?: string;
+        push_status?: string;
+        review_status?: string;
+        error_message?: string;
+        timestamp: number;
+    }> = new Map();
 
+    // 在构造函数中启动清理任务
     constructor(tabManager: TabManager) {
         this.tabManager = tabManager;
-        this.pluginManager = new PluginManager(tabManager);
+        this.pluginManager = new PluginManager(tabManager);        
+        // 🔥 启动内存清理任务
+        setInterval(() => {
+            this.cleanupExpiredProgress();
+        }, 60 * 60 * 1000); // 每小时清理一次
     }
 
+
+    // 🔥 声明全局类型
+    
     getPluginManager(): PluginManager {
         return this.pluginManager;
     }
@@ -361,17 +384,68 @@ export class AutomationEngine {
         }
     }
 
-    // 🔥 新增：状态更新辅助方法
+    // 🔥 修改现有的 updateUploadProgress 方法
     private async updateUploadProgress(recordId: number, accountName: string, statusData: any): Promise<void> {
-        try {
-            console.log(`🔄 更新账号状态: recordId=${recordId}, account=${accountName}, data=`, statusData); // 🔥 添加日志
-            const { PublishRecordStorage } = await import('../plugins/uploader/base/PublishRecordStorage');
-            await PublishRecordStorage.updateAccountPublishStatus(recordId, accountName, statusData);
-            console.log(`✅ 状态更新成功: ${accountName}`); // 🔥 添加成功日志
-        } catch (error) {
-            console.error('❌ 更新上传进度失败:', error);
+        const key = `${recordId}-${accountName}`;
+        
+        // 1. 更新内存状态
+        this.uploadProgressMap.set(key, {
+            recordId,
+            accountName,
+            ...statusData,
+            timestamp: Date.now()
+        });
+
+        console.log(`🔄 内存状态更新: ${accountName} - ${statusData.upload_status || statusData.status}`);
+
+        // 2. 通知SSE客户端（通过全局回调）
+        if (global.uploadProgressNotifier) {
+            global.uploadProgressNotifier(recordId, {
+                accountName,
+                ...statusData,
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        // 3. 🔥 关键优化：只有最终状态才写入数据库
+        if (statusData.status === 'success' || statusData.status === 'failed') {
+            try {
+                const { PublishRecordStorage } = await import('../plugins/uploader/base/PublishRecordStorage');
+                await PublishRecordStorage.updateAccountPublishStatus(recordId, accountName, statusData);
+                console.log(`✅ 最终状态已保存到数据库: ${accountName} - ${statusData.status}`);
+            } catch (error) {
+                console.error('❌ 保存最终状态失败:', error);
+            }
         }
     }
+
+    // 🔥 新增：获取内存中的进度状态
+    getUploadProgress(recordId: number): any[] {
+        const results = [];
+        for (const [key, progress] of this.uploadProgressMap.entries()) {
+            if (progress.recordId === recordId) {
+                results.push({
+                    ...progress,
+                    timestamp: new Date(progress.timestamp).toISOString()
+                });
+            }
+        }
+        return results;
+    }
+
+    // 🔥 新增：清理过期的内存状态
+    private cleanupExpiredProgress(): void {
+        const now = Date.now();
+        const maxAge = 24 * 60 * 60 * 1000; // 24小时
+
+        for (const [key, progress] of this.uploadProgressMap.entries()) {
+            if (now - progress.timestamp > maxAge) {
+                this.uploadProgressMap.delete(key);
+                console.log(`🧹 清理过期进度状态: ${key}`);
+            }
+        }
+    }
+
     /**
      * 🔥 批量视频上传 - 委托给 uploadVideo 处理每个上传
      * @param request 批量上传请求

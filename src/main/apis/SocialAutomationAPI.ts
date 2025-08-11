@@ -594,7 +594,7 @@ export class SocialAutomationAPI {
     }
 
     /**
-     * 🔥 获取发布记录详情
+     * 🔥 修改：获取发布记录详情 - 合并内存中的实时进度
      */
     private async handleGetPublishRecordDetail(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -605,14 +605,49 @@ export class SocialAutomationAPI {
                 return;
             }
 
-            const result = await PublishRecordStorage.getPublishRecordDetail(recordId);
+            // 1. 获取基础记录信息（从数据库）
+            const result = PublishRecordStorage.getPublishRecordDetail(recordId);
 
-            if (result.success) {
-                this.sendResponse(res, 200, result.message, result.data);
-            } else {
-                const statusCode = result.message.includes('不存在') ? 404 : 500;
-                this.sendResponse(res, statusCode, result.message, null);
+            if (!result.success) {
+                this.sendResponse(res, 404, result.message, null);
+                return;
             }
+
+            const recordData = result.data;
+
+            // 2. 🔥 如果是进行中的任务，合并内存中的实时进度
+            if (recordData.status === 'pending') {
+                try {
+                    const realtimeProgress = this.automationEngine.getUploadProgress(recordId);
+                    console.log(`🔄 获取实时进度数据: ${realtimeProgress.length} 条记录`);
+                    
+                    // 合并实时进度到账号状态
+                    if (realtimeProgress.length > 0) {
+                        recordData.account_statuses.forEach((accountStatus: any) => {
+                            const realtimeData = realtimeProgress.find(
+                                p => p.accountName === accountStatus.account_name
+                            );
+                            
+                            if (realtimeData) {
+                                // 🔥 实时数据优先级更高
+                                Object.assign(accountStatus, {
+                                    status: realtimeData.status || accountStatus.status,
+                                    upload_status: realtimeData.upload_status || accountStatus.upload_status,
+                                    push_status: realtimeData.push_status || accountStatus.push_status,
+                                    review_status: realtimeData.review_status || accountStatus.review_status,
+                                    error_message: realtimeData.error_message || accountStatus.error_message
+                                });
+                                console.log(`✅ 合并实时进度: ${accountStatus.account_name} -> ${realtimeData.status}`);
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.error('❌ 获取实时进度失败:', error);
+                    // 如果获取实时进度失败，继续返回数据库中的数据
+                }
+            }
+
+            this.sendResponse(res, 200, "success", recordData);
 
         } catch (error) {
             console.error('❌ 获取发布记录详情失败:', error);
