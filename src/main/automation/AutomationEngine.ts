@@ -754,8 +754,9 @@ export class AutomationEngine {
                 return accounts;
             }
 
-            console.log(`🔍 强制验证 ${accounts.length} 个账号...`);
-
+            const validAccounts = accounts.filter(account => account.status === '正常');
+            
+            console.log(`🔍 强制验证 ${validAccounts.length} 个正常状态账号（跳过 ${accounts.length - validAccounts.length} 个异常账号）...`);
             for (const account of accounts) {
                 try {
                     // 🔥 使用 AccountStorage 的静态方法
