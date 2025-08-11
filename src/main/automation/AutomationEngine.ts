@@ -257,6 +257,7 @@ export class AutomationEngine {
             // 🔥 步骤1：验证账号
             if (recordId) {
                 await this.updateUploadProgress(recordId, accountName, {
+                    status: 'uploading',
                     upload_status: '验证账号中'
                 });
             }
@@ -284,6 +285,7 @@ export class AutomationEngine {
             // 🔥 步骤2：开始上传
             if (recordId) {
                 await this.updateUploadProgress(recordId, accountName, {
+                    status: 'uploading',
                     upload_status: '上传中'
                 });
             }
@@ -301,6 +303,7 @@ export class AutomationEngine {
                 // 🔥 步骤3：上传完成，开始推送
                 if (recordId) {
                     await this.updateUploadProgress(recordId, accountName, {
+                        status: 'uploading',
                         upload_status: '上传成功',
                         push_status: '推送中'
                     });
@@ -316,8 +319,9 @@ export class AutomationEngine {
                         if (recordId) {
                             await this.updateUploadProgress(recordId, accountName, {
                                 status: 'success',
+                                upload_status: '上传成功',
                                 push_status: '推送成功',
-                                review_status: '发布成功'  // 或者 '待平台审核'
+                                review_status: '发布成功'
                             });
                         }
                         console.log(`✅ ${params.platform} 视频发布成功，URL已跳转`);
@@ -384,35 +388,80 @@ export class AutomationEngine {
         }
     }
 
-    // 🔥 修改现有的 updateUploadProgress 方法
     private async updateUploadProgress(recordId: number, accountName: string, statusData: any): Promise<void> {
         const key = `${recordId}-${accountName}`;
+        
+        // 🔥 修复：根据 statusData 内容正确映射到具体字段
+        let mappedData = { ...statusData };
+        
+        // 🔥 关键修复：根据状态内容映射到正确的字段
+        if (typeof statusData === 'string' || statusData.status) {
+            const statusText = statusData.status || statusData;
+            
+            // 根据状态文本映射到具体字段
+            if (statusText.includes('验证') || statusText === '验证账号中') {
+                mappedData = {
+                    status: 'uploading',
+                    upload_status: '验证账号中',
+                    push_status: '待推送',
+                    review_status: '待审核'
+                };
+            } else if (statusText.includes('上传中')) {
+                mappedData = {
+                    status: 'uploading', 
+                    upload_status: '上传中',
+                    push_status: '待推送',
+                    review_status: '待审核'
+                };
+            } else if (statusText.includes('上传成功')) {
+                mappedData = {
+                    status: 'uploading',
+                    upload_status: '上传成功', 
+                    push_status: '推送中',
+                    review_status: '待审核'
+                };
+            } else if (statusText === 'success') {
+                mappedData = {
+                    status: 'success',
+                    upload_status: '上传成功',
+                    push_status: '推送成功', 
+                    review_status: '发布成功'
+                };
+            } else if (statusText === 'failed') {
+                mappedData = {
+                    status: 'failed',
+                    upload_status: '上传失败',
+                    push_status: '推送失败',
+                    review_status: '发布失败'
+                };
+            }
+        }
         
         // 1. 更新内存状态
         this.uploadProgressMap.set(key, {
             recordId,
             accountName,
-            ...statusData,
+            ...mappedData, // 🔥 使用映射后的数据
             timestamp: Date.now()
         });
 
-        console.log(`🔄 内存状态更新: ${accountName} - ${statusData.upload_status || statusData.status}`);
+        console.log(`🔄 内存状态更新: ${accountName} - 上传:${mappedData.upload_status}, 推送:${mappedData.push_status}, 审核:${mappedData.review_status}`);
 
-        // 2. 通知SSE客户端（通过全局回调）
+        // 2. 通知SSE客户端
         if (global.uploadProgressNotifier) {
             global.uploadProgressNotifier(recordId, {
                 accountName,
-                ...statusData,
+                ...mappedData, // 🔥 使用映射后的数据
                 timestamp: new Date().toISOString()
             });
         }
 
         // 3. 🔥 关键优化：只有最终状态才写入数据库
-        if (statusData.status === 'success' || statusData.status === 'failed') {
+        if (mappedData.status === 'success' || mappedData.status === 'failed') {
             try {
                 const { PublishRecordStorage } = await import('../plugins/uploader/base/PublishRecordStorage');
-                await PublishRecordStorage.updateAccountPublishStatus(recordId, accountName, statusData);
-                console.log(`✅ 最终状态已保存到数据库: ${accountName} - ${statusData.status}`);
+                await PublishRecordStorage.updateAccountPublishStatus(recordId, accountName, mappedData);
+                console.log(`✅ 最终状态已保存到数据库: ${accountName} - ${mappedData.status}`);
             } catch (error) {
                 console.error('❌ 保存最终状态失败:', error);
             }
