@@ -120,6 +120,7 @@ export class Config {
         const dirs = [
             this.BASE_DIR,
             this.VIDEO_DIR,
+            path.join(this.VIDEO_DIR, 'covers'), // 🔥 新增封面目录
             this.COOKIE_DIR,
             this.DB_DIR,
             this.AVATAR_DIR,

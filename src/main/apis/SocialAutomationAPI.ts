@@ -28,6 +28,7 @@ export class SocialAutomationAPI {
         this.setupValidationRoutes();
         this.setupAutomationRoutes();
         this.setupPublishRecordRoutes();
+        this.setupPathRoutes();
         this.router.get('/assets/avatar/:platform/:accountName/:filename', this.handleGetAvatar.bind(this));
     }
 
@@ -62,6 +63,7 @@ export class SocialAutomationAPI {
         this.router.post('/uploadSave', this.handleUploadSave.bind(this));
         this.router.get('/deleteFile', this.handleDeleteFile.bind(this));
         this.router.get('/getFile', this.handleGetFile.bind(this));
+        this.router.get('/getCover', this.handleGetCover.bind(this));
         this.router.get('/getRecentUploads', this.handleGetRecentUploads.bind(this));
     }
 
@@ -81,7 +83,10 @@ export class SocialAutomationAPI {
         // 自动化相关API
         this.router.post('/api/automation/get-account-info', this.handleGetAccountInfo.bind(this));
     }
-
+    private setupPathRoutes(): void {
+        // 🔥 路径相关API
+        this.router.get('/getPaths', this.handleGetPaths.bind(this));
+    }
     // ==================== 账号管理相关处理方法 ====================
 
     /**
@@ -532,6 +537,41 @@ export class SocialAutomationAPI {
         }
     }
     /**
+     * 🔥 获取封面文件
+     */
+    private async handleGetCover(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const filename = req.query.filename as string;
+
+            if (!filename) {
+                res.status(400).json({ error: 'filename is required' });
+                return;
+            }
+
+            // 防止路径穿越攻击
+            if (filename.includes('..') || filename.startsWith('/')) {
+                res.status(400).json({ error: 'Invalid filename' });
+                return;
+            }
+
+            const coversDir = path.join(Config.VIDEO_DIR, 'covers');
+            const coverPath = path.join(coversDir, filename);
+
+            // 检查文件是否存在
+            if (!fs.existsSync(coverPath)) {
+                res.status(404).json({ error: 'Cover not found' });
+                return;
+            }
+
+            // 发送文件
+            res.sendFile(path.resolve(coverPath));
+
+        } catch (error) {
+            console.error('❌ 获取封面失败:', error);
+            res.status(500).json({ error: 'get cover failed' });
+        }
+    }    
+    /**
      * 🔥 获取最近上传的视频文件 - 对应 Python 的 get_recent_uploads
      */
     private async handleGetRecentUploads(req: express.Request, res: express.Response): Promise<void> {
@@ -550,8 +590,45 @@ export class SocialAutomationAPI {
         }
     }
 
-// ==================== 新增发布记录路由设置 ====================
+// ==================== 路径管理相关处理方法 ====================
 
+    /**
+     * 🔥 获取本地路径信息 - 为前端提供本地文件路径
+     */
+    private async handleGetPaths(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const paths = {
+                baseDir: Config.BASE_DIR,
+                videoDir: Config.VIDEO_DIR,
+                coversDir: path.join(Config.VIDEO_DIR, 'covers'),
+                cookieDir: Config.COOKIE_DIR,
+                avatarDir: Config.AVATAR_DIR,
+                tempDir: Config.TEMP_DIR,
+                
+                // 🔥 为前端提供 file:// 协议的路径
+                videoFileUrl: `file://${Config.VIDEO_DIR}`,
+                coversFileUrl: `file://${path.join(Config.VIDEO_DIR, 'covers')}`,
+                
+                // 🔥 平台信息
+                platform: process.platform,
+                
+                // 🔥 路径分隔符
+                pathSeparator: path.sep
+            };
+            
+            console.log('📂 返回路径信息给前端:', {
+                videoDir: paths.videoDir,
+                coversDir: paths.coversDir,
+                platform: paths.platform
+            });
+            
+            this.sendResponse(res, 200, 'success', paths);
+
+        } catch (error) {
+            console.error('❌ 获取路径信息失败:', error);
+            this.sendResponse(res, 500, `获取路径失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
+        }
+    }
 // ==================== 发布记录管理相关处理方法 ====================
 
     /**
