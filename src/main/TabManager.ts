@@ -581,7 +581,7 @@ export class TabManager {
             
             // 加载cookies
             await this.loadAccountCookies(tabId, cookieFile);
-            
+            await new Promise(resolve => setTimeout(resolve, 3000));
             console.log(`✅ 账号Tab创建完成: ${tabId}`);
             return tabId;
             
