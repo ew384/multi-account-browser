@@ -37,18 +37,18 @@ curl -X POST http://localhost:3409/api/account/execute \
 curl -X POST http://localhost:3409/api/account/create \
   -H "Content-Type: application/json" \
   -d '{
-    "accountName": "小红美国留学到留下",
-    "platform": "wechat",
-    "cookieFile": "wechat_小红美国留学到留下_1754833673068.json",
-    "initialUrl": "https://channels.weixin.qq.com/platform/post/create"
+    "accountName": "Andy0919",
+    "platform": "douyin",
+    "cookieFile": "douyin_Andy0919_1754628224627.json",
+    "initialUrl": "https://creator.douyin.com/creator-micro/content/upload"
   }'
 
-  curl -X POST http://localhost:3409/api/account/execute \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tabId": "wechat-1753768107720",
-    "script": "(async function() { try { console.log("开始填写短标题、描述和标签..."); const title = "测试标题"; const tags = ["标签1", "标签2"]; const description = title; const wujieApp = document.querySelector("wujie-app"); if (!wujieApp || !wujieApp.shadowRoot) { return { success: false, error: "未找到Shadow DOM" }; } const shadowDoc = wujieApp.shadowRoot; const allInputs = shadowDoc.querySelectorAll("input[type=text], div[contenteditable], textarea"); let shortTitleInput = null; let descriptionEditor = null; for (let i = 0; i < allInputs.length; i++) { const input = allInputs[i]; const placeholder = input.placeholder || input.getAttribute("data-placeholder") || ""; if (placeholder.includes("6-16") || placeholder.includes("短标题") || placeholder.includes("标题")) { shortTitleInput = input; } else if (placeholder.includes("添加描述") || placeholder.includes("描述")) { descriptionEditor = input; } } if (shortTitleInput) { let finalTitle = title; if (finalTitle.length < 6) { const spacesToAdd = 6 - finalTitle.length; finalTitle = finalTitle + " ".repeat(spacesToAdd); console.log("短标题不足6字符，已补充空格:", finalTitle); } shortTitleInput.scrollIntoView({ behavior: "smooth", block: "center" }); shortTitleInput.click(); shortTitleInput.focus(); await new Promise(resolve => setTimeout(resolve, 200)); if (shortTitleInput.tagName === "INPUT") { shortTitleInput.value = ""; shortTitleInput.value = finalTitle; shortTitleInput.dispatchEvent(new Event("input", { bubbles: true })); shortTitleInput.dispatchEvent(new Event("change", { bubbles: true })); } else { shortTitleInput.innerText = ""; shortTitleInput.textContent = finalTitle; shortTitleInput.dispatchEvent(new Event("input", { bubbles: true })); } } if (descriptionEditor) { descriptionEditor.scrollIntoView({ behavior: "smooth", block: "center" }); descriptionEditor.click(); descriptionEditor.focus(); await new Promise(resolve => setTimeout(resolve, 200)); const contentWithTags = description + " " + tags.map(tag => "#" + tag).join(" "); if (descriptionEditor.tagName === "INPUT") { descriptionEditor.value = ""; descriptionEditor.value = contentWithTags; descriptionEditor.dispatchEvent(new Event("input", { bubbles: true })); descriptionEditor.dispatchEvent(new Event("change", { bubbles: true })); } else { descriptionEditor.innerText = ""; descriptionEditor.textContent = contentWithTags; descriptionEditor.dispatchEvent(new Event("input", { bubbles: true })); } } return { success: true }; } catch (error) { return { success: false, error: error.message }; } })()"
-    }'
+curl -X POST http://localhost:3409/api/account/execute \
+-H "Content-Type: application/json" \
+-d '{
+  "tabId": "douyin-1754966921207",
+  "script": "(function(){var bodyText=document.body?document.body.textContent:"";return{currentUrl:window.location.href,pageTitle:document.title,bodyTextLength:bodyText.length,bodyTextPreview:bodyText.substring(0,300),hasPhoneLogin:bodyText.includes("手机号登录"),hasQRLogin:bodyText.includes("扫码登录"),hasPleaseLogin:bodyText.includes("请登录"),originalResult:!(bodyText.includes("手机号登录")||bodyText.includes("扫码登录")||bodyText.includes("请登录")),hasLogin:bodyText.includes("登录"),hasAccount:bodyText.includes("账号"),hasAuth:bodyText.includes("认证")||bodyText.includes("授权"),readyState:document.readyState,hasBody:!!document.body,bodyChildrenCount:document.body?document.body.children.length:0}})()"
+  }'
 
 curl -X POST http://localhost:3409/api/account/execute \
   -H "Content-Type: application/json" \

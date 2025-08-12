@@ -146,7 +146,7 @@ export class DouyinLogin implements PluginLogin {
             }
 
             attempts++;
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
         return null;
