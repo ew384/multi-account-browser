@@ -74,6 +74,8 @@ export class SocialAutomationAPI {
     private setupAutomationRoutes(): void {
         // 自动化相关API
         this.router.post('/api/automation/get-account-info', this.handleGetAccountInfo.bind(this));
+        // 🔥 新增：手动验证账号API
+        this.router.post('/validateAccount', this.handleValidateAccount.bind(this));
     }
     private setupPathRoutes(): void {
         // 🔥 路径相关API
@@ -1175,7 +1177,58 @@ private async handleGetPublishRecordStats(req: express.Request, res: express.Res
             });
         }
     }
+    /**
+     * 🔥 手动验证账号 - 直接调用验证引擎重新检查cookie有效性
+     */
+    private async handleValidateAccount(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const { accountId, platform, cookieFile } = req.body;
 
+            // 参数验证
+            if (!accountId && !cookieFile) {
+                this.sendResponse(res, 400, '需要提供 accountId 或 cookieFile', null);
+                return;
+            }
+
+            let targetPlatform = platform;
+            let targetCookieFile = cookieFile;
+
+            // 如果提供了accountId，从数据库获取信息
+            if (accountId) {
+                const account = await AccountStorage.getAccountById(accountId);
+                if (!account.success) {
+                    this.sendResponse(res, 404, '账号不存在', null);
+                    return;
+                }
+                
+                targetPlatform = AccountStorage.getPlatformName(account.data.type);
+                targetCookieFile = account.data.filePath;
+            }
+
+            if (!targetPlatform || !targetCookieFile) {
+                this.sendResponse(res, 400, 'platform 和 cookieFile 不能为空', null);
+                return;
+            }
+
+            console.log(`🔍 手动验证账号: ${targetPlatform} - ${targetCookieFile}`);
+
+            // 调用验证引擎
+            const isValid = await this.automationEngine.validateAccount(targetPlatform, targetCookieFile);
+
+            // 返回验证结果
+            this.sendResponse(res, 200, `验证完成: 账号${isValid ? '有效' : '无效'}`, {
+                platform: targetPlatform,
+                cookieFile: targetCookieFile,
+                isValid: isValid,
+                status: isValid ? '正常' : '异常',
+                validateTime: new Date().toISOString()
+            });
+
+        } catch (error) {
+            console.error('❌ 手动验证账号失败:', error);
+            this.sendResponse(res, 500, `验证失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
+        }
+    }
     // ==================== 辅助方法 ====================
 
     /**

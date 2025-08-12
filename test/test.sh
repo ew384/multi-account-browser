@@ -47,7 +47,7 @@ curl -X POST http://localhost:3409/api/account/create \
   -d '{
     "accountName": "小红薯_3319",
     "platform": "xiaohongshu",
-    "cookieFile": "xiaohongshu_小红薯_3319_1754979301828.json",
+    "cookieFile": "xiaohongshu_小红薯_3319_1754986751107.json",
     "initialUrl": "https://creator.xiaohongshu.com/"
   }'
 curl -X POST http://localhost:3409/api/account/execute \
