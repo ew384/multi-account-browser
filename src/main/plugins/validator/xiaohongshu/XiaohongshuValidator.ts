@@ -25,9 +25,10 @@ export class XiaohongshuValidator implements PluginValidator {
                 return false; // 如果在登录页面，说明未登录
             }
 
-            // 简化登录按钮检查，避免语法错误
+            // 修复：使用document.body.textContent或document.documentElement.textContent
             const hasLoginButton = await this.tabManager.executeScript(tabId, `
-                document.textContent.includes('手机号登录') || document.textContent.includes('扫码登录')
+                const textContent = document.body?.textContent || document.documentElement?.textContent || '';
+                textContent.includes('手机号登录') || textContent.includes('扫码登录')
             `);
 
             return !hasLoginButton;

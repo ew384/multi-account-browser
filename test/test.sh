@@ -48,7 +48,7 @@ curl -X POST http://localhost:3409/api/account/create \
     "accountName": "小红薯_3319",
     "platform": "xiaohongshu",
     "cookieFile": "xiaohongshu_小红薯_3319_1754979301828.json",
-    "initialUrl": "https://creator.xiaohongshu.com/creator-micro/content/upload"
+    "initialUrl": "https://creator.xiaohongshu.com/"
   }'
 curl -X POST http://localhost:3409/api/account/execute \
 -H "Content-Type: application/json" \
