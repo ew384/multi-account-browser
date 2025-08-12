@@ -15,10 +15,7 @@ export class KuaishouValidator implements PluginValidator {
     async validateCookie(cookieFile: string): Promise<boolean> {
         let tabId: string | null = null;
         try {
-            tabId = await this.tabManager.createHeadlessTab('validator', 'kuaishou', 'https://cp.kuaishou.com/article/publish/video');
-            await this.tabManager.loadAccountCookies(tabId, cookieFile);
-            await this.tabManager.navigateTab(tabId, 'https://cp.kuaishou.com/article/publish/video');
-
+            tabId = await this.tabManager.createAccountTab(cookieFile, 'kuaishou','https://cp.kuaishou.com/article/publish/video',true);
             // 等待"机构服务"元素，5秒超时
             const found = await this.tabManager.executeScript(tabId, `
                 new Promise((resolve) => {

@@ -4,8 +4,8 @@
 # 临时显示10秒
 curl -X POST http://localhost:3409/api/window/show-temp -d '{"duration":10000}'
 
-curl -X POST http://localhost:3409/api/tabs/wechat-1754031322868/make-visible
-curl -X POST http://localhost:3409/api/tabs/xiaohongshu-1754979443872/make-headless
+curl -X POST http://localhost:3409/api/tabs/xiaohongshu-1754981039318/make-visible
+curl -X POST http://localhost:3409/api/tabs/xiaohongshu-1754981039318/make-headless
 # 获取有效账号列表
 curl -X GET http://localhost:3409/getValidAccounts
 
@@ -48,7 +48,7 @@ curl -X POST http://localhost:3409/api/account/create \
     "accountName": "小红薯_3319",
     "platform": "xiaohongshu",
     "cookieFile": "xiaohongshu_小红薯_3319_1754979301828.json",
-    "initialUrl": "https://creator.xiaohongshu.com/"
+    "initialUrl": "https://creator.xiaohongshu.com/creator-micro/content/upload"
   }'
 curl -X POST http://localhost:3409/api/account/execute \
 -H "Content-Type: application/json" \

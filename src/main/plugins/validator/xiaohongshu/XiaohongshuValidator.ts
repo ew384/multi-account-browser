@@ -15,23 +15,19 @@ export class XiaohongshuValidator implements PluginValidator {
     async validateCookie(cookieFile: string): Promise<boolean> {
         let tabId: string | null = null;
         try {
-            tabId = await this.tabManager.createHeadlessTab('validator', 'xiaohongshu', 'https://creator.xiaohongshu.com/creator-micro/content/upload');
-            await this.tabManager.loadAccountCookies(tabId, cookieFile);
-            await this.tabManager.navigateTab(tabId, 'https://creator.xiaohongshu.com/creator-micro/content/upload');
-
+            tabId = await this.tabManager.createAccountTab(cookieFile, 'xiaohongshu', 'https://creator.xiaohongshu.com/',true);
             // 等待页面加载
             await new Promise(resolve => setTimeout(resolve, 3000));
 
             // 检查URL重定向
             const currentUrl = await this.tabManager.executeScript(tabId, 'window.location.href');
-            if (!currentUrl.includes('creator-micro/content/upload')) {
-                return false;
+            if (currentUrl.includes('/login') || currentUrl.includes('/signin')) {
+                return false; // 如果在登录页面，说明未登录
             }
 
-            // 检查登录按钮
+            // 简化登录按钮检查，避免语法错误
             const hasLoginButton = await this.tabManager.executeScript(tabId, `
-                !!(document.textContent.includes('手机号登录') ||
-                   document.textContent.includes('扫码登录'))
+                document.textContent.includes('手机号登录') || document.textContent.includes('扫码登录')
             `);
 
             return !hasLoginButton;

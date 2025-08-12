@@ -17,11 +17,7 @@ export class WeChatValidator implements PluginValidator {
         let tabId: string | null = null;
 
         try {
-            tabId = await this.tabManager.createHeadlessTab('validator', 'wechat');
-
-            await this.tabManager.loadAccountCookies(tabId, cookieFile);
-            await this.tabManager.navigateTab(tabId, 'https://channels.weixin.qq.com/platform/post/create');
-
+            tabId = await this.tabManager.createAccountTab(cookieFile, 'wechat','https://channels.weixin.qq.com/platform/post/create',true);
             // 等待页面加载完成
             await new Promise(resolve => setTimeout(resolve, 3000));
 

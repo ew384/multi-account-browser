@@ -4,7 +4,11 @@ import json
 from datetime import datetime
 
 # 数据库路径
-DB_PATH = "/Users/endian/Library/Application Support/multi-account-browser/db/database.db"
+from config import Config, BASE_DIR, DB_PATH, PLATFORM_TYPE_MAP, get_platform_name
+
+print(f"🔍 基础目录: {BASE_DIR}")
+print(f"🔍 数据库路径: {DB_PATH}")
+
 
 def query_publish_records():
     try:
