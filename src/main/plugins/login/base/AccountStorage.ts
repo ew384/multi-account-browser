@@ -1265,12 +1265,12 @@ export class AccountStorage {
         try {
             const db = this.getDatabase();
 
-            const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-            
+            //const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+            const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
             // 🔥 添加调试日志
             console.log('🕐 当前时间:', new Date().toISOString());
-            console.log('🕐 30分钟前:', thirtyMinutesAgo);
-            
+            //console.log('🕐 30分钟前:', thirtyMinutesAgo);
+            console.log('🕐 4小时前:', fourHoursAgo);
             const stmt = db.prepare(`
                 SELECT 
                     id, type, filePath, userName,
@@ -1284,8 +1284,8 @@ export class AccountStorage {
                 ORDER BY last_check_time ASC
             `);
             
-            const accounts = stmt.all(thirtyMinutesAgo) as any[];
-            
+            //const accounts = stmt.all(thirtyMinutesAgo) as any[];
+            const accounts = stmt.all(fourHoursAgo) as any[];
             // 🔥 添加详细调试日志
             console.log('📊 需要验证的账号数量:', accounts.length);
             accounts.forEach(acc => {
