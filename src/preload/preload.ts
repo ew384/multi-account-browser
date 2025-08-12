@@ -15,7 +15,7 @@ interface ElectronAPI {
     // 新增：标题更新事件监听
     onTabTitleUpdated: (callback: (data: { tabId: string; title: string }) => void) => void;
     onTabFaviconUpdated: (callback: (data: { tabId: string; favicon: string }) => void) => void;
-
+    onTabMadeHeadless: (callback: (data: { tabId: string; accountName: string }) => void) => void;
     // 新增：获取标签页显示信息
     //getTabDisplayInfo: (tabId: string) => Promise<any>;
     //getAllTabsWithDisplay: () => Promise<any>;
@@ -54,6 +54,10 @@ interface ElectronAPI {
 // 安全地暴露API给渲染进程
 const electronAPI: ElectronAPI = {
     // 标签页管理
+    onTabMadeHeadless: (callback) => {
+        ipcRenderer.removeAllListeners('tab-made-headless');
+        ipcRenderer.on('tab-made-headless', (event, data) => callback(data));
+    },
     createTab: (accountName: string, platform: string, initialUrl?: string) =>
         ipcRenderer.invoke('create-account-tab', accountName, platform, initialUrl),
 

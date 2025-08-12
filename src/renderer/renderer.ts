@@ -710,7 +710,10 @@ function setupEventDrivenUpdates(): void {
                 updateNoTabsMessage();
             }
         });
-
+        window.electronAPI.onTabMadeHeadless?.(({ tabId, accountName }) => {
+            console.log(`🔇 标签页变为headless: ${accountName}`);
+            hideTabHeaderOnly(tabId); // 只隐藏头部，保留数据
+        });
         // 标签页关闭事件  
         window.electronAPI.onTabClosed?.(({ tabId }) => {
             //console.log('📋 收到标签页关闭事件:', tabId);
@@ -727,6 +730,31 @@ function setupEventDrivenUpdates(): void {
     //console.log('✅ 事件驱动更新机制设置完成');
 }
 
+function hideTabHeaderOnly(tabId: string): void {
+    // 1. 从UI显示中移除，但保留在 currentTabs 数组中（脚本需要）
+    const tabElement = document.querySelector(`[data-tab-id="${tabId}"]`) as HTMLElement;
+    if (tabElement) {
+        tabElement.style.display = 'none'; // 现在不会报错
+    }
+    
+    // 2. 如果是当前活动标签页，切换到其他可见标签页
+    if (activeTabId === tabId) {
+        const visibleTabs = currentTabs.filter(t => {
+            const element = document.querySelector(`[data-tab-id="${t.id}"]`) as HTMLElement;
+            return element && element.style.display !== 'none';
+        });
+        
+        if (visibleTabs.length > 0) {
+            switchTab(visibleTabs[0].id);
+        } else {
+            activeTabId = null;
+            updateCurrentTabInfo();
+        }
+    }
+    
+    // 3. 更新显示状态
+    updateNoTabsMessage();
+}
 /**
  * 添加标签页到UI
  */

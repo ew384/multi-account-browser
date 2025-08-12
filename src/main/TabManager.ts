@@ -1523,14 +1523,46 @@ export class TabManager {
         const tab = this.tabs.get(tabId);
         if (!tab || tab.isHeadless) return;
 
-        // 从可视区域移除
-        this.mainWindow.contentView.removeChildView(tab.webContentsView);
+        // 🔥 关键修复1：如果是当前激活的标签页，先切换到其他标签页
+        if (this.activeTabId === tabId) {
+            // 找到其他可见的标签页
+            const visibleTabs = Array.from(this.tabs.keys())
+                .filter(id => id !== tabId)
+                .filter(id => {
+                    const otherTab = this.tabs.get(id);
+                    return otherTab && !otherTab.isHeadless;
+                });
 
+            if (visibleTabs.length > 0) {
+                // 切换到第一个可见标签页
+                await this.switchToTab(visibleTabs[0]);
+            } else {
+                // 没有其他可见标签页，清空活动标签页
+                this.activeTabId = null;
+            }
+        }
+
+        // 🔥 关键修复2：从可视区域移除 WebContentsView
+        try {
+            this.mainWindow.contentView.removeChildView(tab.webContentsView);
+            console.log(`🔇 Removed WebContentsView from window: ${tab.accountName}`);
+        } catch (error) {
+            console.warn(`⚠️ Failed to remove WebContentsView:`, error);
+        }
+
+        // 🔥 关键修复3：设置标签页状态
         tab.isHeadless = true;
         tab.isVisible = false;
 
-        // 移到屏幕外但保持运行
+        // 🔥 关键修复4：移到屏幕外但保持运行
         tab.webContentsView.setBounds({ x: -9999, y: -9999, width: 1200, height: 800 });
+
+        // 🔥 关键修复5：通知前端隐藏标签页头部
+        this.mainWindow.webContents.send('tab-made-headless', {
+            tabId: tabId,
+            accountName: tab.accountName,
+            timestamp: new Date().toISOString()
+        });
 
         console.log(`🔇 Made tab headless: ${tab.accountName}`);
     }
