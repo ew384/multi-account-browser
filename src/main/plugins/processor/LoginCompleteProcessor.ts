@@ -41,10 +41,17 @@ export class LoginCompleteProcessor implements PluginProcessor {
 
             // 1. 等待 URL 变化（现有逻辑保持不变）
             const urlChanged = await this.tabManager.waitForUrlChange(params.tabId, 200000);
-            if (!urlChanged) {
+            if (urlChanged) {
+                try {
+                    await this.tabManager.makeTabHeadless(params.tabId);
+                    console.log(`🔇 登录成功，tab已转为后台模式: ${params.userId}`);
+                } catch (error) {
+                    console.warn(`⚠️ 转换headless失败，但继续处理: ${error}`);
+                }
+                console.log(`✅ ${params.platform} 登录成功，URL 已变化: ${params.userId}`);
+            } else {
                 return { success: false, error: '登录超时，URL 未变化' };
             }
-
             console.log(`✅ ${params.platform} 登录成功，URL 已变化: ${params.userId}`);
             await new Promise(resolve => setTimeout(resolve, 5000));
 
