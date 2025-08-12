@@ -1510,8 +1510,6 @@ export class APIServer {
             }
         });
 
-        // 🔥 新增：Headless Tab 管理 API
-
         // 获取所有 headless tabs
         this.app.get('/api/tabs/headless', (req, res) => {
             try {

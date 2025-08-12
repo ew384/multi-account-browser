@@ -36,143 +36,130 @@ export class LoginCompleteProcessor implements PluginProcessor {
      * 🔥 处理登录完成的统一流程
      */
     async process(params: LoginCompleteParams): Promise<LoginCompleteResult> {
-        try {
-            console.log(`🎉 开始处理登录完成流程: ${params.platform} - ${params.userId}${params.isRecover ? ' (恢复模式)' : ''}`);
+    try {
+        console.log(`🎉 开始处理登录完成流程: ${params.platform} - ${params.userId}${params.isRecover ? ' (恢复模式)' : ''}`);
 
-            // 1. 等待 URL 变化（现有逻辑保持不变）
-            const urlChanged = await this.tabManager.waitForUrlChange(params.tabId, 200000);
-            if (urlChanged) {
-                try {
-                    await this.tabManager.makeTabHeadless(params.tabId);
-                    console.log(`🔇 登录成功，tab已转为后台模式: ${params.userId}`);
-                } catch (error) {
-                    console.warn(`⚠️ 转换headless失败，但继续处理: ${error}`);
-                }
-                console.log(`✅ ${params.platform} 登录成功，URL 已变化: ${params.userId}`);
-            } else {
-                return { success: false, error: '登录超时，URL 未变化' };
-            }
-            console.log(`✅ ${params.platform} 登录成功，URL 已变化: ${params.userId}`);
-            await new Promise(resolve => setTimeout(resolve, 5000));
+        // 🔥 移除了URL变化检测和makeTabHeadless调用，直接开始业务处理
+        console.log(`✅ ${params.platform} 登录成功，开始提取账号信息: ${params.userId}`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
 
-            // 2. 提取账号信息（现有逻辑保持不变）
-            const accountInfo = await this.extractAccountInfo(params.platform, params.tabId);
-            const realAccountName = accountInfo?.accountName || params.userId;
+        // 2. 提取账号信息
+        const accountInfo = await this.extractAccountInfo(params.platform, params.tabId);
+        const realAccountName = accountInfo?.accountName || params.userId;
 
-            // 3. 下载头像（现有逻辑保持不变）
-            let localAvatarPath: string | null = null;
-            if (accountInfo?.avatar && realAccountName) {
-                localAvatarPath = await this.downloadAvatar(
-                    params.tabId,
-                    accountInfo.avatar,
-                    realAccountName,
-                    params.platform
-                );
-                if (localAvatarPath) {
-                    accountInfo.localAvatar = localAvatarPath;
-                }
-            }
-
-            // 4. 保存Cookie（现有逻辑保持不变）
-            const cookiePath = await this.saveCookieFile(
+        // 3. 下载头像
+        let localAvatarPath: string | null = null;
+        if (accountInfo?.avatar && realAccountName) {
+            localAvatarPath = await this.downloadAvatar(
                 params.tabId,
-                params.userId,
-                params.platform,
-                realAccountName
+                accountInfo.avatar,
+                realAccountName,
+                params.platform
             );
-
-            if (!cookiePath) {
-                throw new Error('Cookie保存失败');
+            if (localAvatarPath) {
+                accountInfo.localAvatar = localAvatarPath;
             }
+        }
 
-            // 5. 🔥 根据模式决定保存方式
-            if (params.isRecover && params.accountId) {
-                // 恢复模式：更新现有账号
-                console.log(`🔄 恢复模式：更新账号ID ${params.accountId}`);
-                const dbAccountInfo: AccountInfo = {
-                    platform: params.platform,
-                    cookieFile: path.basename(cookiePath),
-                    accountName: realAccountName,
-                    accountId: accountInfo?.accountId,
-                    followersCount: accountInfo?.followersCount,
-                    videosCount: accountInfo?.videosCount,
-                    avatar: accountInfo?.avatar,
-                    bio: accountInfo?.bio,
-                    localAvatar: localAvatarPath || undefined,
-                    extractedAt: new Date().toISOString()
-                };
+        // 4. 保存Cookie
+        const cookiePath = await this.saveCookieFile(
+            params.tabId,
+            params.userId,
+            params.platform,
+            realAccountName
+        );
 
-                const success = AccountStorage.updateAccountCookie(
-                    params.accountId,
-                    cookiePath,
-                    dbAccountInfo
-                );
+        if (!cookiePath) {
+            throw new Error('Cookie保存失败');
+        }
 
-                if (!success) {
-                    console.warn('⚠️ 账号更新失败，但登录成功');
-                } else {
-                    console.log(`✅ 账号恢复成功: ID ${params.accountId}`);
-                }
-            } else {
-                // 正常模式：新增账号（现有逻辑保持不变）
-                const platformType = AccountStorage.getPlatformType(params.platform);
-                const dbAccountInfo: AccountInfo = {
-                    platform: params.platform,
-                    cookieFile: path.basename(cookiePath),
-                    accountName: realAccountName,
-                    accountId: accountInfo?.accountId,
-                    followersCount: accountInfo?.followersCount,
-                    videosCount: accountInfo?.videosCount,
-                    avatar: accountInfo?.avatar,
-                    bio: accountInfo?.bio,
-                    localAvatar: localAvatarPath || undefined,
-                    extractedAt: new Date().toISOString()
-                };
-
-                const success = await AccountStorage.saveAccountToDatabase(
-                    realAccountName,
-                    platformType,
-                    cookiePath,
-                    dbAccountInfo
-                );
-
-                if (!success) {
-                    console.warn('⚠️ 数据库保存失败，但登录成功');
-                }
-            }
-
-            // 6. 构造返回结果（现有逻辑保持不变）
-            const resultAccountInfo: LoginAccountInfo = {
+        // 5. 根据模式决定保存方式
+        if (params.isRecover && params.accountId) {
+            // 恢复模式：更新现有账号
+            console.log(`🔄 恢复模式：更新账号ID ${params.accountId}`);
+            const dbAccountInfo: AccountInfo = {
                 platform: params.platform,
                 cookieFile: path.basename(cookiePath),
-                accountName: accountInfo?.accountName || params.userId,
+                accountName: realAccountName,
                 accountId: accountInfo?.accountId,
                 followersCount: accountInfo?.followersCount,
                 videosCount: accountInfo?.videosCount,
                 avatar: accountInfo?.avatar,
                 bio: accountInfo?.bio,
                 localAvatar: localAvatarPath || undefined,
-                localAvatarPath: localAvatarPath || undefined,
                 extractedAt: new Date().toISOString()
             };
 
-            console.log(`🎉 登录完成流程处理成功: ${resultAccountInfo.accountName}`);
+            const success = AccountStorage.updateAccountCookie(
+                params.accountId,
+                cookiePath,
+                dbAccountInfo
+            );
 
-            return {
-                success: true,
-                cookiePath: cookiePath,
-                accountInfo: resultAccountInfo
+            if (!success) {
+                console.warn('⚠️ 账号更新失败，但登录成功');
+            } else {
+                console.log(`✅ 账号恢复成功: ID ${params.accountId}`);
+            }
+        } else {
+            // 正常模式：新增账号
+            const platformType = AccountStorage.getPlatformType(params.platform);
+            const dbAccountInfo: AccountInfo = {
+                platform: params.platform,
+                cookieFile: path.basename(cookiePath),
+                accountName: realAccountName,
+                accountId: accountInfo?.accountId,
+                followersCount: accountInfo?.followersCount,
+                videosCount: accountInfo?.videosCount,
+                avatar: accountInfo?.avatar,
+                bio: accountInfo?.bio,
+                localAvatar: localAvatarPath || undefined,
+                extractedAt: new Date().toISOString()
             };
 
-        } catch (error) {
-            console.error(`❌ 登录完成流程处理失败:`, error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : '未知错误'
-            };
+            const success = await AccountStorage.saveAccountToDatabase(
+                realAccountName,
+                platformType,
+                cookiePath,
+                dbAccountInfo
+            );
+
+            if (!success) {
+                console.warn('⚠️ 数据库保存失败，但登录成功');
+            }
         }
-    }
 
+        // 6. 构造返回结果
+        const resultAccountInfo: LoginAccountInfo = {
+            platform: params.platform,
+            cookieFile: path.basename(cookiePath),
+            accountName: accountInfo?.accountName || params.userId,
+            accountId: accountInfo?.accountId,
+            followersCount: accountInfo?.followersCount,
+            videosCount: accountInfo?.videosCount,
+            avatar: accountInfo?.avatar,
+            bio: accountInfo?.bio,
+            localAvatar: localAvatarPath || undefined,
+            localAvatarPath: localAvatarPath || undefined,
+            extractedAt: new Date().toISOString()
+        };
+
+        console.log(`🎉 登录完成流程处理成功: ${resultAccountInfo.accountName}`);
+
+        return {
+            success: true,
+            cookiePath: cookiePath,
+            accountInfo: resultAccountInfo
+        };
+
+    } catch (error) {
+        console.error(`❌ 登录完成流程处理失败:`, error);
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : '未知错误'
+        };
+    }
+    }
     /**
      * 🔥 提取账号信息（通过插件管理器）
      */

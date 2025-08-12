@@ -125,49 +125,80 @@ export class AutomationEngine {
         userId: string,
         tabId: string,
         platform: string,
-        isRecover?: boolean,  // 🔥 新增参数
-        accountId?: number    // 🔥 新增参数
+        isRecover?: boolean,
+        accountId?: number
     ): Promise<void> {
         try {
-            // 🔥 使用 getProcessor 方法
-            const processor = this.pluginManager.getProcessor('login');
-
-            if (processor) {
-                const completeResult = await processor.process({
-                    tabId,
-                    userId,
-                    platform,
-                    isRecover: isRecover || false,  // 🔥 传递恢复模式
-                    accountId: accountId            // 🔥 传递账号ID
-                });
-
-                // 更新登录状态
+            // 🔥 首先等待URL变化
+            const urlChanged = await this.tabManager.waitForUrlChange(tabId, 200000);
+            
+            if (urlChanged) {
+                // 🔥 1. 立即更新登录状态为完成
                 const loginStatus = this.activeLogins.get(userId);
                 if (loginStatus) {
-                    loginStatus.status = completeResult.success ? 'completed' : 'failed';
+                    loginStatus.status = 'completed';
                     loginStatus.endTime = new Date().toISOString();
+                    this.activeLogins.set(userId, loginStatus);
+                    console.log(`✅ 登录状态已更新为完成: ${userId}`);
+                }
+
+                // 🔥 2. 立即将tab变为headless
+                try {
+                    await this.tabManager.makeTabHeadless(tabId);
+                    console.log(`🔇 登录成功，tab已转为后台模式: ${userId}`);
+                } catch (error) {
+                    console.warn(`⚠️ 转换headless失败，但继续处理: ${error}`);
+                }
+
+                // 🔥 3. 获取processor并进行后台处理
+                const processor = this.pluginManager.getProcessor('login');
+                if (processor) {
+                    const completeResult = await processor.process({
+                        tabId,
+                        userId,
+                        platform,
+                        isRecover: isRecover || false,
+                        accountId: accountId
+                    });
 
                     if (completeResult.success) {
-                        loginStatus.cookieFile = completeResult.cookiePath;
-                        loginStatus.accountInfo = completeResult.accountInfo;
-                        console.log(`✅ 登录处理成功: ${userId}`);
+                        // 更新登录状态的详细信息（但不改变completed状态）
+                        if (loginStatus) {
+                            loginStatus.cookieFile = completeResult.cookiePath;
+                            loginStatus.accountInfo = completeResult.accountInfo;
+                            this.activeLogins.set(userId, loginStatus);
+                        }
+                        console.log(`✅ 后台处理完成: ${userId}`);
                     }
-
-                    this.activeLogins.set(userId, loginStatus);
+                } else {
+                    console.error('❌ 未找到登录处理器插件');
                 }
             } else {
-                console.error('❌ 未找到登录处理器插件');
+                // URL未变化，登录失败
+                const loginStatus = this.activeLogins.get(userId);
+                if (loginStatus) {
+                    loginStatus.status = 'failed';
+                    loginStatus.endTime = new Date().toISOString();
+                    this.activeLogins.set(userId, loginStatus);
+                }
             }
         } catch (error) {
             console.error(`❌ 登录处理失败: ${userId}:`, error);
-        }finally {
+            const loginStatus = this.activeLogins.get(userId);
+            if (loginStatus) {
+                loginStatus.status = 'failed';
+                loginStatus.endTime = new Date().toISOString();
+                this.activeLogins.set(userId, loginStatus);
+            }
+        } finally {
+            // tab关闭逻辑移到这里
             try {
                 await this.tabManager.closeTab(tabId);
                 console.log(`🗑️ 登录完成，已关闭tab: ${tabId}`);
             } catch (error) {
                 console.error(`❌ 关闭登录tab失败: ${tabId}:`, error);
+            }
         }
-    }
     }
 
     getLoginStatus(userId: string): LoginStatus | null {
