@@ -179,7 +179,8 @@ export class LoginCompleteProcessor implements PluginProcessor {
     private async extractAccountInfo(platform: string, tabId: string): Promise<AccountInfo | null> {
         try {
             console.log(`🔍 提取 ${platform} 账号信息...`);
-
+            // 🔥 等待页面稳定（给页面一些时间完成加载和渲染）
+            await new Promise(resolve => setTimeout(resolve, 3000));
             // 通过插件管理器获取上传插件（复用其账号信息提取功能）
             const uploader = this.pluginManager.getPlugin(PluginType.UPLOADER, platform);
 

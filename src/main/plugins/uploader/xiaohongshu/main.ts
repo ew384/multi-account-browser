@@ -457,25 +457,72 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
 
     async getAccountInfo(tabId: string): Promise<any> {
         const extractScript = `
-        (function extractXiaohongshuInfo() {
+        (async function extractXiaohongshuInfo() {
             try {
-                // 提取头像URL
-                const avatarImg = document.querySelector('.base .avatar img');
-                const avatar = avatarImg ? avatarImg.src : null;
+                console.log('🔍 开始提取小红书账号信息...');
+                console.log('当前页面URL:', window.location.href);
+                
+                // 🔥 等待页面关键元素加载完成
+                console.log('⏳ 等待页面关键元素加载...');
+                
+                let retryCount = 0;
+                const maxRetries = 30; // 最多等待30秒
+                
+                while (retryCount < maxRetries) {
+                    // 检查关键元素是否已加载
+                    const userAvatar = document.querySelector('.user_avatar');
+                    const accountName = document.querySelector('.account-name');
+                    const othersContainer = document.querySelector('.others');
+                    
+                    if (userAvatar && accountName && othersContainer) {
+                        console.log('✅ 关键元素已加载完成');
+                        break;
+                    }
+                    
+                    console.log(\`📍 等待关键元素加载... (\${retryCount + 1}/\${maxRetries})\`);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    retryCount++;
+                }
+                
+                if (retryCount >= maxRetries) {
+                    console.warn('⚠️ 等待超时，但继续尝试提取...');
+                }
+                
+                // 提取头像URL - 适配创作者页面
+                let avatar = null;
+                
+                // 优先使用 user_avatar 类名的图片
+                const userAvatarImg = document.querySelector('.user_avatar');
+                if (userAvatarImg && userAvatarImg.src) {
+                    avatar = userAvatarImg.src;
+                    console.log('✅ 找到user_avatar头像:', avatar);
+                } else {
+                    // 备选方案：查找第一个头像图片
+                    const avatarImg = document.querySelector('.avatar img, img[src*="avatar"]');
+                    if (avatarImg && avatarImg.src) {
+                        avatar = avatarImg.src;
+                        console.log('✅ 找到备选头像:', avatar);
+                    }
+                }
                 
                 // 提取账号名称
                 const accountNameEl = document.querySelector('.account-name');
                 const accountName = accountNameEl ? accountNameEl.textContent.trim() : null;
+                console.log('账号名称:', accountName);
                 
                 // 提取小红书账号ID
-                const accountIdElements = document.querySelectorAll('.others div');
+                const othersContainer = document.querySelector('.others');
                 let accountId = null;
                 
-                // 遍历所有div元素，查找包含"小红书账号:"的元素
-                for (let element of accountIdElements) {
-                    if (element.textContent && element.textContent.includes('小红书账号:')) {
-                        accountId = element.textContent.replace('小红书账号:', '').trim();
-                        break;
+                if (othersContainer) {
+                    const othersText = othersContainer.textContent || '';
+                    console.log('others容器内容:', othersText);
+                    
+                    // 解析账号ID
+                    const accountIdMatch = othersText.match(/小红书账号:?\s*(\w+)/);
+                    if (accountIdMatch) {
+                        accountId = accountIdMatch[1];
+                        console.log('✅ 提取到账号ID:', accountId);
                     }
                 }
                 
@@ -485,10 +532,14 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
                 let followersCount = null; // 粉丝数
                 let likesCount = null; // 获赞与收藏
                 
+                console.log('找到统计元素数量:', numericalElements.length);
+                
                 if (numericalElements.length >= 3) {
                     followingCount = numericalElements[0].textContent.trim();
                     followersCount = numericalElements[1].textContent.trim();
                     likesCount = numericalElements[2].textContent.trim();
+                    
+                    console.log('统计数据 - 关注:', followingCount, '粉丝:', followersCount, '获赞:', likesCount);
                 }
                 
                 // 解析数字的辅助函数
@@ -503,28 +554,40 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
                     return parseInt(cleanValue) || 0;
                 }
                 
-                // 提取个人简介（如果有的话）
-                const bioEl = document.querySelector('.others .description-text div:last-child');
+                // 提取个人简介（创作者页面可能没有）
                 let bio = null;
+                const bioEl = document.querySelector('.others .description-text div:last-child');
                 if (bioEl && bioEl.textContent && !bioEl.textContent.includes('小红书账号:')) {
                     bio = bioEl.textContent.trim();
+                    console.log('个人简介:', bio);
                 }
                 
-                // 标准化数据
-                return {
+                // 构建结果对象
+                const result = {
                     platform: 'xiaohongshu',
                     accountName: accountName,
                     accountId: accountId,
                     followersCount: parseNumber(followersCount),
-                    followingCount: parseNumber(followingCount), // 小红书特有的关注数
-                    likesCount: parseNumber(likesCount), // 小红书特有的获赞与收藏
-                    videosCount: null, // 小红书这个页面没有显示笔记数量
+                    followingCount: parseNumber(followingCount),
+                    likesCount: parseNumber(likesCount),
+                    videosCount: null, // 创作者首页没有显示笔记数量
                     avatar: avatar,
                     bio: bio,
                     extractedAt: new Date().toISOString(),
                 };
+                
+                console.log('✅ 提取结果:', result);
+                
+                // 验证关键字段
+                if (!accountName && !accountId) {
+                    console.warn('⚠️ 关键信息缺失，可能页面还未加载完成');
+                    return null;
+                }
+                
+                return result;
+                
             } catch (error) {
-                console.error('提取数据时出错:', error);
+                console.error('❌ 提取数据时出错:', error);
                 return null;
             }
         })()
