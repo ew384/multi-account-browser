@@ -1252,7 +1252,7 @@ export class AccountStorage {
     }
 
     /**
-     * 🔥 获取需要重新验证的有效账号（调试版）
+     * 🔥 获取需要重新验证的有效账号（修复时间格式版本）
      */
     static getValidAccountsNeedingRevalidation(): Array<{
         id: number;
@@ -1279,20 +1279,32 @@ export class AccountStorage {
                 WHERE status = 1  -- 当前有效的账号
                 AND (
                     last_check_time IS NULL 
-                    OR last_check_time < ?
+                    OR datetime(last_check_time) < datetime(?)
                 )
                 ORDER BY last_check_time ASC
             `);
             
             const accounts = stmt.all(thirtyMinutesAgo) as any[];
             
-            // 🔥 添加调试日志
+            // 🔥 添加详细调试日志
             console.log('📊 需要验证的账号数量:', accounts.length);
             accounts.forEach(acc => {
+                console.log(`🔍 原始数据库时间: "${acc.lastCheckTime}"`);
+                console.log(`🔍 类型: ${typeof acc.lastCheckTime}`);
+                
                 const lastCheck = acc.lastCheckTime ? new Date(acc.lastCheckTime) : null;
                 const now = new Date();
-                const diff = lastCheck ? Math.round((now.getTime() - lastCheck.getTime()) / (1000 * 60)) : '无';
-                console.log(`   账号: ${acc.userName}, 上次检查: ${acc.lastCheckTime}, 距今: ${diff}分钟`);
+                
+                console.log(`🔍 解析后时间: ${lastCheck?.toISOString()}`);
+                console.log(`🔍 当前时间: ${now.toISOString()}`);
+                
+                if (lastCheck) {
+                    const diffMs = now.getTime() - lastCheck.getTime();
+                    const diffMin = Math.round(diffMs / (1000 * 60));
+                    console.log(`🔍 实际时间差: ${diffMs}ms = ${diffMin}分钟`);
+                }
+                
+                console.log(`   账号: ${acc.userName}, 上次检查: ${acc.lastCheckTime}`);
             });
 
             return accounts.map(account => ({
