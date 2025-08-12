@@ -25,7 +25,6 @@ export class SocialAutomationAPI {
         this.setupGroupRoutes();
         this.setupMaterialRoutes();
         this.setupUploadRoutes();
-        this.setupValidationRoutes();
         this.setupAutomationRoutes();
         this.setupPublishRecordRoutes();
         this.setupPathRoutes();
@@ -34,7 +33,6 @@ export class SocialAutomationAPI {
 
     private setupAccountRoutes(): void {
         // 账号管理API
-        this.router.get('/getValidAccounts', this.handleGetValidAccounts.bind(this));
         this.router.get('/getAccountsWithGroups', this.handleGetAccountsWithGroups.bind(this));
         this.router.get('/deleteAccount', this.handleDeleteAccount.bind(this));
         this.router.post('/updateUserinfo', this.handleUpdateUserinfo.bind(this));
@@ -73,12 +71,6 @@ export class SocialAutomationAPI {
         this.router.post('/postVideoBatch', this.handlePostVideoBatch.bind(this));
     }
 
-    private setupValidationRoutes(): void {
-        // 验证相关API
-        this.router.post('/validateAccount', this.handleValidateAccount.bind(this));
-        this.router.post('/validateAccountsBatch', this.handleValidateBatch.bind(this));
-    }
-
     private setupAutomationRoutes(): void {
         // 自动化相关API
         this.router.post('/api/automation/get-account-info', this.handleGetAccountInfo.bind(this));
@@ -88,23 +80,6 @@ export class SocialAutomationAPI {
         this.router.get('/getPaths', this.handleGetPaths.bind(this));
     }
     // ==================== 账号管理相关处理方法 ====================
-
-    /**
-     * 🔥 获取有效账号列表 - 对应 Python 的 getValidAccounts
-     */
-    private async handleGetValidAccounts(req: express.Request, res: express.Response): Promise<void> {
-        try {
-            const forceCheck = req.query.force === 'true';
-            const accounts = await this.automationEngine.getValidAccountsForFrontend(forceCheck);
-
-            this.sendResponse(res, 200, 'success', accounts);
-
-        } catch (error) {
-            console.error('❌ 获取有效账号失败:', error);
-            this.sendResponse(res, 500, `get accounts failed: ${error instanceof Error ? error.message : 'unknown error'}`, null);
-        }
-    }
-
     /**
      * 🔥 获取带分组信息的账号列表 - 对应 Python 的 getAccountsWithGroups
      */
@@ -1163,57 +1138,7 @@ private async handleGetPublishRecordStats(req: express.Request, res: express.Res
         this.sendResponse(res, 500, `获取统计失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
     }
 }
-    /**
-     * 🔥 手动验证单个账号
-     */
-    private async handleValidateAccount(req: express.Request, res: express.Response): Promise<void> {
-        try {
-            const { accountId } = req.body;
 
-            if (!accountId) {
-                this.sendResponse(res, 400, 'accountId is required', null);
-                return;
-            }
-
-            const result = await this.automationEngine.validateAccountManually(accountId);
-
-            if (result.success) {
-                this.sendResponse(res, 200, result.message, result.data);
-            } else {
-                this.sendResponse(res, 500, result.message, null);
-            }
-
-        } catch (error) {
-            console.error('❌ 手动验证账号失败:', error);
-            this.sendResponse(res, 500, 'validate account failed', null);
-        }
-    }
-
-    /**
-     * 🔥 批量手动验证账号
-     */
-    private async handleValidateBatch(req: express.Request, res: express.Response): Promise<void> {
-        try {
-            const { accountIds } = req.body;
-
-            if (!Array.isArray(accountIds) || accountIds.length === 0) {
-                this.sendResponse(res, 400, 'accountIds array is required', null);
-                return;
-            }
-
-            const result = await this.automationEngine.validateAccountsBatchManually(accountIds);
-
-            if (result.success) {
-                this.sendResponse(res, 200, result.message, result.data);
-            } else {
-                this.sendResponse(res, 500, result.message, null);
-            }
-
-        } catch (error) {
-            console.error('❌ 批量验证账号失败:', error);
-            this.sendResponse(res, 500, 'batch validate failed', null);
-        }
-    }
 
     // ==================== 自动化相关处理方法 ====================
 

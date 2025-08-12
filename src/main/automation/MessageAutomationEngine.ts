@@ -165,14 +165,14 @@ export class MessageAutomationEngine {
         
         try {
             // 🔥 通过注入的 AutomationEngine 获取有效账号
-            const validAccounts = await this.automationEngine.getValidAccounts();
-            console.log(`📋 发现 ${validAccounts.length} 个有效账号`);
+            const allAccounts = await AccountStorage.getAccountsWithGroupsForFrontend();
+           console.log(`📋 发现 ${allAccounts.length} 个账号`);
 
             const results = [];
             let success = 0;
             let failed = 0;
 
-            for (const account of validAccounts) {
+            for (const account of allAccounts) {
                 try {
                     // 🔥 需要确认 AccountStorage.getPlatformName 方法
                     const platform = AccountStorage.getPlatformName(account.type);

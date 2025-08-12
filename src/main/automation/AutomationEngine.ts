@@ -727,262 +727,50 @@ export class AutomationEngine {
     }
 
     /**
-     * 🔥 获取所有有效账号
+     * 🔥 核心验证方法 - 统一处理账号验证逻辑
      */
-    async getValidAccounts(): Promise<Array<{
-        id: number;
-        type: number;
-        filePath: string;
-        userName: string;
-        platform: string;
-        status: number;
-        lastCheckTime: string;
-    }>> {
-        try {
-            return await AccountStorage.getValidAccounts();
-        } catch (error) {
-            console.error('❌ AutomationEngine: 获取有效账号失败:', error);
-            return [];
-        }
-    }
-
-    async getValidAccountsForFrontend(forceCheck: boolean = false): Promise<any[]> {
-        try {
-            const accounts = await AccountStorage.getValidAccountsForFrontend();
-
-            if (!forceCheck) {
-                return accounts;
-            }
-
-            const validAccounts = accounts.filter(account => account.status === '正常');
-            
-            console.log(`🔍 强制验证 ${validAccounts.length} 个正常状态账号（跳过 ${accounts.length - validAccounts.length} 个异常账号）...`);
-            for (const account of accounts) {
-                try {
-                    // 🔥 使用 AccountStorage 的静态方法
-                    const platform = AccountStorage.getPlatformName(account.type);
-                    const cookieFile = account.filePath;
-
-                    const isValid = await this.validateAccount(platform, cookieFile);
-                    account.status = isValid ? '正常' : '异常';
-
-                } catch (error) {
-                    console.error(`❌ 验证账号失败 ${account.userName}:`, error);
-                    account.status = '异常';
-                }
-            }
-
+    private async validateAccountsCore(accounts: any[], forceCheck: boolean): Promise<any[]> {
+        if (!forceCheck) {
             return accounts;
-
-        } catch (error) {
-            console.error('❌ 获取有效账号失败:', error);
-            throw error;
         }
-    }
-    /**
-     * 🔥 获取分组账号信息 - 用于后端自动化调度
-     */
-    async getAccountsWithGroups(): Promise<Array<{
-        id: number;
-        type: number;
-        filePath: string;
-        userName: string;
-        platform: string;
-        status: number;
-        lastCheckTime: string;
-        groupId: number | null;
-        groupName: string | null;
-        groupColor: string | null;
-    }>> {
-        try {
-            return await AccountStorage.getAccountsWithGroups();
-        } catch (error) {
-            console.error('❌ AutomationEngine: 获取分组账号失败:', error);
-            return [];
-        }
-    }
 
+        // 只验证正常状态的账号
+        const validAccounts = accounts.filter(account => account.status === '正常');
+        const invalidAccounts = accounts.filter(account => account.status !== '正常');
+        
+        console.log(`🔍 强制验证 ${validAccounts.length} 个正常状态账号（跳过 ${invalidAccounts.length} 个异常账号）...`);
+        
+        for (const account of validAccounts) {
+            try {
+                const platform = AccountStorage.getPlatformName(account.type);
+                const cookieFile = account.filePath;
+
+                const isValid = await this.validateAccount(platform, cookieFile);
+                account.status = isValid ? '正常' : '异常';
+
+            } catch (error) {
+                console.error(`❌ 验证账号失败 ${account.userName}:`, error);
+                account.status = '异常';
+            }
+        }
+
+        // 返回所有账号（已验证的 + 跳过的异常账号）
+        return [...validAccounts, ...invalidAccounts];
+    }
     /**
      * 🔥 前端兼容：获取带分组信息的账号列表（含验证逻辑）
      */
     async getAccountsWithGroupsForFrontend(forceCheck: boolean = false): Promise<any[]> {
         try {
-            const accounts = await AccountStorage.getAccountsWithGroupsForFrontend();
-
-            if (!forceCheck) {
-                return accounts;
-            }
-
-            // 强制验证逻辑（与上面类似）
-            for (const account of accounts) {
-                try {
-                    const platform = AccountStorage.getPlatformName(account.type);
-                    const cookieFile = account.filePath;
-
-                    const isValid = await this.validateAccount(platform, cookieFile);
-                    account.status = isValid ? '正常' : '异常';
-
-                } catch (error) {
-                    console.error(`❌ 验证账号失败 ${account.userName}:`, error);
-                    account.status = '异常';
-                }
-            }
-
-            return accounts;
-
+            const accounts = AccountStorage.getAccountsWithGroupsForFrontend();
+            return await this.validateAccountsCore(accounts, forceCheck);
         } catch (error) {
             console.error('❌ 获取分组账号失败:', error);
             throw error;
         }
     }
 
-    /**
-     * 🔥 手动验证指定账号
-     */
-    async validateAccountManually(accountId: number): Promise<{
-        success: boolean;
-        message: string;
-        data?: any;
-    }> {
-        try {
-            // 1. 通过 AccountStorage 获取账号信息
-            const account = await AccountStorage.getAccountById(accountId);
 
-            if (!account) {
-                return {
-                    success: false,
-                    message: '账号不存在'
-                };
-            }
-
-            // 2. 调用验证插件进行验证
-            const platform = AccountStorage.getPlatformName(account.type);
-            const cookieFile = account.filePath;
-
-            // 🔥 关键：调用已有的 validateAccount 方法（它会调用验证插件）
-            const isValid = await this.validateAccount(platform, cookieFile);
-
-            // 3. 通过 AccountStorage 更新数据库
-            const currentTime = new Date().toISOString();
-            const updated = await AccountStorage.updateValidationStatusById(
-                accountId,
-                isValid,
-                currentTime
-            );
-
-            if (!updated) {
-                return {
-                    success: false,
-                    message: '更新验证状态失败'
-                };
-            }
-
-            return {
-                success: true,
-                message: `验证完成: ${isValid ? '有效' : '无效'}`,
-                data: {
-                    accountId: accountId,
-                    userName: account.userName,
-                    platform: platform,
-                    isValid: isValid,
-                    verifiedAt: currentTime
-                }
-            };
-
-        } catch (error) {
-            console.error(`❌ 手动验证账号失败:`, error);
-            return {
-                success: false,
-                message: `验证失败: ${error instanceof Error ? error.message : 'unknown error'}`
-            };
-        }
-    }
-
-    /**
-     * 🔥 批量手动验证账号
-     */
-    async validateAccountsBatchManually(accountIds: number[]): Promise<{
-        success: boolean;
-        message: string;
-        data?: any;
-    }> {
-        try {
-            console.log(`🔍 手动批量验证 ${accountIds.length} 个账号...`);
-
-            // 1. 通过 AccountStorage 获取所有账号信息
-            const accounts = await AccountStorage.getAccountsByIds(accountIds);
-
-            if (accounts.length === 0) {
-                return {
-                    success: false,
-                    message: '没有找到要验证的账号'
-                };
-            }
-
-            const results = [];
-            const currentTime = new Date().toISOString();
-            const batchUpdates = [];
-
-            // 2. 逐个验证账号
-            for (const account of accounts) {
-                try {
-                    const platform = AccountStorage.getPlatformName(account.type);
-                    const cookieFile = account.filePath;
-
-                    // 🔥 调用验证插件
-                    const isValid = await this.validateAccount(platform, cookieFile);
-
-                    // 收集批量更新数据
-                    batchUpdates.push({
-                        accountId: account.id,
-                        isValid: isValid,
-                        validationTime: currentTime
-                    });
-
-                    results.push({
-                        accountId: account.id,
-                        userName: account.userName,
-                        platform: platform,
-                        success: true,
-                        isValid: isValid,
-                        message: `验证完成: ${isValid ? '有效' : '无效'}`
-                    });
-
-                } catch (error) {
-                    results.push({
-                        accountId: account.id,
-                        userName: account.userName,
-                        success: false,
-                        error: error instanceof Error ? error.message : 'unknown error',
-                        message: '验证失败'
-                    });
-                }
-            }
-
-            // 3. 批量更新数据库（通过 AccountStorage）
-            const updatedCount = await AccountStorage.batchUpdateValidationStatus(batchUpdates);
-            const successCount = results.filter(r => r.success).length;
-
-            return {
-                success: true,
-                message: `批量验证完成: ${successCount}/${accountIds.length} 个账号验证成功，${updatedCount} 个状态已更新`,
-                data: {
-                    total: accountIds.length,
-                    success: successCount,
-                    failed: accountIds.length - successCount,
-                    updated: updatedCount,
-                    results: results
-                }
-            };
-
-        } catch (error) {
-            console.error('❌ 批量手动验证失败:', error);
-            return {
-                success: false,
-                message: `批量验证失败: ${error instanceof Error ? error.message : 'unknown error'}`
-            };
-        }
-    }
     /**
      * 🔥 自动验证过期账号（优化版）
      * 只验证当前有效但超过1小时未验证的账号
