@@ -116,42 +116,61 @@ export class XiaohongshuLogin implements PluginLogin {
     }
 
     /**
-     * 🔥 获取二维码（复用 Python 验证的逻辑）
+     * 🔥 获取二维码（修复版本）
      */
     private async getQRCode(tabId: string): Promise<string | null> {
         console.log('🔍 查找小红书登录二维码...');
 
         const qrCodeScript = `
-            (function() {
-                // 🔥 使用 Python 验证的选择器：iframe img
-                document.querySelector("img.css-wemwzq").click();
-                const element = document.querySelector('img:nth-of-type(2)');
-                if (element && element.src) {
-                    console.log('找到小红书二维码:', element.src);
-                    return element.src;
+            (async function() {
+                // 1. 点击登录按钮
+                const clickElement = document.querySelector("img.css-wemwzq");
+                if (!clickElement) {
+                    console.log('未找到登录按钮');
+                    return null;
                 }
                 
-                console.log('未找到小红书二维码');
+                console.log('点击登录按钮...');
+                clickElement.click();
+                
+                // 2. 等待二维码出现，最多等待10秒
+                for (let i = 0; i < 10; i++) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    // 查找二维码图片 - 160x160的正方形图片
+                    const qrImage = document.querySelector('img.css-1lhmg90');
+                    if (qrImage && qrImage.src) {
+                        console.log('找到小红书二维码:', qrImage.src.substring(0, 100));
+                        return qrImage.src;
+                    }
+                    
+                    // 备选方案：查找所有新出现的大尺寸正方形图片
+                    const allImages = document.querySelectorAll('img');
+                    for (const img of allImages) {
+                        if (img.className.includes('css-wemwzq')) continue; // 跳过按钮
+                        
+                        const width = img.offsetWidth;
+                        const height = img.offsetHeight;
+                        
+                        // 查找大于100px的正方形图片
+                        if (width > 100 && Math.abs(width - height) < 20 && img.src) {
+                            console.log('通过尺寸找到二维码:', img.src.substring(0, 100));
+                            return img.src;
+                        }
+                    }
+                }
+                
+                console.log('10秒内未找到二维码');
                 return null;
             })()
         `;
 
-        // 🔥 等待二维码出现，最多尝试 20 次
-        let attempts = 0;
-        while (attempts < 20) {
-            try {
-                const qrCodeUrl = await this.tabManager.executeScript(tabId, qrCodeScript);
-                if (qrCodeUrl) {
-                    return qrCodeUrl;
-                }
-            } catch (error) {
-                console.warn(`二维码查找失败 (尝试 ${attempts + 1}):`, error);
-            }
-
-            attempts++;
-            await new Promise(resolve => setTimeout(resolve, 5000));
+        try {
+            const qrCodeUrl = await this.tabManager.executeScript(tabId, qrCodeScript);
+            return qrCodeUrl;
+        } catch (error) {
+            console.warn('二维码获取失败:', error);
+            return null;
         }
-
-        return null;
     }
 }
