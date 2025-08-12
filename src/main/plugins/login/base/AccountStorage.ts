@@ -1266,7 +1266,7 @@ export class AccountStorage {
             const db = this.getDatabase();
 
             const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-
+            const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
             const stmt = db.prepare(`
                 SELECT 
                     id, type, filePath, userName,
@@ -1280,7 +1280,7 @@ export class AccountStorage {
                 ORDER BY last_check_time ASC
             `);
             
-            const accounts = stmt.all(oneHourAgo) as any[];
+            const accounts = stmt.all(thirtyMinutesAgo) as any[];
 
             return accounts.map(account => ({
                 ...account,

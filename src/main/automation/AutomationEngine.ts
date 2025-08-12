@@ -756,45 +756,16 @@ export class AutomationEngine {
             return [];
         }
     }
-
-    /**
-     * 🔥 核心验证方法 - 统一处理账号验证逻辑
-     */
-    private async validateAccountsCore(accounts: any[], forceCheck: boolean): Promise<any[]> {
-        if (!forceCheck) {
-            return accounts;
-        }
-
-        // 只验证正常状态的账号
-        const validAccounts = accounts.filter(account => account.status === '正常');
-        const invalidAccounts = accounts.filter(account => account.status !== '正常');
-        
-        console.log(`🔍 强制验证 ${validAccounts.length} 个正常状态账号（跳过 ${invalidAccounts.length} 个异常账号）...`);
-        
-        for (const account of validAccounts) {
-            try {
-                const platform = AccountStorage.getPlatformName(account.type);
-                const cookieFile = account.filePath;
-
-                const isValid = await this.validateAccount(platform, cookieFile);
-                account.status = isValid ? '正常' : '异常';
-
-            } catch (error) {
-                console.error(`❌ 验证账号失败 ${account.userName}:`, error);
-                account.status = '异常';
-            }
-        }
-
-        // 返回所有账号（已验证的 + 跳过的异常账号）
-        return [...validAccounts, ...invalidAccounts];
-    }
-    /**
-     * 🔥 前端兼容：获取带分组信息的账号列表（含验证逻辑）
-     */
     async getAccountsWithGroupsForFrontend(forceCheck: boolean = false): Promise<any[]> {
         try {
+            // 如果需要强制检查，先进行验证
+            if (forceCheck) {
+                await this.autoValidateExpiredAccounts();
+            }
+            
+            // 返回最新的账号数据
             const accounts = AccountStorage.getAccountsWithGroupsForFrontend();
-            return await this.validateAccountsCore(accounts, forceCheck);
+            return accounts;
         } catch (error) {
             console.error('❌ 获取分组账号失败:', error);
             throw error;
