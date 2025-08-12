@@ -1252,7 +1252,7 @@ export class AccountStorage {
     }
 
     /**
-     * 🔥 获取需要重新验证的有效账号（优化版）
+     * 🔥 获取需要重新验证的有效账号（调试版）
      */
     static getValidAccountsNeedingRevalidation(): Array<{
         id: number;
@@ -1265,22 +1265,35 @@ export class AccountStorage {
         try {
             const db = this.getDatabase();
 
-            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
             const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+            
+            // 🔥 添加调试日志
+            console.log('🕐 当前时间:', new Date().toISOString());
+            console.log('🕐 30分钟前:', thirtyMinutesAgo);
+            
             const stmt = db.prepare(`
                 SELECT 
                     id, type, filePath, userName,
                     last_check_time as lastCheckTime
                 FROM user_info 
                 WHERE status = 1  -- 当前有效的账号
-                  AND (
-                      last_check_time IS NULL 
-                      OR last_check_time < ?
-                  )
+                AND (
+                    last_check_time IS NULL 
+                    OR last_check_time < ?
+                )
                 ORDER BY last_check_time ASC
             `);
             
             const accounts = stmt.all(thirtyMinutesAgo) as any[];
+            
+            // 🔥 添加调试日志
+            console.log('📊 需要验证的账号数量:', accounts.length);
+            accounts.forEach(acc => {
+                const lastCheck = acc.lastCheckTime ? new Date(acc.lastCheckTime) : null;
+                const now = new Date();
+                const diff = lastCheck ? Math.round((now.getTime() - lastCheck.getTime()) / (1000 * 60)) : '无';
+                console.log(`   账号: ${acc.userName}, 上次检查: ${acc.lastCheckTime}, 距今: ${diff}分钟`);
+            });
 
             return accounts.map(account => ({
                 ...account,
