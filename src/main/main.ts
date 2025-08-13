@@ -56,10 +56,7 @@ class MultiAccountBrowser {
         app.commandLine.appendSwitch('--disable-locale-detection');
 
         // ✅ 新增：禁用各种安全警告
-        app.commandLine.appendSwitch('--allow-running-insecure-content');
-        app.commandLine.appendSwitch('--disable-web-security');
-        app.commandLine.appendSwitch('--disable-site-isolation-trials');
-        app.commandLine.appendSwitch('--enable-remote-extensions');
+        //app.commandLine.appendSwitch('--enable-remote-extensions');
         //app.commandLine.appendSwitch('remote-debugging-port', '9712');
         this.sessionManager = new SessionManager(
             path.join(app.getPath('userData'), 'sessions')
@@ -79,8 +76,8 @@ class MultiAccountBrowser {
                 contextIsolation: true,
                 preload: path.join(__dirname, '../preload/preload.js'),
                 devTools: true,//process.env.NODE_ENV === 'development',
-                webSecurity: false,
-                allowRunningInsecureContent: true,
+                webSecurity: true,
+                allowRunningInsecureContent: false,
                 experimentalFeatures: false,
                 backgroundThrottling: false,
                 webviewTag: true,

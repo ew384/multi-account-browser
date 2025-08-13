@@ -47,6 +47,7 @@ export interface CreateAccountRequest {
     platform: string;
     cookieFile?: string;
     initialUrl?: string;
+    headless?: boolean;
 }
 
 export interface ExecuteScriptRequest {

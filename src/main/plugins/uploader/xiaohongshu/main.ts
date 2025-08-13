@@ -14,119 +14,157 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
         //console.log(`✅ ${this.name} 初始化完成`);
     }
 
-    async uploadVideoComplete(params: UploadParams): Promise<{ success: boolean; tabId?: string }> {
-        const headless = params.headless ?? true; // 默认headless模式
-        let tabId: string | null = null;        
-        try {
-            console.log(`🎭 开始小红书视频完整上传流程... (${params.title})`);
-
-            tabId = await this.tabManager.createAccountTab(
-                params.cookieFile,
-                'xiaohongshu',
-                'https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video',
-                headless
-            );
-
-            // 1. 上传视频文件
-            await this.uploadFile(params.filePath, tabId);
-
-            // 2. 等待上传成功
-            await this.waitForUploadSuccess(tabId);
-
-            // 3. 填写标题和标签
-            await this.fillTitleAndTags(params.title, params.tags, tabId);
-
-            // 4. 设置定时发布（如果有）
-            if (params.publishDate) {
-                await this.setScheduleTime(params.publishDate, tabId);
-            }
-
-            // 5. 点击发布
-            await this.clickPublish(tabId, !!params.publishDate);
-
-            return { success: true, tabId: tabId };
-        } catch (error) {
-            console.error('❌ 小红书视频上传流程失败:', error);
-            throw error;
-        }finally {
-            // 🔥 自动关闭tab
-            if (tabId) {
-                try {
-                    await this.tabManager.closeTab(tabId);
-                    console.log(`✅ 已关闭微信视频号上传tab: ${tabId}`);
-                } catch (closeError) {
-                    console.warn(`⚠️ 关闭tab失败: ${closeError}`);
-                }
-            }
-        }
-    }
-
     private async uploadFile(filePath: string, tabId: string): Promise<void> {
         console.log('📤 上传文件到小红书...');
 
-        const uploadScript = `
-        (async function() {
-            try {
-                // 等待上传页面加载完成
-                await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+            // 步骤1：等待页面加载
+            await new Promise(resolve => setTimeout(resolve, 3000));
 
-                // 查找文件输入框
-                const fileInput = document.querySelector("div[class^='upload-content'] input[class='upload-input']");
-                
-                if (!fileInput) {
-                    throw new Error('未找到文件输入框');
-                }
-
-                // 创建文件对象
-                const response = await fetch('file://${filePath}');
-                const arrayBuffer = await response.arrayBuffer();
-                const fileName = '${filePath.split('/').pop()}';
-                const file = new File([arrayBuffer], fileName, {
-                    type: (() => {
-                        const ext = fileName.toLowerCase().split('.').pop();
-                        const videoTypes = {
-                            'mp4': 'video/mp4',
-                            'avi': 'video/x-msvideo',
-                            'mov': 'video/quicktime',
-                            'wmv': 'video/x-ms-wmv',
-                            'flv': 'video/x-flv',
-                            'webm': 'video/webm',
-                            'mkv': 'video/x-matroska',
-                            'm4v': 'video/x-m4v'
-                        };
-                        return videoTypes[ext] || 'video/mp4';
-                    })()
-                });
-
-                // 创建 DataTransfer 对象
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-
-                // 设置文件
-                Object.defineProperty(fileInput, 'files', {
-                    value: dataTransfer.files,
-                    configurable: true
-                });
-
-                // 触发事件
-                fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-                fileInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-                console.log('✅ 文件上传成功');
-                return { success: true };
-            } catch (e) {
-                console.error('❌ 文件上传失败:', e);
-                return { success: false, error: e.message };
+            // 步骤2：等待上传元素准备好
+            const elementsReady = await this.waitForUploadElements(tabId);
+            if (!elementsReady) {
+                throw new Error('上传元素未准备好');
             }
-        })()
-        `;
 
-        const result = await this.tabManager.executeScript(tabId, uploadScript);
-        if (!result.success) {
-            throw new Error(`文件上传失败: ${result.error}`);
+            // 步骤3：🔥 使用TabManager流式上传（已验证可以成功传输）
+            console.log('🌊 开始流式文件上传...');
+            const success = await this.tabManager.setInputFilesStreaming(
+                tabId,
+                'input.upload-input',
+                filePath,
+                {
+                    triggerSelector: '.upload-button',
+                    waitForInput: true
+                }
+            );
+
+            if (!success) {
+                throw new Error('流式上传失败');
+            }
+
+            console.log('✅ 流式上传完成');
+
+            // 步骤4：🔥 关键修复 - 阻止页面刷新并触发change事件
+            console.log('🛡️ 设置页面保护并触发文件识别...');
+            await this.triggerFileRecognitionWithProtection(tabId);
+
+            console.log('✅ 文件上传和识别完成');
+
+        } catch (error) {
+            console.error('❌ 文件上传失败:', error);
+            throw error;
         }
     }
 
+    // 🔥 新增：等待上传元素准备好
+    private async waitForUploadElements(tabId: string): Promise<boolean> {
+        const waitScript = `
+        new Promise((resolve) => {
+            const timeout = 30000;
+            const startTime = Date.now();
+            
+            const checkElements = () => {
+                if (Date.now() - startTime > timeout) {
+                    resolve(false);
+                    return;
+                }
+                
+                const fileInput = document.querySelector('input.upload-input');
+                const uploadButton = document.querySelector('button.upload-button');
+                const dragArea = document.querySelector('.drag-over');
+                
+                if (fileInput && uploadButton && dragArea) {
+                    console.log('✅ 上传元素已准备好');
+                    resolve(true);
+                    return;
+                }
+                
+                setTimeout(checkElements, 500);
+            };
+            
+            checkElements();
+        })
+        `;
+
+        const result = await this.tabManager.executeScript(tabId, waitScript);
+        return Boolean(result);
+    }
+
+    // 🔥 核心方法：在页面保护下触发文件识别
+    private async triggerFileRecognitionWithProtection(tabId: string): Promise<void> {
+        const protectionScript = `
+        new Promise((resolve, reject) => {
+            try {
+                const fileInput = document.querySelector('input.upload-input');
+                
+                if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                    reject(new Error('文件输入框中没有文件'));
+                    return;
+                }
+                
+                console.log('📁 准备触发文件识别，当前文件数:', fileInput.files.length);
+                console.log('📁 文件名:', fileInput.files[0].name);
+                
+                // 等待文件被识别
+                let checkCount = 0;
+                const maxChecks = 15; // 30秒超时
+                
+                const checkRecognition = () => {
+                    checkCount++;
+                    
+                    const hasTitle = !!document.querySelector('.titleInput input, input[placeholder*="标题"], .d-text');
+                    const hasEditor = !!document.querySelector('.ql-editor');
+                    const hasVideo = !!document.querySelector('video');
+                    
+                    console.log(\`📊 检查文件识别状态 \${checkCount}/\${maxChecks}:\`, {
+                        标题框: hasTitle,
+                        编辑器: hasEditor,
+                        视频元素: hasVideo
+                    });
+                    
+                    if (hasTitle || hasEditor || hasVideo) {
+                        console.log('🎉 文件识别成功！');
+                        
+                        // 移除保护措施
+                        window.removeEventListener('beforeunload', preventBeforeUnload);
+                        document.removeEventListener('submit', preventSubmit, true);
+                        document.removeEventListener('click', preventNavigation, true);
+                        
+                        console.log('🔓 页面保护已移除');
+                        resolve(true);
+                        return;
+                    }
+                    
+                    if (checkCount >= maxChecks) {
+                        console.log('❌ 文件识别超时');
+                        
+                        // 移除保护措施
+                        window.removeEventListener('beforeunload', preventBeforeUnload);
+                        document.removeEventListener('submit', preventSubmit, true);
+                        document.removeEventListener('click', preventNavigation, true);
+                        
+                        reject(new Error('文件识别超时'));
+                        return;
+                    }
+                    
+                    setTimeout(checkRecognition, 2000);
+                };
+                
+                // 开始检查
+                setTimeout(checkRecognition, 1000);
+                
+            } catch (error) {
+                console.error('❌ 文件识别失败:', error);
+                reject(error);
+            }
+        })
+        `;
+
+        await this.tabManager.executeScript(tabId, protectionScript);
+    }
+
+    // 🔥 修复版的等待上传成功方法
     private async waitForUploadSuccess(tabId: string): Promise<void> {
         console.log('⏳ 等待视频上传成功...');
 
@@ -142,36 +180,31 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
                 }
 
                 try {
-                    // 等待upload-input元素出现
-                    const uploadInput = document.querySelector('input.upload-input');
-                    if (uploadInput) {
-                        // 获取下一个兄弟元素
-                        const previewNew = uploadInput.parentElement.querySelector('div[class*="preview-new"]');
-                        if (previewNew) {
-                            // 在preview-new元素中查找包含"上传成功"的stage元素
-                            const stageElements = previewNew.querySelectorAll('div.stage');
-                            let uploadSuccess = false;
-                            
-                            for (const stage of stageElements) {
-                                if (stage.textContent && stage.textContent.includes('上传成功')) {
-                                    uploadSuccess = true;
-                                    break;
-                                }
-                            }
-                            
-                            if (uploadSuccess) {
-                                console.log('✅ 检测到上传成功标识!');
-                                resolve(true);
-                                return;
-                            }
+                    // 检查是否进入编辑状态（已经在前面实现了）
+                    const titleInput = document.querySelector('.titleInput input, input[placeholder*="标题"], .d-text');
+                    const editor = document.querySelector('.ql-editor');
+                    
+                    if (titleInput && editor) {
+                        console.log('✅ 视频上传成功，已进入编辑状态');
+                        resolve(true);
+                        return;
+                    }
+
+                    // 检查是否有上传失败的错误信息
+                    const errorMessages = document.querySelectorAll('[class*="error"], [class*="fail"]');
+                    for (const errorEl of errorMessages) {
+                        const errorText = errorEl.textContent || '';
+                        if (errorText.includes('上传失败') || errorText.includes('无视频流')) {
+                            console.log('❌ 检测到上传错误:', errorText);
+                            reject(new Error(\`上传失败: \${errorText}\`));
+                            return;
                         }
                     }
                     
-                    console.log('📤 等待上传完成...');
-                    setTimeout(checkUploadSuccess, 1000);
+                    setTimeout(checkUploadSuccess, 2000);
                 } catch (e) {
                     console.log('检测过程出错:', e.message, '重新尝试...');
-                    setTimeout(checkUploadSuccess, 500);
+                    setTimeout(checkUploadSuccess, 1000);
                 }
             };
 
@@ -180,6 +213,46 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
         `;
 
         await this.tabManager.executeScript(tabId, waitScript);
+    }
+
+    // 🔥 修复版的主要上传流程
+    async uploadVideoComplete(params: UploadParams): Promise<{ success: boolean; tabId?: string }> {
+        const headless = params.headless ?? true;
+        let tabId: string | null = null;        
+        
+        try {
+            console.log(`🎭 开始小红书视频完整上传流程... (${params.title})`);
+
+            tabId = await this.tabManager.createAccountTab(
+                params.cookieFile,
+                'xiaohongshu',
+                'https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video',
+                headless
+            );
+
+            // 🔥 1. 使用修复版的文件上传
+            await this.uploadFile(params.filePath, tabId);
+
+            // 🔥 2. 等待上传成功
+            await this.waitForUploadSuccess(tabId);
+
+            // 🔥 3. 填写标题和标签
+            await this.fillTitleAndTags(params.title, params.tags, tabId);
+
+            // 🔥 4. 设置定时发布（如果有）
+            if (params.publishDate) {
+                await this.setScheduleTime(params.publishDate, tabId);
+            }
+
+            // 🔥 5. 点击发布
+            await this.clickPublish(tabId, !!params.publishDate);
+
+            return { success: true, tabId: tabId };
+        } catch (error) {
+            console.error('❌ 小红书视频上传流程失败:', error);
+            throw error;
+        }
+        // 注意：不要在这里关闭tab，让AutomationEngine处理
     }
 
     private async fillTitleAndTags(title: string, tags: string[], tabId: string): Promise<void> {

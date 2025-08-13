@@ -448,37 +448,71 @@ export class APIServer {
             });
         });
 
-        // 创建账号标签页
         this.app.post('/api/account/create', async (req, res) => {
             try {
-                const { accountName, platform, cookieFile, initialUrl }: CreateAccountRequest = req.body;
+                const { accountName, platform, cookieFile, initialUrl, headless = false }: CreateAccountRequest = req.body;
 
-                if (!accountName || !platform) {
+                if (!platform) {
                     return res.status(400).json({
                         success: false,
-                        error: 'accountName and platform are required'
+                        error: 'platform is required'
                     });
                 }
 
-                console.log(`📱 Creating account tab: ${accountName} (${platform})`);
-                const tabId = await this.tabManager.createTab(accountName, platform, initialUrl);
-
+                // 🔥 根据是否有cookieFile决定使用哪个方法
+                let tabId: string;
+                
                 if (cookieFile) {
-                    console.log(`🍪 Loading cookies from: ${cookieFile}`);
-                    await this.tabManager.loadAccountCookies(tabId, cookieFile);
+                    // 🔥 有cookieFile时，使用修复后的createAccountTab（先Cookie后导航）
+                    console.log(`📱 Creating account tab with cookie: ${accountName || path.basename(cookieFile)} (${platform})`);
+                    
+                    const targetUrl = initialUrl || this.getDefaultUrl(platform);
+                    tabId = await this.tabManager.createAccountTab(cookieFile, platform, targetUrl, headless);
+                    
+                    console.log(`✅ Account tab created with cookie: ${tabId}`);
+                    
+                } else {
+                    // 🔥 没有cookieFile时，使用原来的createTab方法
+                    if (!accountName) {
+                        return res.status(400).json({
+                            success: false,
+                            error: 'accountName is required when cookieFile is not provided'
+                        });
+                    }
+                    
+                    console.log(`📱 Creating basic tab: ${accountName} (${platform})`);
+                    tabId = await this.tabManager.createTab(accountName, platform, initialUrl, headless);
+                    console.log(`✅ Basic tab created: ${tabId}`);
                 }
 
+                // 🔥 构建响应数据
+                const tab = this.tabManager.getAllTabs().find(t => t.id === tabId);
+                
                 const response: APIResponse = {
                     success: true,
-                    data: { tabId, accountName, platform, initialUrl, renderer: 'WebContentsView' }
+                    data: { 
+                        tabId, 
+                        accountName: tab?.accountName || accountName || 'Unknown',
+                        platform, 
+                        initialUrl: tab?.url || initialUrl,
+                        cookieFile,
+                        headless,
+                        renderer: 'WebContentsView',
+                        method: cookieFile ? 'createAccountTab' : 'createTab'
+                    }
                 };
 
                 res.json(response);
+                
             } catch (error) {
-                console.error('Error creating account tab:', error);
+                console.error('❌ Error creating account tab:', error);
                 res.status(500).json({
                     success: false,
-                    error: error instanceof Error ? error.message : 'Unknown error'
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                    details: {
+                        timestamp: new Date().toISOString(),
+                        method: 'POST /api/account/create'
+                    }
                 });
             }
         });
@@ -1735,6 +1769,16 @@ export class APIServer {
                 error: `接口不存在: ${req.method} ${req.path}`
             });
         });
+    }
+    private getDefaultUrl(platform: string): string {
+        const defaultUrls: Record<string, string> = {
+            'xiaohongshu': 'https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video',
+            'wechat': 'https://channels.weixin.qq.com/platform',
+            'douyin': 'https://creator.douyin.com/',
+            'kuaishou': 'https://cp.kuaishou.com/'
+        };
+        
+        return defaultUrls[platform] || 'about:blank';
     }
     start(port: number): Promise<void> {
         return new Promise((resolve, reject) => {
