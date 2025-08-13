@@ -19,12 +19,7 @@ curl -X POST http://localhost:3409/api/automation/get-account-info \
     "tabId": "wechat-1753676959567",
     "platform": "wechat"
   }'
-curl -X POST http://localhost:3409/validateAccount \
-  -H "Content-Type: application/json" \
-  -d '{
-    "platform": "douyin",
-    "cookieFile": "douyin_Andy0919_1754628224627.json"
-  }'
+
 # 执行脚本
 curl -X POST http://localhost:3409/api/account/execute \
   -H "Content-Type: application/json" \
@@ -32,32 +27,30 @@ curl -X POST http://localhost:3409/api/account/execute \
     "tabId": "wechat-1753676959567",
     "script": "function extractWechatFinderInfo() { try { const avatarImg = document.querySelector(\".finder-info-container .avatar\"); const avatar = avatarImg ? avatarImg.src : null; const accountNameEl = document.querySelector(\".finder-nickname\"); const accountName = accountNameEl ? accountNameEl.textContent.trim() : null; const accountIdEl = document.querySelector(\".finder-uniq-id\"); const accountId = accountIdEl ? accountIdEl.textContent.trim() : null; const infoNums = document.querySelectorAll(\".finder-info-num\"); let videosCount = null; let followersCount = null; if (infoNums.length >= 2) { videosCount = infoNums[0].textContent.trim(); followersCount = infoNums[1].textContent.trim(); } function parseNumber(value) { if (!value) return 0; const cleanValue = value.toString().replace(/[^\\d.万千]/g, \"\"); if (cleanValue.includes(\"万\")) { return Math.floor(parseFloat(cleanValue) * 10000); } else if (cleanValue.includes(\"千\")) { return Math.floor(parseFloat(cleanValue) * 1000); } return parseInt(cleanValue) || 0; } const normalizedData = { platform: \"wechat_finder\", accountName: accountName, accountId: accountId, followersCount: parseNumber(followersCount), videosCount: parseNumber(videosCount), avatar: avatar, bio: null, extractedAt: new Date().toISOString() }; console.log(\"提取的原始数据:\", { accountName, accountId, avatar, videosCount, followersCount }); console.log(\"标准化后的数据:\", normalizedData); return normalizedData; } catch (error) { console.error(\"提取数据时出错:\", error); return null; } } const result = extractWechatFinderInfo(); result;"
   }'
+curl -X POST http://localhost:3409/api/account/execute \
+ -H "Content-Type: application/json" \
+ -d '{
+   "tabId": "wechat-1754629838194",
+   "script": "(function() { try { console.log('\''🔍 开始检测视频上传状态...'\''); const wujieApp = document.querySelector('\''wujie-app'\''); if (!wujieApp || !wujieApp.shadowRoot) { console.log('\''❌ 未找到Shadow DOM'\''); return { error: '\''未找到Shadow DOM'\'' }; } const shadowDoc = wujieApp.shadowRoot; const buttons = shadowDoc.querySelectorAll('\''button'\''); let publishButton = null; for (const btn of buttons) { const buttonText = btn.textContent.trim(); if (buttonText.includes('\''发表'\'')) { publishButton = { found: true, disabled: btn.disabled || btn.className.includes('\''weui-desktop-btn_disabled'\''), buttonText: buttonText, className: btn.className }; break; } } if (!publishButton) { publishButton = { found: false, disabled: true }; } const hasDeleteBtn = !!shadowDoc.querySelector('\''.delete-btn, [class*=\"delete\"]'\''); let isCancelUploadGone = true; const cancelElements = shadowDoc.querySelectorAll('\''.media-opr .finder-tag-wrap .tag-inner'\''); for (const el of cancelElements) { if (el.textContent && el.textContent.includes('\''取消上传'\'')) { isCancelUploadGone = false; console.log('\''⚠️ 发现\"取消上传\"按钮，视频仍在上传中'\''); break; } } const canPublish = publishButton.found && !publishButton.disabled && hasDeleteBtn && isCancelUploadGone; const result = { publishButton: publishButton, hasDeleteBtn: hasDeleteBtn, isCancelUploadGone: isCancelUploadGone, canPublish: canPublish }; console.log('\''📊 检测结果:'\'', result); if (canPublish) { console.log('\''✅ 视频上传完成，可以发布！'\''); } else { console.log('\''⏳ 视频仍在上传中或条件不满足'\''); if (!publishButton.found) console.log('\''  - 未找到发表按钮'\''); if (publishButton.disabled) console.log('\''  - 发表按钮被禁用'\''); if (!hasDeleteBtn) console.log('\''  - 删除按钮不存在'\''); if (!isCancelUploadGone) console.log('\''  - \"取消上传\"按钮仍存在'\''); } return result; } catch (error) { console.error('\''❌ 检测脚本执行失败:'\'', error); return { error: error.message }; } })()"
+ }'
 
 curl -X POST http://localhost:3409/api/account/create \
   -H "Content-Type: application/json" \
   -d '{
     "accountName": "Andy0919",
     "platform": "douyin",
-    "cookieFile": "douyin_Andy0919_1755009374518.json",
+    "cookieFile": "douyin_Andy0919_1754628224627.json",
     "initialUrl": "https://creator.douyin.com/creator-micro/content/upload"
   }'
 curl -X POST http://localhost:3409/api/account/create \
   -H "Content-Type: application/json" \
   -d '{
-    "accountName": "小红薯_3319",
+    "accountName": "剑桥学妹爱学习",
     "platform": "xiaohongshu",
-    "cookieFile": "xiaohongshu_小红薯_3319_1754986751107.json",
-    "initialUrl": "https://creator.xiaohongshu.com/"
+    "cookieFile": "xiaohongshu_剑桥学妹爱学习_1754984765165.json",
+    "initialUrl": "https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video"
   }'
 
-curl -X POST http://localhost:3409/api/account/create \
-  -H "Content-Type: application/json" \
-  -d '{
-    "accountName": "endian",
-    "platform": "wechat",
-    "cookieFile": "wechat_endian_1754873835967.json",
-    "initialUrl": "https://channels.weixin.qq.com/platform/post/create"
-  }'  
 curl -X POST http://localhost:3409/api/account/execute \
 -H "Content-Type: application/json" \
 -d '{
@@ -65,7 +58,19 @@ curl -X POST http://localhost:3409/api/account/execute \
   "script": "(function(){var bodyText=document.body?document.body.textContent:"";return{currentUrl:window.location.href,pageTitle:document.title,bodyTextLength:bodyText.length,bodyTextPreview:bodyText.substring(0,300),hasPhoneLogin:bodyText.includes("手机号登录"),hasQRLogin:bodyText.includes("扫码登录"),hasPleaseLogin:bodyText.includes("请登录"),originalResult:!(bodyText.includes("手机号登录")||bodyText.includes("扫码登录")||bodyText.includes("请登录")),hasLogin:bodyText.includes("登录"),hasAccount:bodyText.includes("账号"),hasAuth:bodyText.includes("认证")||bodyText.includes("授权"),readyState:document.readyState,hasBody:!!document.body,bodyChildrenCount:document.body?document.body.children.length:0}})()"
   }'
 
+curl -X POST http://localhost:3409/api/account/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tabId": "wechat-1754808787624",
+    "script": "(async function() { try { console.log(\"🔥 开始设置具体时间: 8月11日13:00\"); const wujieApp = document.querySelector(\"wujie-app\"); if (!wujieApp || !wujieApp.shadowRoot) { throw new Error(\"未找到Shadow DOM\"); } const shadowDoc = wujieApp.shadowRoot; const timeSection = shadowDoc.querySelector(\".post-time-wrap\"); if (!timeSection) { throw new Error(\"未找到定时发表区域\"); } const scheduledRadio = timeSection.querySelector(\"input[type=\\\"radio\\\"][value=\\\"1\\\"]\"); if (!scheduledRadio || !scheduledRadio.checked) { scheduledRadio.click(); await new Promise(resolve => setTimeout(resolve, 500)); console.log(\"✅ 已激活定时发布\"); } await new Promise(resolve => setTimeout(resolve, 1000)); console.log(\"查找时间设置区域...\"); const allDivs = shadowDoc.querySelectorAll(\"div\"); const timeRelatedDivs = Array.from(allDivs).filter(div => { const text = div.textContent; return text && (text.includes(\"2025年\") || text.includes(\"08月\") || text.includes(\"时间\") || text.includes(\"小时\") || text.includes(\"分钟\")); }); console.log(\"时间相关区域数量:\", timeRelatedDivs.length); timeRelatedDivs.forEach((div, index) => { console.log(\"时间区域\", index, \":\", { className: div.className, textContent: div.textContent.trim().substring(0, 100) }); }); const dateTimePicker = shadowDoc.querySelector(\".weui-desktop-picker__date-time\"); console.log(\"日期时间选择器:\", dateTimePicker); if (dateTimePicker) { const dateInput = dateTimePicker.querySelector(\"input\"); console.log(\"日期输入框:\", dateInput); if (dateInput) { dateInput.click(); console.log(\"✅ 已点击日期输入框\"); await new Promise(resolve => setTimeout(resolve, 1500)); const dayLinks = shadowDoc.querySelectorAll(\"a[href=\\\"javascript:;\\\"]\"); console.log(\"日期链接数量:\", dayLinks.length); const day11Link = Array.from(dayLinks).find(link => link.textContent.trim() === \"11\" && !link.classList.contains(\"weui-desktop-picker__disabled\") && !link.classList.contains(\"weui-desktop-picker__faded\")); console.log(\"11日链接:\", day11Link); if (day11Link) { day11Link.click(); console.log(\"✅ 已选择11日\"); await new Promise(resolve => setTimeout(resolve, 500)); } const timeInput = shadowDoc.querySelector(\".weui-desktop-picker__time input\"); console.log(\"时间输入框:\", timeInput); if (timeInput) { timeInput.click(); await new Promise(resolve => setTimeout(resolve, 500)); const hourList = shadowDoc.querySelector(\".weui-desktop-picker__time__hour\"); const minuteList = shadowDoc.querySelector(\".weui-desktop-picker__time__minute\"); console.log(\"小时列表:\", hourList); console.log(\"分钟列表:\", minuteList); if (hourList) { const hourItems = hourList.querySelectorAll(\"li\"); if (hourItems[13]) { hourItems[13].click(); console.log(\"✅ 已设置小时: 13\"); await new Promise(resolve => setTimeout(resolve, 300)); } } if (minuteList) { const minuteItems = minuteList.querySelectorAll(\"li\"); if (minuteItems[0]) { minuteItems[0].click(); console.log(\"✅ 已设置分钟: 00\"); await new Promise(resolve => setTimeout(resolve, 300)); } } console.log(\"✅ 时间设置完成: 8月11日13:00\"); return { success: true, message: \"时间设置成功: 8月11日13:00\" }; } else { throw new Error(\"未找到时间输入框\"); } } else { throw new Error(\"未找到日期输入框\"); } } else { throw new Error(\"激活定时后未找到时间选择器\"); } } catch (e) { console.error(\"❌ 时间设置失败:\", e); return { success: false, error: e.message }; } })()"
+  }'
 
+curl -X POST http://localhost:3409/validateAccount \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platform": "xiaohongshu",
+    "cookieFile": "xiaohongshu_剑桥学妹爱学习_1754984765165.json"
+  }'
 系统级别操作
 启动完整消息系统
 curl -X POST http://localhost:3409/api/messages/scheduler/system/start \
