@@ -178,85 +178,68 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
     }
 
     private async fillTitleAndTags(title: string, tags: string[], tabId: string): Promise<void> {
-        console.log('📝 填写标题和标签...');
+            console.log('📝 填写标题和标签...');
 
-        const fillScript = `
-        (async function() {
-            try {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                // 填写标题
-                const titleContainer = document.querySelector('div.input.titleInput input.d-text');
-                if (titleContainer) {
-                    titleContainer.value = '';
-                    titleContainer.value = '${title.substring(0, 30)}';
+            const fillScript = `
+            (async function() {
+                try {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                     
-                    // 触发事件
-                    titleContainer.dispatchEvent(new Event('input', { bubbles: true }));
-                    titleContainer.dispatchEvent(new Event('change', { bubbles: true }));
-                    
-                    console.log('✅ 标题填充成功:', '${title}');
-                } else {
-                    // 备选方案：查找 .notranslate 元素
-                    const titleContainer = document.querySelector('.notranslate');
-                    if (titleContainer) {
-                        titleContainer.click();
-                        await new Promise(resolve => setTimeout(resolve, 200));
+                    // 填写标题 - 使用测试验证过的选择器
+                    const titleInput = document.querySelector('input[placeholder*="标题"]');
+                    if (titleInput) {
+                        // 聚焦输入框
+                        titleInput.focus();
                         
-                        // 模拟键盘操作清空并输入
-                        document.execCommand('selectAll');
-                        document.execCommand('delete');
-                        document.execCommand('insertText', false, '${title}');
+                        // 清空并设置新值
+                        titleInput.value = '';
+                        titleInput.value = '${title.substring(0, 30)}';
                         
-                        // 按回车确认
-                        const enterEvent = new KeyboardEvent('keydown', {
-                            key: 'Enter',
-                            keyCode: 13,
-                            bubbles: true
-                        });
-                        titleContainer.dispatchEvent(enterEvent);
+                        // 触发必要的事件
+                        titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        titleInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        titleInput.dispatchEvent(new Event('blur', { bubbles: true }));
                         
-                        console.log('✅ 标题填充成功（备选方案）');
+                        console.log('✅ 标题填充成功:', titleInput.value);
                     } else {
                         throw new Error('未找到标题输入框');
                     }
-                }
 
-                // 添加标签
-                const tags = ${JSON.stringify(tags)};
-                if (tags.length > 0) {
-                    const contentEditor = document.querySelector('.ql-editor'); // 不能加上 .ql-blank 属性
-                    if (contentEditor) {
-                        contentEditor.focus();
-                        
-                        for (const tag of tags) {
-                            const tagText = '#' + tag + ' ';
+                    // 添加标签 - 使用测试验证过的方法
+                    const tags = ${JSON.stringify(tags)};
+                    if (tags.length > 0) {
+                        const contentEditor = document.querySelector('.ql-editor');
+                        if (contentEditor) {
+                            contentEditor.focus();
                             
-                            // 输入标签文本
-                            document.execCommand('insertText', false, tagText);
+                            for (const tag of tags) {
+                                const tagText = '#' + tag + ' ';
+                                
+                                // 使用 execCommand 输入标签文本
+                                document.execCommand('insertText', false, tagText);
+                                
+                                await new Promise(resolve => setTimeout(resolve, 300));
+                            }
                             
-                            await new Promise(resolve => setTimeout(resolve, 300));
+                            console.log('✅ 标签添加成功，总共添加了', tags.length, '个标签');
+                        } else {
+                            console.warn('⚠️ 未找到内容编辑器');
                         }
-                        
-                        console.log('✅ 标签添加成功，总共添加了', tags.length, '个标签');
-                    } else {
-                        console.warn('⚠️ 未找到内容编辑器');
                     }
+
+                    return { success: true };
+                } catch (e) {
+                    console.error('❌ 标题标签填写失败:', e);
+                    return { success: false, error: e.message };
                 }
+            })()
+            `;
 
-                return { success: true };
-            } catch (e) {
-                console.error('❌ 标题标签填写失败:', e);
-                return { success: false, error: e.message };
+            const result = await this.tabManager.executeScript(tabId, fillScript);
+            if (!result.success) {
+                throw new Error(`标题标签填写失败: ${result.error}`);
             }
-        })()
-        `;
-
-        const result = await this.tabManager.executeScript(tabId, fillScript);
-        if (!result.success) {
-            throw new Error(`标题标签填写失败: ${result.error}`);
         }
-    }
 
     private async setScheduleTime(publishDate: Date, tabId: string): Promise<void> {
         console.log('⏰ 设置定时发布...');
