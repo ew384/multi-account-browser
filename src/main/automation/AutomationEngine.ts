@@ -292,13 +292,14 @@ export class AutomationEngine {
                     upload_status: '验证账号中'
                 });
             }
+            const fileName = path.basename(params.cookieFile);
+            const accountInfo = AccountStorage.getAccountInfoFromDb(fileName);
 
-            const isValid = await this.validateAccount(params.platform, params.cookieFile);
-            if (!isValid) {
+            if (!accountInfo || accountInfo.status !== 1) {
                 if (recordId) {
                     await this.updateUploadProgress(recordId, accountName, {
                         status: 'failed',
-                        upload_status: '账号验证失败',
+                        upload_status: '账号已失效',
                         push_status: '推送失败',
                         review_status: '发布失败'
                     });
@@ -538,6 +539,37 @@ export class AutomationEngine {
             console.log(`   账号数: ${request.accounts.length}`);
 
             const results: UploadResult[] = [];
+            console.log(`🔍 开始批量验证需要检查的账号...`);
+
+
+            // 🔥 1. 获取所有需要验证的账号
+            const allNeedValidation = await AccountStorage.getValidAccountsNeedingRevalidation();
+
+            // 🔥 2. 筛选出本次上传涉及的账号
+            const currentAccountFiles = new Set(
+                request.accounts
+                    .map(acc => acc.cookieFile)
+                    .filter((cookieFile): cookieFile is string => !!cookieFile)
+                    .map(cookieFile => path.basename(cookieFile))
+            );
+
+            const accountsToValidate = allNeedValidation.filter(account => 
+                currentAccountFiles.has(account.filePath)
+            );
+
+            // 🔥 3. 批量验证
+            if (accountsToValidate.length > 0) {
+                console.log(`📊 需要验证 ${accountsToValidate.length} 个账号`);
+                const validationData = accountsToValidate.map(account => ({
+                    platform: account.platform,
+                    accountName: account.userName,
+                    cookieFile: path.join(Config.COOKIE_DIR, account.filePath)
+                }));
+                
+                await this.batchValidateAccounts(validationData);
+            } else {
+                console.log(`✅ 所有账号都在验证有效期内`);
+            }      
             let successCount = 0;
             let failedCount = 0;
 

@@ -45,12 +45,6 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
 
             console.log('✅ 流式上传完成');
 
-            // 步骤4：🔥 关键修复 - 阻止页面刷新并触发change事件
-            console.log('🛡️ 设置页面保护并触发文件识别...');
-            await this.triggerFileRecognitionWithProtection(tabId);
-
-            console.log('✅ 文件上传和识别完成');
-
         } catch (error) {
             console.error('❌ 文件上传失败:', error);
             throw error;
@@ -91,78 +85,6 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
         return Boolean(result);
     }
 
-    // 🔥 核心方法：在页面保护下触发文件识别
-    private async triggerFileRecognitionWithProtection(tabId: string): Promise<void> {
-        const protectionScript = `
-        new Promise((resolve, reject) => {
-            try {
-                const fileInput = document.querySelector('input.upload-input');
-                
-                if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-                    reject(new Error('文件输入框中没有文件'));
-                    return;
-                }
-                
-                console.log('📁 准备触发文件识别，当前文件数:', fileInput.files.length);
-                console.log('📁 文件名:', fileInput.files[0].name);
-                
-                // 等待文件被识别
-                let checkCount = 0;
-                const maxChecks = 15; // 30秒超时
-                
-                const checkRecognition = () => {
-                    checkCount++;
-                    
-                    const hasTitle = !!document.querySelector('.titleInput input, input[placeholder*="标题"], .d-text');
-                    const hasEditor = !!document.querySelector('.ql-editor');
-                    const hasVideo = !!document.querySelector('video');
-                    
-                    console.log(\`📊 检查文件识别状态 \${checkCount}/\${maxChecks}:\`, {
-                        标题框: hasTitle,
-                        编辑器: hasEditor,
-                        视频元素: hasVideo
-                    });
-                    
-                    if (hasTitle || hasEditor || hasVideo) {
-                        console.log('🎉 文件识别成功！');
-                        
-                        // 移除保护措施
-                        window.removeEventListener('beforeunload', preventBeforeUnload);
-                        document.removeEventListener('submit', preventSubmit, true);
-                        document.removeEventListener('click', preventNavigation, true);
-                        
-                        console.log('🔓 页面保护已移除');
-                        resolve(true);
-                        return;
-                    }
-                    
-                    if (checkCount >= maxChecks) {
-                        console.log('❌ 文件识别超时');
-                        
-                        // 移除保护措施
-                        window.removeEventListener('beforeunload', preventBeforeUnload);
-                        document.removeEventListener('submit', preventSubmit, true);
-                        document.removeEventListener('click', preventNavigation, true);
-                        
-                        reject(new Error('文件识别超时'));
-                        return;
-                    }
-                    
-                    setTimeout(checkRecognition, 2000);
-                };
-                
-                // 开始检查
-                setTimeout(checkRecognition, 1000);
-                
-            } catch (error) {
-                console.error('❌ 文件识别失败:', error);
-                reject(error);
-            }
-        })
-        `;
-
-        await this.tabManager.executeScript(tabId, protectionScript);
-    }
 
     // 🔥 修复版的等待上传成功方法
     private async waitForUploadSuccess(tabId: string): Promise<void> {
@@ -170,7 +92,7 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
 
         const waitScript = `
         new Promise((resolve, reject) => {
-            const timeout = 300000; // 5分钟超时
+            const timeout = 500000; // 5分钟超时
             const startTime = Date.now();
             
             const checkUploadSuccess = async () => {
