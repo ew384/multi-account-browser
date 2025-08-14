@@ -584,10 +584,10 @@ export class TabManager {
             await this.loadAccountCookies(tabId, cookieFile);
             
             // 🔥 验证关键认证Cookie
-            const hasValidAuth = await this.validateAuthenticationCookies(tabId, platform);
-            if (!hasValidAuth) {
-                console.warn(`⚠️ 关键认证Cookie不足，但继续执行`);
-            }
+            //const hasValidAuth = await this.validateAuthenticationCookies(tabId, platform);
+            //if (!hasValidAuth) {
+            //    console.warn(`⚠️ 关键认证Cookie不足，但继续执行`);
+            //}
             
             console.log(`⏳ 等待Cookie生效...`);
             await new Promise(resolve => setTimeout(resolve, 2000));
@@ -600,10 +600,10 @@ export class TabManager {
             await new Promise(resolve => setTimeout(resolve, 3000));
             
             // 🔥 验证页面稳定性
-            const isStable = await this.verifyPageStability(tabId);
-            if (!isStable) {
-                console.warn(`⚠️ 页面存在重定向，但已采取缓解措施`);
-            }
+            //const isStable = await this.verifyPageStability(tabId);
+            //if (!isStable) {
+            //    console.warn(`⚠️ 页面存在重定向，但已采取缓解措施`);
+            //}
             
             console.log(`✅ 账号Tab创建完成: ${tabId}`);
             return tabId;
@@ -1278,29 +1278,6 @@ export class TabManager {
             tab.cookieFile = cookieFilePath;
             
             console.log(`🍪 Cookie加载完成: ${tab.accountName}`);
-            
-            // 🔥 新增：验证Cookie是否成功加载
-            const cookies = await tab.session.cookies.get({});
-            console.log(`📊 已加载 ${cookies.length} 个Cookie`);
-            
-            // 🔥 新增：检查关键的认证Cookie
-            const authCookies = cookies.filter(cookie => 
-                cookie.name.includes('session') || 
-                cookie.name.includes('token') || 
-                cookie.name.includes('auth') ||
-                cookie.name.includes('login')
-            );
-            
-            if (authCookies.length > 0) {
-                console.log(`✅ 检测到 ${authCookies.length} 个认证相关Cookie`);
-            } else {
-                console.warn(`⚠️ 未检测到明显的认证Cookie，可能影响登录状态`);
-            }
-
-            // 🔥 注意：这里不要立即刷新页面，因为可能还没导航到目标页面
-            // if (tab.webContentsView.webContents.getURL()) {
-            //     await tab.webContentsView.webContents.reload();
-            // }
             
         } catch (error) {
             console.error(`❌ Failed to load cookies for tab ${tab.accountName}:`, error);
