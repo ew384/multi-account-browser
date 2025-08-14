@@ -29,14 +29,8 @@ export class SessionManager {
 
         // 配置Session安全选项
         isolatedSession.setPermissionRequestHandler((webContents, permission, callback) => {
-            // 对小红书等认证网站采用宽松策略
-            const url = webContents.getURL();
-            if (url.includes('xiaohongshu.com') || url.includes('weixin.qq.com')) {
-                callback(true);  // 允许通知等权限
-            } else {
-                const allowedPermissions = ['notifications', 'media'];
-                callback(allowedPermissions.includes(permission));
-            }
+            const allowedPermissions = ['notifications', 'media'];
+            callback(allowedPermissions.includes(permission));
         });
 
         // 设置用户代理
@@ -47,36 +41,13 @@ export class SessionManager {
         // 移除不必要的预加载脚本
         isolatedSession.setPreloads([]);
 
-        // 🔥 关键修复：添加认证相关的请求处理
-        isolatedSession.webRequest.onHeadersReceived({ urls: ['*://*.xiaohongshu.com/*'] }, (details, callback) => {
-            if (details.statusCode === 401) {
-                console.log(`🔐 处理小红书401响应: ${details.url}`);
-                
-                // 🔥 检查是否是非关键API的401响应
-                const nonCriticalAPIs = [
-                    '/api/sns/v5/creator/topic/template/list',
-                    '/api/galaxy/v2/creator/activity_center/list',
-                    '/web_api/sns/v5/creator/topic/template/list'
-                ];
-                
-                const isNonCriticalAPI = nonCriticalAPIs.some(api => details.url.includes(api));
-                
-                if (isNonCriticalAPI) {
-                    console.log(`🔇 转换非关键API的401为200: ${details.url}`);
-                    callback({
-                        statusLine: 'HTTP/1.1 200 OK',
-                        responseHeaders: {
-                            ...details.responseHeaders,
-                            'content-type': ['application/json'],
-                            'content-length': ['2']
-                        }
-                    });
-                    return;
-                }
-            }
-            
-            callback({ responseHeaders: details.responseHeaders });
-        });
+        // 注释掉整个 webRequest 拦截
+        // isolatedSession.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
+        //     // 移除可能导致慢速的头部
+        //     delete details.requestHeaders['X-Requested-With'];
+        //     callback({ requestHeaders: details.requestHeaders });
+        // });
+
         this.sessions.set(accountId, isolatedSession);
         console.log(`✅ Created isolated session for account: ${accountId}`);
 

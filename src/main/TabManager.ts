@@ -459,16 +459,15 @@ export class TabManager {
                     nodeIntegration: false,
                     contextIsolation: true,
                     sandbox: false,
-                    webSecurity: true,  // 改为 true
-                    allowRunningInsecureContent: false,  // 改为 false
-                    // 注释掉实验性功能
-                    // experimentalFeatures: true,
-                    // enableBlinkFeatures: 'CSSContainerQueries',
+                    webSecurity: false,
+                    allowRunningInsecureContent: true,
                     backgroundThrottling: false,
                     v8CacheOptions: 'bypassHeatCheck',
                     plugins: false,
                     devTools: true,
-                    //disableBlinkFeatures: 'AutomationControlled',
+                    experimentalFeatures: true,
+                    enableBlinkFeatures: 'CSSContainerQueries',
+                    disableBlinkFeatures: 'AutomationControlled',
                     preload: undefined,
                     // 🔥 新增：根据headless模式设置
                     offscreen: finalHeadless,  // headless时启用离屏渲染
@@ -561,8 +560,10 @@ export class TabManager {
             // 从cookieFile生成账号名
             let accountName: string;
             if (path.isAbsolute(cookieFile)) {
+                // 如果是绝对路径，提取文件名
                 accountName = path.basename(cookieFile, '.json');
             } else {
+                // 如果是相对路径，直接使用
                 accountName = path.basename(cookieFile, '.json');
             }
             
