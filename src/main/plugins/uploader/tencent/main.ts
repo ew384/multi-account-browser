@@ -476,20 +476,20 @@ export class WeChatVideoUploader implements PluginUploader {
         console.log("上传检测完成");
     }
 
-    private async setThumbnail(tabId: string, thumbnailPath?: string): Promise<void> {
-        if (!thumbnailPath || thumbnailPath.trim() === '') {
-            console.log('⏭️ 跳过封面设置 - 未提供封面文件');
+    private async setThumbnail(tabId: string, thumbnailData?: string): Promise<void> {
+        if (!thumbnailData || thumbnailData.trim() === '') {
+            console.log('⏭️ 跳过封面设置 - 未提供封面数据');
             return;
         }
 
-        console.log(`🖼️ 设置微信视频号封面: ${thumbnailPath}`);
+        console.log(`🖼️ 设置微信视频号封面，数据类型: ${thumbnailData.startsWith('data:') ? 'base64' : '文件路径'}`);
 
         const thumbnailScript = `
         (async function setWechatThumbnail() {
             try {
-                console.log('🖼️ 开始设置微信视频号封面: ${thumbnailPath}');
+                console.log('🖼️ 开始设置微信视频号封面');
                 
-                // 🔥 步骤1：检测Shadow DOM
+                // 检测Shadow DOM
                 const wujieApp = document.querySelector('wujie-app');
                 let searchDoc = document;
                 
@@ -498,183 +498,86 @@ export class WeChatVideoUploader implements PluginUploader {
                     searchDoc = wujieApp.shadowRoot;
                 }
                 
-                // 🔥 步骤2：查找并点击"更换封面"按钮
-                console.log('🔍 查找"更换封面"按钮...');
-                
+                // 查找并点击"更换封面"按钮
                 const changeCoverButton = searchDoc.querySelector('.finder-tag-wrap.btn .tag-inner');
                 if (!changeCoverButton || !changeCoverButton.textContent.includes('更换封面')) {
                     console.log('⚠️ 未找到"更换封面"按钮，跳过封面设置');
                     return { success: true, message: '更换封面按钮未找到，跳过设置' };
                 }
                 
-                console.log('✅ 找到"更换封面"按钮，点击...');
                 changeCoverButton.click();
-                
-                // 等待封面编辑对话框出现
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 
-                // 🔥 步骤3：查找上传封面区域
-                console.log('🔍 查找"上传封面"区域...');
-                
+                // 查找上传封面区域
                 const uploadCoverWrap = searchDoc.querySelector('.single-cover-uploader-wrap');
                 if (!uploadCoverWrap) {
                     console.log('⚠️ 未找到上传封面区域，跳过封面设置');
                     return { success: true, message: '上传区域未找到，跳过设置' };
                 }
                 
-                // 查找文件输入框
                 const fileInput = uploadCoverWrap.querySelector('input[type="file"]');
                 if (!fileInput) {
                     console.log('⚠️ 未找到文件输入框，跳过封面设置');
                     return { success: true, message: '文件输入框未找到，跳过设置' };
                 }
                 
-                console.log('✅ 找到文件输入框');
+                // 🔥 关键修改：处理base64数据
+                const thumbnailData = '${thumbnailData}';
+                let blob;
                 
-                // 🔥 步骤4：阻止文件选择对话框，直接设置文件
-                console.log('🚫 阻止默认文件选择行为...');
-                
-                // 阻止input的click事件避免弹出系统文件选择框
-                fileInput.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('🛑 已阻止文件选择对话框');
-                }, true);
-                
-                // 🔥 步骤5：创建并设置文件
-                console.log('📁 创建文件对象...');
-                
-                try {
-                    // 从文件路径获取文件内容
-                    const response = await fetch('${thumbnailPath}');
+                if (thumbnailData.startsWith('data:')) {
+                    // 处理base64数据
+                    console.log('📸 处理base64格式的封面数据');
+                    const base64Data = thumbnailData.split(',')[1];
+                    const mimeType = thumbnailData.match(/data:([^;]+)/)[1];
+                    
+                    const binaryString = atob(base64Data);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    
+                    blob = new Blob([bytes], { type: mimeType });
+                } else {
+                    // 处理文件路径（保持原有逻辑）
+                    console.log('📁 处理文件路径格式的封面数据');
+                    const response = await fetch(thumbnailData);
                     if (!response.ok) {
                         throw new Error('文件加载失败: ' + response.status);
                     }
-                    
-                    const arrayBuffer = await response.arrayBuffer();
-                    const fileName = '${thumbnailPath}'.split('/').pop() || 'cover.jpg';
-                    
-                    // 创建File对象
-                    const file = new File([arrayBuffer], fileName, {
-                        type: 'image/jpeg'
-                    });
-                    
-                    console.log('✅ 文件对象创建成功:', file.name, file.size, 'bytes');
-                    
-                    // 🔥 直接设置文件而不触发click
-                    const dataTransfer = new DataTransfer();
-                    dataTransfer.items.add(file);
-                    
-                    Object.defineProperty(fileInput, 'files', {
-                        value: dataTransfer.files,
-                        configurable: true
-                    });
-                    
-                    console.log('✅ 文件设置完成, files.length:', fileInput.files.length);
-                    
-                    // 🔥 方法1：模拟拖拽放置
-                    console.log('🎯 模拟拖拽放置事件...');
-                    
-                    const uploadArea = uploadCoverWrap.querySelector('.wrap');
-                    if (uploadArea) {
-                        // 创建拖拽数据传输对象
-                        const dragDataTransfer = new DataTransfer();
-                        dragDataTransfer.items.add(file);
-                        
-                        // 阻止默认的拖拽行为
-                        uploadArea.addEventListener('dragover', (e) => e.preventDefault());
-                        uploadArea.addEventListener('drop', (e) => e.preventDefault());
-                        
-                        // 触发拖拽事件序列
-                        const dragEnterEvent = new DragEvent('dragenter', {
-                            bubbles: true,
-                            cancelable: true,
-                            dataTransfer: dragDataTransfer
-                        });
-                        
-                        const dragOverEvent = new DragEvent('dragover', {
-                            bubbles: true,
-                            cancelable: true,
-                            dataTransfer: dragDataTransfer
-                        });
-                        
-                        const dropEvent = new DragEvent('drop', {
-                            bubbles: true,
-                            cancelable: true,
-                            dataTransfer: dragDataTransfer
-                        });
-                        
-                        // 按顺序触发拖拽事件
-                        uploadArea.dispatchEvent(dragEnterEvent);
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                        
-                        uploadArea.dispatchEvent(dragOverEvent);
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                        
-                        uploadArea.dispatchEvent(dropEvent);
-                        console.log('✅ 拖拽事件已触发');
-                    }
-                    
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    
-                    // 🔥 方法2：触发change事件
-                    console.log('🔔 触发change事件...');
-                    
-                    const changeEvent = new Event('change', { 
-                        bubbles: true,
-                        cancelable: true 
-                    });
-                    
-                    fileInput.dispatchEvent(changeEvent);
-                    const inputEvent = new Event('input', { bubbles: true });
-                    fileInput.dispatchEvent(inputEvent);
-                    
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    
-                    // 🔥 检查UI变化
-                    console.log('🔍 检查UI更新...');
-                    const updatedWrap = searchDoc.querySelector('.single-cover-uploader-wrap');
-                    if (updatedWrap) {
-                        const hasInitialWrap = updatedWrap.querySelector('.initial-wrap');
-                        const hasImagePreview = updatedWrap.querySelector('img');
-                        
-                        if (hasImagePreview) {
-                            console.log('✅ 封面预览已显示');
-                        } else if (!hasInitialWrap) {
-                            console.log('✅ UI已更新（初始状态已移除）');
-                        } else {
-                            console.log('⚠️ UI未更新，可能需要手动确认');
-                        }
-                    }
-                    
-                    console.log('✅ 文件设置尝试完成');
-                    
-                } catch (fileError) {
-                    console.error('❌ 文件处理失败:', fileError);
-                    console.log('⚠️ 封面设置失败，继续发布流程');
-                    return { success: false, error: fileError.message };
+                    blob = await response.blob();
                 }
                 
-                // 🔥 步骤6：等待UI更新
+                // 创建File对象
+                const file = new File([blob], 'cover.jpg', {
+                    type: blob.type || 'image/jpeg'
+                });
+                
+                console.log('✅ 文件对象创建成功:', file.name, file.size, 'bytes');
+                
+                // 设置文件到input
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                
+                Object.defineProperty(fileInput, 'files', {
+                    value: dataTransfer.files,
+                    configurable: true
+                });
+                
+                // 触发事件
+                const changeEvent = new Event('change', { bubbles: true });
+                fileInput.dispatchEvent(changeEvent);
+                
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 
-                // 🔥 步骤7：查找并点击最终确认按钮
-                console.log('🔍 查找最终确认按钮...');
+                // 查找并点击确认按钮
                 const finalConfirmButton = searchDoc.querySelector('.cover-set-footer .weui-desktop-btn_primary');
                 if (finalConfirmButton && finalConfirmButton.textContent.includes('确认')) {
-                    console.log('🔘 点击最终确认按钮...');
                     finalConfirmButton.click();
                     console.log('✅ 封面设置完成');
-                } else {
-                    console.log('⚠️ 未找到最终确认按钮');
                 }
                 
-                console.log('🎉 封面设置流程完成');
-                return { 
-                    success: true, 
-                    message: '封面设置完成',
-                    fileName: '${thumbnailPath}'.split('/').pop()
-                };
+                return { success: true, message: '封面设置完成' };
                 
             } catch (error) {
                 console.error('❌ 封面设置失败:', error.message);
@@ -686,15 +589,14 @@ export class WeChatVideoUploader implements PluginUploader {
         try {
             const result = await this.tabManager.executeScript(tabId, thumbnailScript);
             if (result && result.success) {
-                console.log(`✅ 封面设置完成: ${result.fileName || thumbnailPath}`);
+                console.log(`✅ 封面设置完成`);
             } else {
                 console.warn(`⚠️ 封面设置异常: ${result?.error || result?.message || '未知错误'}`);
             }
         } catch (error) {
             console.error('❌ 封面设置脚本执行失败:', error);
-            // 不抛出错误，允许上传流程继续
         }
-    }    
+    }   
     private async setScheduleTime(publishDate: Date, tabId: string): Promise<void> {
         console.log('⏰ 设置定时发布...');
 
