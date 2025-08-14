@@ -45,7 +45,9 @@ export class DouyinVideoUploader implements PluginUploader {
             }
 
             // 6. 设置地理位置
-            await this.setLocation(tabId);
+            if (params.location) {
+                await this.setLocation(tabId, params.location);
+            }
 
             // 7. 处理第三方平台同步
             await this.handleThirdPartySync(tabId);
@@ -414,7 +416,7 @@ export class DouyinVideoUploader implements PluginUploader {
         }
     }
 
-    private async setLocation(tabId: string, location: string = "杭州市"): Promise<void> {
+    private async setLocation(tabId: string, location: string = "深圳市"): Promise<void> {
         console.log('📍 设置地理位置...');
 
         const locationScript = `

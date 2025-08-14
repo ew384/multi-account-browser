@@ -798,6 +798,7 @@ export class SocialAutomationAPI {
                 fileList = [],
                 accountList = [],
                 thumbnail,
+                location,
                 type: typeVal,
                 title,
                 tags,
@@ -922,7 +923,9 @@ export class SocialAutomationAPI {
                     enableOriginal: platform === 'wechat' ? (req.body.original !== false) : undefined, // 🔥 默认为 true，除非明确设置为 false
                     addToCollection: false,
                     publishDate: enableTimer ? this.calculatePublishDate(videosPerDay, dailyTimes, startDays) : undefined,
-                    headless: mode === 'background'
+                    headless: mode === 'background',
+                    thumbnailPath: thumbnail,
+                    location: location
                 }
             };
             console.log('🔧 handlePostVideo: enableTimer =', enableTimer);
