@@ -40,7 +40,9 @@ export class WeChatVideoUploader implements PluginUploader {
 
             // 4: 等待上传完全完成
             await this.detectUploadStatusNoTimeout(tabId);
-
+            if (params.location) {
+                await this.setLocation(tabId, params.location);
+            }
             // 5: 添加到合集（如果需要）
             if (params.addToCollection) {
                 await this.addToCollection(tabId);
@@ -56,8 +58,12 @@ export class WeChatVideoUploader implements PluginUploader {
                 console.log('🔧 开始处理定时发布，目标时间:', params.publishDate.toLocaleString('zh-CN'));
                 await this.setScheduleTime(params.publishDate, tabId);
             }
+            // 8: 设置封面（如果有）
+            if (params.thumbnailPath) {
+                await this.setThumbnail(tabId, params.thumbnailPath);
+            }
 
-            // 8. 发布
+            // 9. 发布
             await this.clickPublish(tabId);
 
             return { success: true, tabId: tabId };
@@ -201,7 +207,186 @@ export class WeChatVideoUploader implements PluginUploader {
             return false;
         }
     }
+    private async setLocation(tabId: string, location?: string): Promise<void> {
+        if (!location || location.trim() === '') {
+            console.log('⏭️ 跳过位置设置 - 未提供位置信息');
+            return;
+        }
 
+        console.log(`📍 设置微信视频号位置: ${location}`);
+
+        const locationScript = `
+        (async function setLocationForWechat() {
+            try {
+                console.log('🔍 开始设置位置为: ${location}');
+                
+                // 🔥 步骤1：检测Shadow DOM
+                const wujieApp = document.querySelector('wujie-app');
+                let searchDoc = document;
+                
+                if (wujieApp && wujieApp.shadowRoot) {
+                    console.log('✅ 检测到Shadow DOM');
+                    searchDoc = wujieApp.shadowRoot;
+                }
+                
+                // 🔥 步骤2：查找并点击位置区域
+                const possibleClickTargets = [
+                    '.position-display-wrap',
+                    '.position-display',
+                    '.post-position-wrap .position-display',
+                    '.place',
+                    '[class*="position"]'
+                ];
+                
+                let clickTarget = null;
+                for (const selector of possibleClickTargets) {
+                    clickTarget = searchDoc.querySelector(selector);
+                    if (clickTarget) {
+                        console.log('✅ 找到位置点击目标:', selector);
+                        break;
+                    }
+                }
+                
+                if (!clickTarget) {
+                    // 通过文本查找备选方案
+                    const allElements = searchDoc.querySelectorAll('*');
+                    for (const el of allElements) {
+                        if (el.textContent && (el.textContent.includes('深圳市') || el.textContent.includes('位置'))) {
+                            clickTarget = el.closest('.position-display-wrap') || el.closest('.position-display') || el;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!clickTarget) {
+                    console.log('⚠️ 未找到位置点击区域，跳过位置设置');
+                    return { success: true, message: '位置区域未找到，跳过设置' };
+                }
+                
+                // 点击展开位置选择框
+                clickTarget.click();
+                await new Promise(resolve => setTimeout(resolve, 800));
+                
+                // 🔥 步骤3：查找搜索输入框
+                const searchInput = searchDoc.querySelector('input[placeholder*="搜索"], input[placeholder*="位置"]');
+                if (!searchInput) {
+                    console.log('⚠️ 未找到搜索输入框，跳过位置设置');
+                    return { success: true, message: '搜索框未找到，跳过设置' };
+                }
+                
+                console.log('✅ 找到搜索输入框');
+                
+                // 🔥 步骤4：输入目标位置
+                searchInput.focus();
+                await new Promise(resolve => setTimeout(resolve, 200));
+                
+                // 清空并输入位置
+                searchInput.value = '';
+                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                searchInput.value = '${location}';
+                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                console.log('📝 已输入位置:', '${location}');
+                
+                // 🔥 步骤5：等待搜索结果加载
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // 🔥 步骤6：智能选择位置
+                const optionItems = searchDoc.querySelectorAll('.option-item:not(.active)');
+                console.log('📋 找到位置选项数量:', optionItems.length);
+                
+                if (optionItems.length === 0) {
+                    console.log('⚠️ 没有找到搜索结果，保持当前位置');
+                    return { success: true, location: '保持原位置', message: '没有搜索结果' };
+                }
+                
+                // 智能选择策略
+                let selectedOption = null;
+                let selectedLocation = '';
+                
+                // 策略1：查找精确匹配或包含目标关键词的选项
+                for (const item of optionItems) {
+                    const nameElement = item.querySelector('.name');
+                    if (nameElement) {
+                        const locationName = nameElement.textContent.trim();
+                        
+                        // 精确匹配优先
+                        if (locationName === '${location}') {
+                            selectedOption = item;
+                            selectedLocation = locationName;
+                            console.log('🎯 找到精确匹配:', locationName);
+                            break;
+                        }
+                        
+                        // 包含关键词匹配
+                        if (locationName.includes('${location}') || '${location}'.includes(locationName)) {
+                            selectedOption = item;
+                            selectedLocation = locationName;
+                            console.log('✅ 找到包含匹配:', locationName);
+                            break;
+                        }
+                    }
+                }
+                
+                // 策略2：如果没有匹配，选择第一个推荐选项
+                if (!selectedOption) {
+                    console.log('🔄 没有找到匹配项，选择第一个推荐位置...');
+                    
+                    for (const item of optionItems) {
+                        const nameElement = item.querySelector('.name');
+                        if (nameElement) {
+                            const locationName = nameElement.textContent.trim();
+                            
+                            // 排除"不显示位置"等无效选项
+                            if (!locationName.includes('不显示') && !locationName.includes('不显示位置') && locationName.length > 0) {
+                                selectedOption = item;
+                                selectedLocation = locationName;
+                                console.log('📍 选择第一个推荐位置:', locationName);
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // 🔥 步骤7：点击选择的位置
+                if (selectedOption) {
+                    selectedOption.click();
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    
+                    console.log('🎉 位置设置成功:', selectedLocation);
+                    return { 
+                        success: true, 
+                        location: selectedLocation,
+                        searchTerm: '${location}',
+                        strategy: selectedLocation.includes('${location}') ? 'exact_match' : 'first_recommendation'
+                    };
+                } else {
+                    console.log('⚠️ 没有找到任何可选择的位置选项');
+                    return { success: true, message: '没有可选位置，保持默认' };
+                }
+                
+            } catch (e) {
+                console.error('❌ 位置设置失败:', e.message);
+                return { success: false, error: e.message };
+            }
+        })()
+        `;
+
+        try {
+            const result = await this.tabManager.executeScript(tabId, locationScript);
+            if (result && result.success) {
+                console.log(`✅ 位置设置完成: ${result.location || location}`);
+            } else {
+                console.warn(`⚠️ 位置设置异常: ${result?.error || result?.message || '未知错误'}`);
+            }
+        } catch (error) {
+            console.error('❌ 位置设置脚本执行失败:', error);
+            // 不抛出错误，允许上传流程继续
+        }
+    }
     private async addTitleAndTags(title: string, tags: string[], tabId: string): Promise<void> {
         console.log('📝 填写标题和标签...');
 
@@ -290,6 +475,226 @@ export class WeChatVideoUploader implements PluginUploader {
 
         console.log("上传检测完成");
     }
+
+    private async setThumbnail(tabId: string, thumbnailPath?: string): Promise<void> {
+        if (!thumbnailPath || thumbnailPath.trim() === '') {
+            console.log('⏭️ 跳过封面设置 - 未提供封面文件');
+            return;
+        }
+
+        console.log(`🖼️ 设置微信视频号封面: ${thumbnailPath}`);
+
+        const thumbnailScript = `
+        (async function setWechatThumbnail() {
+            try {
+                console.log('🖼️ 开始设置微信视频号封面: ${thumbnailPath}');
+                
+                // 🔥 步骤1：检测Shadow DOM
+                const wujieApp = document.querySelector('wujie-app');
+                let searchDoc = document;
+                
+                if (wujieApp && wujieApp.shadowRoot) {
+                    console.log('✅ 检测到Shadow DOM');
+                    searchDoc = wujieApp.shadowRoot;
+                }
+                
+                // 🔥 步骤2：查找并点击"更换封面"按钮
+                console.log('🔍 查找"更换封面"按钮...');
+                
+                const changeCoverButton = searchDoc.querySelector('.finder-tag-wrap.btn .tag-inner');
+                if (!changeCoverButton || !changeCoverButton.textContent.includes('更换封面')) {
+                    console.log('⚠️ 未找到"更换封面"按钮，跳过封面设置');
+                    return { success: true, message: '更换封面按钮未找到，跳过设置' };
+                }
+                
+                console.log('✅ 找到"更换封面"按钮，点击...');
+                changeCoverButton.click();
+                
+                // 等待封面编辑对话框出现
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // 🔥 步骤3：查找上传封面区域
+                console.log('🔍 查找"上传封面"区域...');
+                
+                const uploadCoverWrap = searchDoc.querySelector('.single-cover-uploader-wrap');
+                if (!uploadCoverWrap) {
+                    console.log('⚠️ 未找到上传封面区域，跳过封面设置');
+                    return { success: true, message: '上传区域未找到，跳过设置' };
+                }
+                
+                // 查找文件输入框
+                const fileInput = uploadCoverWrap.querySelector('input[type="file"]');
+                if (!fileInput) {
+                    console.log('⚠️ 未找到文件输入框，跳过封面设置');
+                    return { success: true, message: '文件输入框未找到，跳过设置' };
+                }
+                
+                console.log('✅ 找到文件输入框');
+                
+                // 🔥 步骤4：阻止文件选择对话框，直接设置文件
+                console.log('🚫 阻止默认文件选择行为...');
+                
+                // 阻止input的click事件避免弹出系统文件选择框
+                fileInput.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🛑 已阻止文件选择对话框');
+                }, true);
+                
+                // 🔥 步骤5：创建并设置文件
+                console.log('📁 创建文件对象...');
+                
+                try {
+                    // 从文件路径获取文件内容
+                    const response = await fetch('${thumbnailPath}');
+                    if (!response.ok) {
+                        throw new Error('文件加载失败: ' + response.status);
+                    }
+                    
+                    const arrayBuffer = await response.arrayBuffer();
+                    const fileName = '${thumbnailPath}'.split('/').pop() || 'cover.jpg';
+                    
+                    // 创建File对象
+                    const file = new File([arrayBuffer], fileName, {
+                        type: 'image/jpeg'
+                    });
+                    
+                    console.log('✅ 文件对象创建成功:', file.name, file.size, 'bytes');
+                    
+                    // 🔥 直接设置文件而不触发click
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+                    
+                    Object.defineProperty(fileInput, 'files', {
+                        value: dataTransfer.files,
+                        configurable: true
+                    });
+                    
+                    console.log('✅ 文件设置完成, files.length:', fileInput.files.length);
+                    
+                    // 🔥 方法1：模拟拖拽放置
+                    console.log('🎯 模拟拖拽放置事件...');
+                    
+                    const uploadArea = uploadCoverWrap.querySelector('.wrap');
+                    if (uploadArea) {
+                        // 创建拖拽数据传输对象
+                        const dragDataTransfer = new DataTransfer();
+                        dragDataTransfer.items.add(file);
+                        
+                        // 阻止默认的拖拽行为
+                        uploadArea.addEventListener('dragover', (e) => e.preventDefault());
+                        uploadArea.addEventListener('drop', (e) => e.preventDefault());
+                        
+                        // 触发拖拽事件序列
+                        const dragEnterEvent = new DragEvent('dragenter', {
+                            bubbles: true,
+                            cancelable: true,
+                            dataTransfer: dragDataTransfer
+                        });
+                        
+                        const dragOverEvent = new DragEvent('dragover', {
+                            bubbles: true,
+                            cancelable: true,
+                            dataTransfer: dragDataTransfer
+                        });
+                        
+                        const dropEvent = new DragEvent('drop', {
+                            bubbles: true,
+                            cancelable: true,
+                            dataTransfer: dragDataTransfer
+                        });
+                        
+                        // 按顺序触发拖拽事件
+                        uploadArea.dispatchEvent(dragEnterEvent);
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        
+                        uploadArea.dispatchEvent(dragOverEvent);
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        
+                        uploadArea.dispatchEvent(dropEvent);
+                        console.log('✅ 拖拽事件已触发');
+                    }
+                    
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    // 🔥 方法2：触发change事件
+                    console.log('🔔 触发change事件...');
+                    
+                    const changeEvent = new Event('change', { 
+                        bubbles: true,
+                        cancelable: true 
+                    });
+                    
+                    fileInput.dispatchEvent(changeEvent);
+                    const inputEvent = new Event('input', { bubbles: true });
+                    fileInput.dispatchEvent(inputEvent);
+                    
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    // 🔥 检查UI变化
+                    console.log('🔍 检查UI更新...');
+                    const updatedWrap = searchDoc.querySelector('.single-cover-uploader-wrap');
+                    if (updatedWrap) {
+                        const hasInitialWrap = updatedWrap.querySelector('.initial-wrap');
+                        const hasImagePreview = updatedWrap.querySelector('img');
+                        
+                        if (hasImagePreview) {
+                            console.log('✅ 封面预览已显示');
+                        } else if (!hasInitialWrap) {
+                            console.log('✅ UI已更新（初始状态已移除）');
+                        } else {
+                            console.log('⚠️ UI未更新，可能需要手动确认');
+                        }
+                    }
+                    
+                    console.log('✅ 文件设置尝试完成');
+                    
+                } catch (fileError) {
+                    console.error('❌ 文件处理失败:', fileError);
+                    console.log('⚠️ 封面设置失败，继续发布流程');
+                    return { success: false, error: fileError.message };
+                }
+                
+                // 🔥 步骤6：等待UI更新
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // 🔥 步骤7：查找并点击最终确认按钮
+                console.log('🔍 查找最终确认按钮...');
+                const finalConfirmButton = searchDoc.querySelector('.cover-set-footer .weui-desktop-btn_primary');
+                if (finalConfirmButton && finalConfirmButton.textContent.includes('确认')) {
+                    console.log('🔘 点击最终确认按钮...');
+                    finalConfirmButton.click();
+                    console.log('✅ 封面设置完成');
+                } else {
+                    console.log('⚠️ 未找到最终确认按钮');
+                }
+                
+                console.log('🎉 封面设置流程完成');
+                return { 
+                    success: true, 
+                    message: '封面设置完成',
+                    fileName: '${thumbnailPath}'.split('/').pop()
+                };
+                
+            } catch (error) {
+                console.error('❌ 封面设置失败:', error.message);
+                return { success: false, error: error.message };
+            }
+        })()
+        `;
+
+        try {
+            const result = await this.tabManager.executeScript(tabId, thumbnailScript);
+            if (result && result.success) {
+                console.log(`✅ 封面设置完成: ${result.fileName || thumbnailPath}`);
+            } else {
+                console.warn(`⚠️ 封面设置异常: ${result?.error || result?.message || '未知错误'}`);
+            }
+        } catch (error) {
+            console.error('❌ 封面设置脚本执行失败:', error);
+            // 不抛出错误，允许上传流程继续
+        }
+    }    
     private async setScheduleTime(publishDate: Date, tabId: string): Promise<void> {
         console.log('⏰ 设置定时发布...');
 
