@@ -137,20 +137,9 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
         await this.tabManager.executeScript(tabId, waitScript);
     }
 
-    // 🔥 修复版的主要上传流程
-    async uploadVideoComplete(params: UploadParams): Promise<{ success: boolean; tabId?: string }> {
-        const headless = params.headless ?? true;
-        let tabId: string | null = null;        
-        
-        try {
-            console.log(`🎭 开始小红书视频完整上传流程... (${params.title})`);
 
-            tabId = await this.tabManager.createAccountTab(
-                params.cookieFile,
-                'xiaohongshu',
-                'https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video',
-                headless
-            );
+    async uploadVideoComplete(params: UploadParams, tabId: string): Promise<{ success: boolean; tabId?: string }> {
+        try {
 
             // 🔥 1. 使用修复版的文件上传
             await this.uploadFile(params.filePath, tabId);

@@ -13,18 +13,10 @@ export class WeChatVideoUploader implements PluginUploader {
         this.tabManager = tabManager;
         //console.log(`✅ ${this.name} 初始化完成`);
     }
-    // 🔥 改动：uploadVideoComplete 方法签名和逻辑
-    async uploadVideoComplete(params: UploadParams): Promise<{ success: boolean; tabId?: string }> {
-        const headless = params.headless ?? true; // 默认headless模式
-        let tabId: string | null = null;
+
+    async uploadVideoComplete(params: UploadParams, tabId: string): Promise<{ success: boolean; tabId?: string }> {
         try {
             console.log(`🎭 开始微信视频号完整上传流程... (${params.title})`);
-            tabId = await this.tabManager.createAccountTab(
-                params.cookieFile,
-                'wechat',
-                'https://channels.weixin.qq.com/platform/post/create',
-                headless
-            );
             // 1. 文件上传
             await this.uploadFile(params.filePath, tabId);
             const uploadStarted = await this.verifyUploadStarted(tabId);

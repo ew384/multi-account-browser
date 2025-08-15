@@ -13,11 +13,8 @@ export class WeChatValidator implements PluginValidator {
         this.tabManager = tabManager;
     }
 
-    async validateCookie(cookieFile: string): Promise<boolean> {
-        let tabId: string | null = null;
-
+    async validateTab(tabId: string): Promise<boolean> {
         try {
-            tabId = await this.tabManager.createAccountTab(cookieFile, 'wechat','https://channels.weixin.qq.com/platform/post/create',true);
             // 等待页面加载完成
             await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -28,23 +25,15 @@ export class WeChatValidator implements PluginValidator {
             `) as boolean;
 
             if (hasWeixinStore) {
-                console.error("[+] cookie 失效");
+                console.error("[+] 微信Cookie失效");
                 return false;
             } else {
-                console.log("[+] cookie 有效");
+                console.log("[+] 微信Cookie有效");
                 return true;
             }
-
         } catch (error) {
-            console.error('微信Cookie验证失败:', error);
+            console.error('微信Tab验证失败:', error);
             return false;
-        } finally {
-            if (tabId) {
-                await this.tabManager.closeTab(tabId).catch(err =>
-                    console.warn('关闭tab失败:', err)
-                );
-            }
         }
     }
-
 }

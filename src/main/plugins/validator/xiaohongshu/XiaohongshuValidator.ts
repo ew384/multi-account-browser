@@ -12,11 +12,8 @@ export class XiaohongshuValidator implements PluginValidator {
         this.tabManager = tabManager;
     }
 
-    async validateCookie(cookieFile: string): Promise<boolean> {
-        let tabId: string | null = null;
+    async validateTab(tabId: string): Promise<boolean> {
         try {
-            tabId = await this.tabManager.createAccountTab(cookieFile, 'xiaohongshu', 'https://creator.xiaohongshu.com/',true);
-            // 等待页面加载
             await new Promise(resolve => setTimeout(resolve, 3000));
 
             // 检查URL重定向

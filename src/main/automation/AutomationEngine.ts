@@ -14,7 +14,7 @@ import {
 } from '../../types/pluginInterface';
 import { PluginType, PluginUploader, PluginLogin, PluginValidator } from '../../types/pluginInterface';
 import * as path from 'path';
-import * as fs from 'fs';
+
 // 🔥 声明全局类型
 declare global {
     var uploadProgressNotifier: ((recordId: number, progressData: any) => void) | undefined;
@@ -271,50 +271,81 @@ export class AutomationEngine {
     async uploadVideo(params: UploadParams, recordId?: number): Promise<UploadResult> {
         let tabId: string | null = null;
         const startTime = new Date().toISOString();
-        let accountName = params.accountName;
-        
-        if (!accountName) {
-            // 从文件名提取
+        let accountName: string;
+        if (params.accountName) {
+            accountName = params.accountName;
+        } else {
+            // 从cookieFile生成账号名作为备选
             accountName = path.basename(params.cookieFile, '.json');
             const parts = accountName.split('_');
-            if (parts.length >= 2) {
-                accountName = parts[1]; // 取第二部分作为账号名
+            if (parts.length > 2) {
+                // 格式如: platform_username_timestamp.json
+                accountName = parts.slice(1, -1).join('_') || 'unknown';
             }
         }
-        
         try {
             console.log(`🚀 开始 ${params.platform} 平台视频上传: ${params.title || params.filePath}`);
 
-            // 🔥 步骤1：验证账号
-            if (recordId) {
-                await this.updateUploadProgress(recordId, accountName, {
-                    status: 'uploading',
-                    upload_status: '验证账号中'
-                });
-            }
-            const fileName = path.basename(params.cookieFile);
-            const accountInfo = AccountStorage.getAccountInfoFromDb(fileName);
+            // 🔥 步骤1：AutomationEngine 负责创建Tab
+            tabId = await this.tabManager.createAccountTab(
+                params.cookieFile,
+                params.platform,
+                this.getPlatformUrl(params.platform),
+                params.headless ?? true
+            );
 
-            if (!accountInfo || accountInfo.status !== 1) {
-                if (recordId) {
-                    await this.updateUploadProgress(recordId, accountName, {
-                        status: 'failed',
-                        upload_status: '账号已失效',
-                        push_status: '推送失败',
-                        review_status: '发布失败'
-                    });
+            // 🔥 步骤2：等待页面加载
+            console.log(`⏳ 等待页面加载完成...`);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
+            // 🔥 步骤3：Validator 专注验证逻辑
+            const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, params.platform);
+            if (validator) {
+                const isValid = await validator.validateTab(tabId);
+                
+                if (!isValid) {
+                    console.warn(`❌ 账号验证失败，Cookie已失效: ${params.platform}`);
+                    
+                    // 🔥 AutomationEngine 负责立即关闭失效的Tab
+                    try {
+                        await this.tabManager.closeTab(tabId);
+                        console.log(`🗑️ 已关闭失效账号的Tab: ${tabId}`);
+                        tabId = null; // 避免finally重复关闭
+                    } catch (closeError) {
+                        console.warn(`⚠️ 关闭失效Tab失败:`, closeError);
+                    }
+                    
+                    // 🔥 立即更新数据库状态为无效
+                    const currentTime = new Date().toISOString();
+                    await AccountStorage.updateValidationStatus(params.cookieFile, false, currentTime);
+                    
+                    // 🔥 更新上传进度状态
+                    if (recordId) {
+                        await this.updateUploadProgress(recordId, accountName, {
+                            status: 'failed',
+                            upload_status: '账号已失效',
+                            push_status: '推送失败',
+                            review_status: '发布失败',
+                            error_message: 'Cookie已失效，需要重新登录'
+                        });
+                    }
+                    
+                    return {
+                        success: false,
+                        error: '账号已失效，请重新登录',
+                        file: params.filePath,
+                        account: accountName,
+                        platform: params.platform,
+                        uploadTime: startTime
+                    };
                 }
-                return {
-                    success: false,
-                    error: '账号已失效，请重新登录',
-                    file: params.filePath,
-                    account: accountName,
-                    platform: params.platform,
-                    uploadTime: startTime
-                };
+            } else {
+                console.warn(`⚠️ 未找到 ${params.platform} 平台的验证器，跳过验证`);
             }
 
-            // 🔥 步骤2：开始上传
+            // 🔥 步骤4：账号正常，继续上传流程
+            console.log(`✅ 账号验证通过，开始上传流程`);
+            
             if (recordId) {
                 await this.updateUploadProgress(recordId, accountName, {
                     status: 'uploading',
@@ -327,7 +358,8 @@ export class AutomationEngine {
                 throw new Error(`不支持的平台: ${params.platform}`);
             }
 
-            const result = await uploader.uploadVideoComplete(params);
+            // 🔥 调用uploader，传递已验证的tabId
+            const result = await uploader.uploadVideoComplete(params, tabId);
             
             if (result.success && result.tabId) {
                 tabId = result.tabId;
@@ -539,37 +571,6 @@ export class AutomationEngine {
             console.log(`   账号数: ${request.accounts.length}`);
 
             const results: UploadResult[] = [];
-            console.log(`🔍 开始批量验证需要检查的账号...`);
-
-
-            // 🔥 1. 获取所有需要验证的账号
-            const allNeedValidation = await AccountStorage.getValidAccountsNeedingRevalidation();
-
-            // 🔥 2. 筛选出本次上传涉及的账号
-            const currentAccountFiles = new Set(
-                request.accounts
-                    .map(acc => acc.cookieFile)
-                    .filter((cookieFile): cookieFile is string => !!cookieFile)
-                    .map(cookieFile => path.basename(cookieFile))
-            );
-
-            const accountsToValidate = allNeedValidation.filter(account => 
-                currentAccountFiles.has(account.filePath)
-            );
-
-            // 🔥 3. 批量验证
-            if (accountsToValidate.length > 0) {
-                console.log(`📊 需要验证 ${accountsToValidate.length} 个账号`);
-                const validationData = accountsToValidate.map(account => ({
-                    platform: account.platform,
-                    accountName: account.userName,
-                    cookieFile: path.join(Config.COOKIE_DIR, account.filePath)
-                }));
-                
-                await this.batchValidateAccounts(validationData);
-            } else {
-                console.log(`✅ 所有账号都在验证有效期内`);
-            }      
             let successCount = 0;
             let failedCount = 0;
 
@@ -855,15 +856,23 @@ export class AutomationEngine {
     }
 
     async validateAccount(platform: string, cookieFile: string): Promise<boolean> {
+        let tabId: string | null = null;
+        
         try {
-            // 1. 调用验证插件
+            // 🔥 使用统一的URL
+            tabId = await this.tabManager.createAccountTab(
+                cookieFile,
+                platform,
+                this.getPlatformUrl(platform), // 使用统一方法
+                true // headless模式
+            );
             const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, platform);
             if (!validator) {
                 console.warn(`⚠️ 平台 ${platform} 暂不支持验证功能`);
                 return false;
             }
 
-            const isValid = await validator.validateCookie(cookieFile);
+            const isValid = await validator.validateTab(tabId);
 
             // 2. 统一处理数据库更新
             const currentTime = new Date().toISOString();
@@ -883,6 +892,15 @@ export class AutomationEngine {
             }
 
             return false;
+        }finally {
+            // AutomationEngine 统一负责Tab关闭
+            if (tabId) {
+                try {
+                    await this.tabManager.closeTab(tabId);
+                } catch (closeError) {
+                    console.error(`❌ 关闭验证Tab失败: ${tabId}:`, closeError);
+                }
+            }
         }
     }
 
@@ -927,6 +945,20 @@ export class AutomationEngine {
         console.log(`📊 AutomationEngine: 批量验证完成: ${validCount}/${accounts.length} 个账号有效`);
 
         return results;
+    }
+    /**
+     * 🔥 统一的平台功能页面URL配置
+     * Validator和Uploader都使用相同的URL，因为都是检测同一个功能页面的访问权限
+     */
+    private getPlatformUrl(platform: string): string {
+        const platformUrls: Record<string, string> = {
+            'wechat': 'https://channels.weixin.qq.com/platform/post/create',
+            'xiaohongshu': 'https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video',
+            'douyin': 'https://creator.douyin.com/creator-micro/content/upload',
+            'kuaishou': 'https://cp.kuaishou.com/article/publish/video'
+        };
+        
+        return platformUrls[platform] || 'about:blank';
     }
     /**
      * 🔥 新增：获取支持的平台列表

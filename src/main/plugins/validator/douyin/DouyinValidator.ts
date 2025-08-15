@@ -12,13 +12,10 @@ export class DouyinValidator implements PluginValidator {
         this.tabManager = tabManager;
     }
 
-    async validateCookie(cookieFile: string): Promise<boolean> {
-        let tabId: string | null = null;
+    async validateTab(tabId: string): Promise<boolean> {
         try {
-            tabId = await this.tabManager.createAccountTab(cookieFile, 'douyin', 'https://creator.douyin.com/creator-micro/content/upload',true);
-
             // 等待页面加载
-            await new Promise(resolve => setTimeout(resolve, 6000));
+            await new Promise(resolve => setTimeout(resolve, 4000));
 
             // 检查当前URL是否为目标URL
             const currentUrl = await this.tabManager.executeScript(tabId, 'window.location.href');

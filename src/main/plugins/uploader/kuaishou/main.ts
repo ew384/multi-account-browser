@@ -14,19 +14,8 @@ export class KuaiShouVideoUploader implements PluginUploader {
         //console.log(`✅ ${this.name} 初始化完成`);
     }
 
-    async uploadVideoComplete(params: UploadParams): Promise<{ success: boolean; tabId?: string }> {
-        const headless = params.headless ?? true; // 默认headless模式
-        let tabId: string | null = null;        
+    async uploadVideoComplete(params: UploadParams, tabId: string): Promise<{ success: boolean; tabId?: string }> {
         try {
-            console.log(`🎭 开始快手视频完整上传流程... (${params.title})`);
-
-            tabId = await this.tabManager.createAccountTab(
-                params.cookieFile,
-                'kuaishou',
-                'https://cp.kuaishou.com/article/publish/video',
-                headless
-            );
-
             // 1. 上传视频文件
             await this.uploadFile(params.filePath, tabId);
 

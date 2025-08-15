@@ -129,8 +129,7 @@ export interface PluginUploader extends BasePlugin {
      * @param params 上传参数
      * @returns 是否成功
      */
-    uploadVideoComplete(params: UploadParams): Promise<{ success: boolean; tabId?: string }>;
-
+    uploadVideoComplete(params: UploadParams, tabId: string): Promise<{ success: boolean; tabId?: string }>;
     /**
      * 获取账号信息（可选）
      * @param tabId 标签页ID
@@ -179,7 +178,8 @@ export interface PluginLogin extends BasePlugin {
  */
 export interface PluginValidator extends BasePlugin {
     readonly type: PluginType.VALIDATOR;
-    validateCookie(cookieFile: string): Promise<boolean>;
+    //validateCookie(cookieFile: string): Promise<boolean>;
+    validateTab(tabId: string): Promise<boolean>;
 }
 export interface PluginProcessor {
     readonly name: string;
