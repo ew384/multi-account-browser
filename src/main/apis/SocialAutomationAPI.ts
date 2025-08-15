@@ -37,6 +37,8 @@ export class SocialAutomationAPI {
         this.router.get('/deleteAccount', this.handleDeleteAccount.bind(this));
         this.router.post('/updateUserinfo', this.handleUpdateUserinfo.bind(this));
         this.router.post('/account', this.handleAddAccount.bind(this));
+         // 🔥 新增：手动验证账号API
+        this.router.post('/validateAccount', this.handleValidateAccount.bind(this));
     }
     private setupPublishRecordRoutes(): void {
         // 发布记录管理API
@@ -74,8 +76,6 @@ export class SocialAutomationAPI {
     private setupAutomationRoutes(): void {
         // 自动化相关API
         this.router.post('/api/automation/get-account-info', this.handleGetAccountInfo.bind(this));
-        // 🔥 新增：手动验证账号API
-        this.router.post('/validateAccount', this.handleValidateAccount.bind(this));
     }
     private setupPathRoutes(): void {
         // 🔥 路径相关API

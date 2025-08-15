@@ -18,6 +18,14 @@ import * as path from 'path';
 // 🔥 声明全局类型
 declare global {
     var uploadProgressNotifier: ((recordId: number, progressData: any) => void) | undefined;
+    var accountStatusNotifier: ((accountData: {
+        cookieFile: string;
+        accountName: string;
+        platform: string;
+        status: string;
+        isValid: boolean;
+        lastCheckTime: string;
+    }) => void) | undefined;
 }
 export class AutomationEngine {
     private tabManager: TabManager;
@@ -318,7 +326,18 @@ export class AutomationEngine {
                     // 🔥 立即更新数据库状态为无效
                     const currentTime = new Date().toISOString();
                     await AccountStorage.updateValidationStatus(params.cookieFile, false, currentTime);
-                    
+                    // 🔥 新增：通知账号状态变化
+                    if (global.accountStatusNotifier) {
+                        global.accountStatusNotifier({
+                            cookieFile: params.cookieFile,
+                            accountName: accountName,
+                            platform: params.platform,
+                            status: '异常',
+                            isValid: false,
+                            lastCheckTime: currentTime
+                        });
+                        console.log(`📡 已推送账号失效通知: ${accountName}`);
+                    }                    
                     // 🔥 更新上传进度状态
                     if (recordId) {
                         await this.updateUploadProgress(recordId, accountName, {

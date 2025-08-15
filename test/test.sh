@@ -66,7 +66,13 @@ curl -X POST http://localhost:3409/api/account/execute \
   }'
 
 
-
+curl -X POST http://localhost:3409/validateAccount \
+-H "Content-Type: application/json" \
+-d '{
+    "accountId": "endian",
+    "platform": "wechat",
+    "cookieFile": "wechat_endian_1755271498658.json"
+  }'
 系统级别操作
 启动完整消息系统
 curl -X POST http://localhost:3409/api/messages/scheduler/system/start \
