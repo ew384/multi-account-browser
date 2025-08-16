@@ -19,8 +19,6 @@ export class APIServer {
     private socialAPI: SocialAutomationAPI;
     private messageAPI: MessageAutomationAPI;
     private uploadProgressClients: Map<number, Set<express.Response>> = new Map();
-    // 🔥 新增：账号状态变化的全局订阅客户端
-    private accountStatusClients: Set<express.Response> = new Set();
     constructor(automationEngine: AutomationEngine, tabManager: TabManager) {
         this.automationEngine = automationEngine;
         this.tabManager = tabManager;
@@ -29,7 +27,6 @@ export class APIServer {
         this.messageAPI = new MessageAutomationAPI(tabManager,automationEngine);
         // 🔥 设置全局进度通知器
         global.uploadProgressNotifier = this.notifyUploadProgress.bind(this);
-        global.accountStatusNotifier = this.notifyAccountStatusChange.bind(this);
         this.app = express();
         this.setupMiddleware();
         this.setupRoutes();
@@ -117,81 +114,9 @@ export class APIServer {
         this.app.get('/login', this.handleLoginSSE.bind(this));
         // 🔥 新增：上传进度SSE接口
         this.app.get('/api/upload-progress/:recordId', this.handleUploadProgressSSE.bind(this));
-        // 🔥 新增：账号状态变化SSE接口
-        this.app.get('/api/account-status-stream', this.handleAccountStatusSSE.bind(this));        
-    }
-    private handleAccountStatusSSE(req: express.Request, res: express.Response): void {
-        console.log('📡 建立账号状态SSE连接');
 
-        // 设置SSE响应头
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*'
-        });
-
-        // 添加到客户端集合
-        this.accountStatusClients.add(res);
-
-        // 连接断开处理
-        req.on('close', () => {
-            console.log('📡 账号状态SSE连接断开');
-            this.accountStatusClients.delete(res);
-        });
-
-        // 发送心跳保持连接
-        const heartbeat = setInterval(() => {
-            try {
-                res.write(`data: ${JSON.stringify({ type: 'heartbeat', timestamp: new Date().toISOString() })}\n\n`);
-            } catch (error) {
-                clearInterval(heartbeat);
-                this.accountStatusClients.delete(res);
-            }
-        }, 30000);
-
-        req.on('close', () => {
-            clearInterval(heartbeat);
-        });
     }
 
-    // 🔥 新增：推送账号状态变化
-    notifyAccountStatusChange(accountData: {
-        cookieFile: string;
-        accountName: string;
-        platform: string;
-        status: string;
-        isValid: boolean;
-        lastCheckTime: string;
-    }): void {
-        if (this.accountStatusClients.size === 0) {
-            return;
-        }
-
-        const message = `data: ${JSON.stringify({ 
-            type: 'account_status_change', 
-            data: accountData 
-        })}\n\n`;
-
-        console.log(`📤 推送账号状态变化: ${accountData.accountName} - ${accountData.status}`);
-
-        // 遍历所有客户端推送
-        const deadClients = new Set<express.Response>();
-        
-        this.accountStatusClients.forEach(client => {
-            try {
-                client.write(message);
-            } catch (error) {
-                console.error('📡 账号状态SSE推送失败，标记移除客户端:', error);
-                deadClients.add(client);
-            }
-        });
-
-        // 清理失效的客户端连接
-        deadClients.forEach(client => {
-            this.accountStatusClients.delete(client);
-        });
-    }    
     // 🔥 新增：上传进度SSE处理
     private handleUploadProgressSSE(req: express.Request, res: express.Response): void {
         const recordId = parseInt(req.params.recordId);

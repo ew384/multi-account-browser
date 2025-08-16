@@ -69,7 +69,7 @@ curl -X POST http://localhost:3409/api/account/execute \
 curl -X POST http://localhost:3409/validateAccount \
 -H "Content-Type: application/json" \
 -d '{
-    "accountId": "endian",
+    "accounName": "endian",
     "platform": "wechat",
     "cookieFile": "wechat_endian_1755271498658.json"
   }'
