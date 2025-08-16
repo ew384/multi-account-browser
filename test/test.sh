@@ -46,15 +46,15 @@ curl -X POST http://localhost:3409/api/account/create \
   -d '{
     "accountName": "Andy0919",
     "platform": "douyin",
-    "cookieFile": "douyin_Andy0919_1754628224627.json",
+    "cookieFile": "douyin_Andy0919_1755009374518.json",
     "initialUrl": "https://creator.douyin.com/creator-micro/content/upload"
   }'
 curl -X POST http://localhost:3409/api/account/create \
   -H "Content-Type: application/json" \
   -d '{
-    "accountName": "剑桥学妹爱学习",
+    "accountName": "小红薯_3319",
     "platform": "xiaohongshu",
-    "cookieFile": "xiaohongshu_剑桥学妹爱学习_1754984765165.json",
+    "cookieFile": "xiaohongshu_小红薯_3319_1755010749732.json",
     "initialUrl": "https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video"
   }'
 

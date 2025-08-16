@@ -30,9 +30,9 @@ export class DouyinVideoUploader implements PluginUploader {
             await this.waitForVideoUpload(tabId);
 
             // 5. 上传缩略图（如果有）
-            if (params.thumbnailPath) {
-                await this.setThumbnail(tabId, params.thumbnailPath);
-            }
+            //if (params.thumbnailPath) {
+            //    await this.setThumbnail(tabId, params.thumbnailPath);
+            //}
 
             // 6. 设置地理位置
             if (params.location) {
