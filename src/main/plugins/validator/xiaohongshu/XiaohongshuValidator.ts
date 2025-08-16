@@ -31,13 +31,8 @@ export class XiaohongshuValidator implements PluginValidator {
             return !hasLoginButton;
 
         } catch (error) {
-            console.error('小红书Cookie验证失败:', error);
+            console.error('小红书Tab验证失败:', error);
             return false;
-        } finally {
-            if (tabId) {
-                await this.tabManager.closeTab(tabId);
-            }
         }
     }
-
 }

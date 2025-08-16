@@ -71,12 +71,8 @@ export class DouyinValidator implements PluginValidator {
             return !hasLoginButton; // 3次检测都没有登录按钮 = Cookie有效
 
         } catch (error) {
-            console.error('抖音Cookie验证失败:', error);
+            console.error('抖音Tab验证失败:', error);
             return false;
-        } finally {
-            if (tabId) {
-                await this.tabManager.closeTab(tabId);
-            }
         }
     }
 }

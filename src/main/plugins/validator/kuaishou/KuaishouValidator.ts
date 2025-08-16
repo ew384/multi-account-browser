@@ -34,13 +34,8 @@ export class KuaishouValidator implements PluginValidator {
             return !found;
 
         } catch (error) {
-            console.error('快手Cookie验证失败:', error);
+            console.error('快手Tab验证失败:', error);
             return false;
-        } finally {
-            if (tabId) {
-                await this.tabManager.closeTab(tabId);
-            }
         }
     }
-
 }
