@@ -71,7 +71,7 @@ curl -X POST http://localhost:3409/validateAccount \
 -d '{
     "accounName": "endian",
     "platform": "wechat",
-    "cookieFile": "wechat_endian_1755271498658.json"
+    "cookieFile": "wechat_endian_1755305921950.json"
   }'
 系统级别操作
 启动完整消息系统

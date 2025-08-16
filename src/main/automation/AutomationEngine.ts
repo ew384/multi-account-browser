@@ -454,15 +454,24 @@ export class AutomationEngine {
     private async updateUploadProgress(recordId: number, accountName: string, statusData: any): Promise<void> {
         const key = `${recordId}-${accountName}`;
         
-        // 🔥 修复：根据 statusData 内容正确映射到具体字段
         let mappedData = { ...statusData };
         
-        // 🔥 关键修复：根据状态内容映射到正确的字段
         if (typeof statusData === 'string' || statusData.status) {
             const statusText = statusData.status || statusData;
+            const errorMessage = statusData.error_message || '';
             
+            // 🔥 优先处理账号失效情况
+            if (errorMessage.includes('账号已失效') || errorMessage.includes('Cookie已失效') || errorMessage.includes('重新登录')) {
+                mappedData = {
+                    status: 'failed',
+                    upload_status: '账号已失效',
+                    push_status: '推送失败',
+                    review_status: '发布失败',
+                    error_message: errorMessage
+                };
+            }
             // 根据状态文本映射到具体字段
-            if (statusText.includes('验证') || statusText === '验证账号中') {
+            else if (statusText.includes('验证') || statusText === '验证账号中') {
                 mappedData = {
                     status: 'uploading',
                     upload_status: '验证账号中',
@@ -491,12 +500,24 @@ export class AutomationEngine {
                     review_status: '发布成功'
                 };
             } else if (statusText === 'failed') {
-                mappedData = {
-                    status: 'failed',
-                    upload_status: '上传失败',
-                    push_status: '推送失败',
-                    review_status: '发布失败'
-                };
+                // 🔥 失败时需要检查具体的错误信息
+                if (errorMessage.includes('账号已失效') || errorMessage.includes('Cookie已失效')) {
+                    mappedData = {
+                        status: 'failed',
+                        upload_status: '账号已失效',
+                        push_status: '推送失败',
+                        review_status: '发布失败',
+                        error_message: errorMessage
+                    };
+                } else {
+                    mappedData = {
+                        status: 'failed',
+                        upload_status: '上传失败',
+                        push_status: '推送失败',
+                        review_status: '发布失败',
+                        error_message: errorMessage
+                    };
+                }
             }
         }
         
@@ -504,7 +525,7 @@ export class AutomationEngine {
         this.uploadProgressMap.set(key, {
             recordId,
             accountName,
-            ...mappedData, // 🔥 使用映射后的数据
+            ...mappedData,
             timestamp: Date.now()
         });
 
@@ -514,7 +535,7 @@ export class AutomationEngine {
         if (global.uploadProgressNotifier) {
             global.uploadProgressNotifier(recordId, {
                 accountName,
-                ...mappedData, // 🔥 使用映射后的数据
+                ...mappedData,
                 timestamp: new Date().toISOString()
             });
         }
