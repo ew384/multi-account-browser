@@ -116,7 +116,7 @@ export class XiaohongshuLogin implements PluginLogin {
     }
 
     /**
-     * 🔥 获取二维码
+     * 🔥 获取二维码（增强版 - 多种备选方案 + 等待机制）
      */
     private async getQRCode(tabId: string): Promise<string | null> {
         console.log('🔍 查找小红书登录二维码...');
@@ -125,38 +125,123 @@ export class XiaohongshuLogin implements PluginLogin {
             (async function() {
                 console.log('🔍 开始查找小红书二维码...');
                 
-                // 直接查找二维码图片
-                const qrImage = document.querySelector('.qrcode-img');
+                // 等待页面加载完成 - 重试机制，最多等待30秒
+                console.log('⏳ 等待页面加载完成...');
                 
-                if (qrImage && qrImage.src) {
-                    console.log('✅ 找到二维码图片');
-                    console.log('📏 图片尺寸:', qrImage.offsetWidth + 'x' + qrImage.offsetHeight);
+                for (let waitAttempt = 1; waitAttempt <= 15; waitAttempt++) {
+                    console.log('🔄 等待尝试第 ' + waitAttempt + '/15 次...');
                     
-                    // 检查是否是base64格式的二维码
-                    if (qrImage.src.startsWith('data:image/')) {
-                        console.log('✅ 确认是base64格式的二维码');
-                        return qrImage.src;
+                    // 方案1: 直接查找 .qrcode-img 类的图片（主要方案）
+                    console.log('🔍 方案1：查找 .qrcode-img 类的图片...');
+                    const qrImage = document.querySelector('.qrcode-img');
+                    
+                    if (qrImage && qrImage.src) {
+                        console.log('✅ 方案1成功：找到 .qrcode-img (第' + waitAttempt + '次尝试)');
+                        console.log('📏 图片尺寸:', qrImage.offsetWidth + 'x' + qrImage.offsetHeight);
+                        
+                        if (qrImage.src.startsWith('data:image/')) {
+                            console.log('✅ 方案1确认：base64格式的二维码');
+                            return qrImage.src;
+                        }
                     } else {
-                        console.log('⚠️ 不是base64格式，返回URL:', qrImage.src.substring(0, 100));
-                        return qrImage.src;
+                        console.log('❌ 方案1失败：未找到 .qrcode-img (第' + waitAttempt + '次尝试)');
                     }
-                } else {
-                    console.log('❌ 未找到 .qrcode-img 元素');
                     
-                    // 备选方案：查找父容器内的图片
+                    // 方案2: 查找 .qrcode 容器内的图片
+                    console.log('🔍 方案2：查找 .qrcode 容器内的图片...');
                     const qrContainer = document.querySelector('.qrcode');
                     if (qrContainer) {
-                        console.log('🔍 找到二维码容器，查找内部图片...');
+                        console.log('✅ 找到 .qrcode 容器 (第' + waitAttempt + '次尝试)');
                         const imgInContainer = qrContainer.querySelector('img');
-                        if (imgInContainer && imgInContainer.src) {
-                            console.log('✅ 在容器内找到图片');
+                        if (imgInContainer && imgInContainer.src && imgInContainer.src.startsWith('data:image/')) {
+                            console.log('✅ 方案2成功：在容器内找到base64图片');
                             return imgInContainer.src;
                         }
                     }
+                    console.log('❌ 方案2失败 (第' + waitAttempt + '次尝试)');
                     
-                    console.log('❌ 完全未找到二维码');
-                    return null;
+                    // 方案3: 通过尺寸查找正方形二维码图片
+                    console.log('🔍 方案3：通过尺寸查找正方形图片...');
+                    const allImages = document.querySelectorAll('img');
+                    
+                    for (let i = 0; i < allImages.length; i++) {
+                        const img = allImages[i];
+                        const width = img.offsetWidth || img.naturalWidth;
+                        const height = img.offsetHeight || img.naturalHeight;
+                        
+                        // 查找大于100px的正方形base64图片
+                        if (width > 100 && Math.abs(width - height) < 20 && img.src && img.src.startsWith('data:image/')) {
+                            console.log('✅ 方案3成功：找到正方形base64图片', width + 'x' + height + ' (第' + waitAttempt + '次尝试)');
+                            return img.src;
+                        }
+                    }
+                    console.log('❌ 方案3失败 (第' + waitAttempt + '次尝试)');
+                    
+                    // 方案4: 通过类名关键词查找
+                    console.log('🔍 方案4：通过类名关键词查找...');
+                    for (let i = 0; i < allImages.length; i++) {
+                        const img = allImages[i];
+                        const className = img.className.toLowerCase();
+                        
+                        if ((className.includes('qr') || className.includes('code')) && 
+                            img.src && img.src.startsWith('data:image/')) {
+                            console.log('✅ 方案4成功：找到关键词匹配的base64图片 (第' + waitAttempt + '次尝试)');
+                            return img.src;
+                        }
+                    }
+                    console.log('❌ 方案4失败 (第' + waitAttempt + '次尝试)');
+                    
+                    // 方案5: 查找所有base64图片中最可能的二维码
+                    console.log('🔍 方案5：在所有base64图片中查找二维码...');
+                    const base64Images = [];
+                    
+                    for (let i = 0; i < allImages.length; i++) {
+                        const img = allImages[i];
+                        if (img.src && img.src.startsWith('data:image/')) {
+                            const width = img.offsetWidth || img.naturalWidth;
+                            const height = img.offsetHeight || img.naturalHeight;
+                            
+                            base64Images.push({
+                                img: img,
+                                width: width,
+                                height: height,
+                                isSquare: Math.abs(width - height) < 20,
+                                isBig: width > 100 && height > 100,
+                                className: img.className
+                            });
+                        }
+                    }
+                    
+                    console.log('🔍 找到 ' + base64Images.length + ' 个base64图片 (第' + waitAttempt + '次尝试)');
+                    
+                    // 优先选择大的正方形图片
+                    for (let candidate of base64Images) {
+                        if (candidate.isSquare && candidate.isBig) {
+                            console.log('✅ 方案5成功：选择大正方形base64图片', candidate.width + 'x' + candidate.height + ' (第' + waitAttempt + '次尝试)');
+                            return candidate.img.src;
+                        }
+                    }
+                    
+                    // 其次选择正方形图片
+                    for (let candidate of base64Images) {
+                        if (candidate.isSquare) {
+                            console.log('✅ 方案5备选：选择正方形base64图片', candidate.width + 'x' + candidate.height + ' (第' + waitAttempt + '次尝试)');
+                            return candidate.img.src;
+                        }
+                    }
+                    
+                    console.log('❌ 方案5失败 (第' + waitAttempt + '次尝试)');
+                    
+                    // 如果这不是最后一次尝试，等待2秒再重试
+                    if (waitAttempt < 15) {
+                        console.log('⏳ 等待2秒后进行第 ' + (waitAttempt + 1) + ' 次尝试...');
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
                 }
+                
+                // 所有尝试都失败
+                console.log('❌ 等待30秒后所有方案都失败，未找到二维码');
+                return null;
             })()
         `;
 
