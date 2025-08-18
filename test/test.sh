@@ -60,9 +60,9 @@ curl -X POST http://localhost:3409/api/account/create \
 curl -X POST http://localhost:3409/api/account/create \
   -H "Content-Type: application/json" \
   -d '{
-    "accountName": "剑桥学妹爱学习",
+    "accountName": "小红薯_3319",
     "platform": "xiaohongshu",
-    "cookieFile": "xiaohongshu_剑桥学妹爱学习_1755515433852.json",
+    "cookieFile": "xiaohongshu_小红薯_3319_1755528071619.json",
     "initialUrl": "https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video"
   }'  
 curl -X POST http://localhost:3409/api/account/save-cookies \

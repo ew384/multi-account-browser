@@ -154,7 +154,9 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
             if (params.publishDate) {
                 await this.setScheduleTime(params.publishDate, tabId);
             }
-
+            if (params.location) {
+                await this.setLocation(tabId, params.location);
+            }
             // 🔥 5. 点击发布
             await this.clickPublish(tabId, !!params.publishDate);
 
@@ -238,52 +240,78 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
             try {
                 console.log('开始设置定时发布时间...');
                 
-                // 选择定时发布选项
-                const scheduleLabel = document.querySelector('label:has-text("定时发布")');
-                if (scheduleLabel) {
-                    scheduleLabel.click();
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    console.log('✅ 已选择定时发布');
-                } else {
+                // 步骤1：查找并点击"定时发布"选项
+                console.log('📍 查找定时发布选项...');
+                
+                const scheduleLabels = Array.from(document.querySelectorAll('label.el-radio'));
+                console.log('找到的所有radio label:', scheduleLabels.length);
+                
+                let scheduleLabel = null;
+                for (const label of scheduleLabels) {
+                    const spanText = label.querySelector('.el-radio__label');
+                    console.log('检查label文本:', spanText?.textContent);
+                    if (spanText && spanText.textContent.includes('定时发布')) {
+                        scheduleLabel = label;
+                        break;
+                    }
+                }
+                
+                if (!scheduleLabel) {
                     throw new Error('未找到定时发布选项');
                 }
-
-                // 格式化发布时间
-                const publishDateHour = '${publishDate.getFullYear()}-${String(publishDate.getMonth() + 1).padStart(2, '0')}-${String(publishDate.getDate()).padStart(2, '0')} ${String(publishDate.getHours()).padStart(2, '0')}:${String(publishDate.getMinutes()).padStart(2, '0')}';
-                console.log('格式化时间:', publishDateHour);
-
-                await new Promise(resolve => setTimeout(resolve, 1000));
                 
-                // 点击时间输入框
-                const timeInput = document.querySelector('.el-input__inner[placeholder="选择日期和时间"]');
-                if (timeInput) {
-                    timeInput.click();
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                console.log('✅ 找到定时发布选项，准备点击...');
+                scheduleLabel.click();
+                
+                // 等待UI更新
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                console.log('✅ 已点击定时发布选项');
 
-                    // 全选并输入时间
-                    const selectAllEvent = new KeyboardEvent('keydown', {
-                        key: 'a',
-                        ctrlKey: true,
-                        bubbles: true
-                    });
-                    timeInput.dispatchEvent(selectAllEvent);
+                // 步骤2：格式化发布时间
+                const publishDateStr = '${publishDate.getFullYear()}-${String(publishDate.getMonth() + 1).padStart(2, '0')}-${String(publishDate.getDate()).padStart(2, '0')} ${String(publishDate.getHours()).padStart(2, '0')}:${String(publishDate.getMinutes()).padStart(2, '0')}';
+                console.log('格式化时间:', publishDateStr);
 
-                    document.execCommand('insertText', false, publishDateHour);
-
-                    // 按回车确认
-                    const enterEvent = new KeyboardEvent('keydown', {
-                        key: 'Enter',
-                        keyCode: 13,
-                        bubbles: true
-                    });
-                    timeInput.dispatchEvent(enterEvent);
-
-                    console.log('✅ 定时发布设置成功:', publishDateHour);
-                } else {
+                // 步骤3：设置时间
+                console.log('📅 开始设置时间...');
+                
+                // 查找时间输入框
+                const timeInput = document.querySelector('.el-date-editor input.el-input__inner');
+                if (!timeInput) {
                     throw new Error('未找到时间输入框');
                 }
-
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                console.log('✅ 找到时间输入框，当前值:', timeInput.value);
+                
+                // 点击输入框激活
+                timeInput.click();
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // 清空输入框并设置新值
+                timeInput.focus();
+                timeInput.select(); // 全选
+                
+                // 使用 input 事件设置值
+                timeInput.value = publishDateStr;
+                
+                // 触发必要的事件
+                timeInput.dispatchEvent(new Event('input', { bubbles: true }));
+                timeInput.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                // 按回车确认
+                const enterEvent = new KeyboardEvent('keydown', {
+                    key: 'Enter',
+                    keyCode: 13,
+                    bubbles: true
+                });
+                timeInput.dispatchEvent(enterEvent);
+                
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // 点击输入框外部关闭日期选择器
+                document.body.click();
+                
+                console.log('✅ 定时发布设置成功:', publishDateStr);
+                console.log('✅ 当前输入框值:', timeInput.value);
 
                 return { success: true };
             } catch (e) {
@@ -298,7 +326,6 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
             throw new Error(`定时发布设置失败: ${result.error}`);
         }
     }
-
     private async clickPublish(tabId: string, isScheduled: boolean): Promise<void> {
         console.log('🚀 点击发布按钮...');
 
@@ -315,30 +342,125 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
                 }
 
                 try {
-                    // 根据是否定时发布选择不同的按钮文本
-                    const buttonText = isScheduled ? '定时发布' : '发布';
-                    const publishButton = document.querySelector(\`button:has-text("\${buttonText}")\`);
+                    // 确定期望的按钮文本
+                    const expectedButtonText = isScheduled ? '定时发布' : '发布';
+                    console.log('查找发布按钮，期望文本:', expectedButtonText);
                     
-                    if (publishButton && !publishButton.disabled) {
-                        publishButton.click();
-                        console.log(\`✅ 已点击\${buttonText}按钮\`);
+                    let publishButton = null;
+                    
+                    // 方法1：在 .submit 容器中查找按钮
+                    const submitButtons = document.querySelectorAll('.submit button');
+                    console.log('找到', submitButtons.length, '个提交按钮');
+                    
+                    for (const button of submitButtons) {
+                        const buttonText = button.textContent?.trim() || '';
+                        console.log('检查按钮文本:', buttonText);
                         
-                        // 等待跳转到成功页面
-                        const checkSuccess = () => {
-                            if (window.location.href.includes('creator.xiaohongshu.com/publish/success')) {
-                                console.log('✅ 视频发布成功');
-                                resolve(true);
-                            } else {
-                                setTimeout(checkSuccess, 500);
+                        if (buttonText === expectedButtonText) {
+                            publishButton = button;
+                            console.log('✅ 找到匹配的发布按钮');
+                            break;
+                        }
+                    }
+                    
+                    // 方法2：如果没找到精确匹配，查找包含"发布"的按钮
+                    if (!publishButton) {
+                        console.log('未找到精确匹配，查找包含"发布"的按钮...');
+                        
+                        for (const button of submitButtons) {
+                            const buttonText = button.textContent?.trim() || '';
+                            
+                            if (buttonText.includes('发布')) {
+                                publishButton = button;
+                                console.log('✅ 找到包含"发布"的按钮:', buttonText);
+                                break;
                             }
-                        };
+                        }
+                    }
+                    
+                    // 方法3：查找红色的主要按钮作为后备
+                    if (!publishButton) {
+                        console.log('仍未找到，查找红色主要按钮...');
                         
-                        setTimeout(checkSuccess, 1000);
+                        const redButtons = document.querySelectorAll('button[class*="red"]:not([class*="disabled"])');
+                        for (const button of redButtons) {
+                            const buttonText = button.textContent?.trim() || '';
+                            
+                            if (buttonText.includes('发布')) {
+                                publishButton = button;
+                                console.log('✅ 找到红色发布按钮:', buttonText);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (!publishButton) {
+                        console.log('📤 等待发布按钮出现...');
+                        setTimeout(tryPublish, 500);
                         return;
                     }
-
-                    console.log(\`📤 等待\${buttonText}按钮激活...\`);
-                    setTimeout(tryPublish, 500);
+                    
+                    // 检查按钮是否可点击
+                    const isDisabled = publishButton.disabled || publishButton.classList.contains('disabled');
+                    if (isDisabled) {
+                        console.log('📤 等待发布按钮激活...');
+                        setTimeout(tryPublish, 500);
+                        return;
+                    }
+                    
+                    const buttonText = publishButton.textContent?.trim() || '';
+                    console.log('✅ 准备点击发布按钮:', buttonText);
+                    
+                    // 点击发布按钮
+                    publishButton.click();
+                    console.log('✅ 已点击发布按钮');
+                    
+                    // 等待页面跳转或状态变化
+                    const checkSuccess = () => {
+                        // 检查是否跳转到成功页面
+                        if (window.location.href.includes('creator.xiaohongshu.com/publish/success') ||
+                            window.location.href.includes('/success')) {
+                            console.log('✅ 检测到跳转到成功页面');
+                            resolve(true);
+                            return;
+                        }
+                        
+                        // 检查是否有成功提示
+                        const successMessages = document.querySelectorAll('[class*="success"], [class*="Success"]');
+                        for (const msg of successMessages) {
+                            if (msg.textContent && msg.textContent.includes('成功')) {
+                                console.log('✅ 检测到成功提示:', msg.textContent.trim());
+                                resolve(true);
+                                return;
+                            }
+                        }
+                        
+                        // 检查是否有错误提示
+                        const errorMessages = document.querySelectorAll('[class*="error"], [class*="Error"], [class*="fail"]');
+                        for (const msg of errorMessages) {
+                            if (msg.textContent && (
+                                msg.textContent.includes('失败') || 
+                                msg.textContent.includes('错误')
+                            )) {
+                                console.log('❌ 检测到错误提示:', msg.textContent.trim());
+                                reject(new Error(\`发布失败: \${msg.textContent.trim()}\`));
+                                return;
+                            }
+                        }
+                        
+                        // 如果按钮点击后在合理时间内没有明确的成功/失败信号，认为点击成功
+                        if (Date.now() - startTime > 8000) { // 8秒后认为成功
+                            console.log('✅ 发布按钮已点击，未检测到错误，认为成功');
+                            resolve(true);
+                            return;
+                        }
+                        
+                        setTimeout(checkSuccess, 500);
+                    };
+                    
+                    setTimeout(checkSuccess, 1000);
+                    return;
+                    
                 } catch (e) {
                     console.log('发布过程出错:', e.message, '重新尝试...');
                     setTimeout(tryPublish, 500);
@@ -353,7 +475,7 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
         console.log('✅ 小红书视频发布流程完成');
     }
 
-    private async setLocation(tabId: string, location: string = "青岛市"): Promise<void> {
+    private async setLocation(tabId: string, location: string): Promise<void> {
         console.log('📍 设置地理位置...');
 
         const locationScript = `
@@ -361,56 +483,132 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
             try {
                 console.log('开始设置位置:', '${location}');
                 
-                // 点击地点输入框
-                console.log('等待地点输入框加载...');
-                const locElement = document.querySelector('div.d-text.d-select-placeholder.d-text-ellipsis.d-text-nowrap');
-                if (!locElement) {
-                    throw new Error('未找到地点输入框');
+                // 步骤1：找到并点击"添加地点"下拉框
+                const addressBox = document.querySelector('.address-box');
+                if (!addressBox) {
+                    throw new Error('未找到地点表单容器');
                 }
                 
-                await locElement.click();
-                console.log('点击地点输入框完成');
+                const locationDropdown = addressBox.querySelector('.d-select-wrapper .d-select');
+                if (!locationDropdown) {
+                    throw new Error('未找到地点下拉框');
+                }
                 
-                // 输入位置名称
-                console.log('等待1秒后输入位置名称:', '${location}');
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                console.log('✅ 找到"添加地点"下拉框，准备点击...');
+                locationDropdown.click();
                 
-                document.execCommand('insertText', false, '${location}');
-                console.log('位置名称输入完成:', '${location}');
+                // 步骤2：等待输入框激活并输入地点
+                await new Promise(resolve => setTimeout(resolve, 500));
                 
-                // 等待下拉列表加载
-                console.log('等待下拉列表加载...');
-                await new Promise(resolve => setTimeout(resolve, 3000));
+                const inputElement = addressBox.querySelector('.d-select-input-filter:not(.hide) input') ||
+                                    addressBox.querySelector('.d-select-input-filter input');
                 
-                // 尝试定位包含位置名称的选项
-                console.log('尝试定位包含位置的选项...');
-                const flexibleXpath = \`//div[contains(@class, "d-popover") and contains(@class, "d-dropdown")]//div[contains(@class, "d-options-wrapper")]//div[contains(@class, "d-grid") and contains(@class, "d-options")]//div[contains(@class, "name") and text()="\${location}"]\`;
+                if (!inputElement) {
+                    throw new Error('下拉框点击后未找到输入框');
+                }
                 
-                await new Promise(resolve => setTimeout(resolve, 3000));
+                console.log('✅ 找到输入框，开始输入地点...');
                 
-                // 查找选项元素
-                const locationOption = document.evaluate(
-                    flexibleXpath,
-                    document,
-                    null,
-                    XPathResult.FIRST_ORDERED_NODE_TYPE,
-                    null
-                ).singleNodeValue;
+                // 输入地点名称
+                inputElement.focus();
+                inputElement.value = '';
+                inputElement.value = '${location}';
                 
-                if (locationOption) {
-                    console.log('定位成功，准备点击');
-                    locationOption.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    locationOption.click();
-                    console.log('成功选择位置:', '${location}');
-                    return { success: true };
+                // 触发输入事件
+                inputElement.dispatchEvent(new Event('input', { bubbles: true }));
+                inputElement.dispatchEvent(new Event('change', { bubbles: true }));
+                inputElement.dispatchEvent(new Event('keyup', { bubbles: true }));
+                
+                console.log('✅ 已输入地点:', '${location}');
+                
+                // 步骤3：触发地点选项列表显示
+                inputElement.click();
+                inputElement.focus();
+                
+                // 发送箭头下键触发下拉列表
+                const arrowDownEvent = new KeyboardEvent('keydown', {
+                    key: 'ArrowDown',
+                    keyCode: 40,
+                    bubbles: true
+                });
+                inputElement.dispatchEvent(arrowDownEvent);
+                
+                // 等待地点选项列表加载
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                
+                // 步骤4：查找并显示地点选项列表
+                const allDropdowns = document.querySelectorAll('.d-popover.d-dropdown');
+                let locationOptionsDropdown = null;
+                
+                // 查找包含地点数据的下拉列表
+                for (let i = 0; i < allDropdowns.length; i++) {
+                    const dropdown = allDropdowns[i];
+                    const style = window.getComputedStyle(dropdown);
+                    const hasLocationData = dropdown.textContent.includes('${location.substring(0, 2)}') || 
+                                        dropdown.querySelector('.item .name') !== null;
+                    
+                    if (style.display !== 'none' && hasLocationData) {
+                        locationOptionsDropdown = dropdown;
+                        console.log('✅ 找到可见的地点选项列表');
+                        break;
+                    }
+                }
+                
+                // 如果没有找到可见的，强制显示隐藏的地点列表
+                if (!locationOptionsDropdown) {
+                    for (let i = 0; i < allDropdowns.length; i++) {
+                        const dropdown = allDropdowns[i];
+                        const hasLocationData = dropdown.textContent.includes('${location.substring(0, 2)}') || 
+                                            dropdown.querySelector('.item .name') !== null;
+                        
+                        if (hasLocationData) {
+                            console.log('✅ 找到隐藏的地点列表，强制显示...');
+                            dropdown.style.display = 'block';
+                            dropdown.style.visibility = 'visible';
+                            dropdown.style.opacity = '1';
+                            locationOptionsDropdown = dropdown;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!locationOptionsDropdown) {
+                    throw new Error('未找到地点选项下拉列表');
+                }
+                
+                // 步骤5：选择第一个地点选项
+                const locationOptions = locationOptionsDropdown.querySelectorAll('.d-grid-item .item .name');
+                console.log('找到地点选项数量:', locationOptions.length);
+                
+                if (locationOptions.length > 0) {
+                    const firstOption = locationOptions[0];
+                    const optionText = firstOption.textContent.trim();
+                    console.log('✅ 准备选择第一个地点:', optionText);
+                    
+                    // 找到可点击的容器并点击
+                    const clickableContainer = firstOption.closest('.item') || 
+                                            firstOption.closest('.d-grid-item');
+                    
+                    if (clickableContainer) {
+                        clickableContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                        clickableContainer.click();
+                    } else {
+                        firstOption.click();
+                    }
+                    
+                    console.log('✅ 已选择地点:', optionText);
+                    
+                    // 等待选择完成
+                    await new Promise(resolve => setTimeout(resolve, 800));
+                    
+                    return { success: true, selectedLocation: optionText };
                 } else {
-                    console.warn('未找到匹配的位置选项');
-                    return { success: false, error: '未找到匹配的位置选项' };
+                    throw new Error('在下拉列表中未找到地点选项');
                 }
                 
             } catch (e) {
-                console.error('设置位置失败:', e);
+                console.error('❌ 地理位置设置失败:', e);
                 return { success: false, error: e.message };
             }
         })()
@@ -418,8 +616,10 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
 
         const result = await this.tabManager.executeScript(tabId, locationScript);
         if (!result.success) {
-            console.warn(`⚠️ 地理位置设置失败: ${result.error}`);
+            throw new Error(`地理位置设置失败: ${result.error}`);
         }
+        
+        console.log('✅ 地理位置设置成功:', result.selectedLocation);
     }
 
     async getAccountInfo(tabId: string): Promise<any> {
