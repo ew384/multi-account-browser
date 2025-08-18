@@ -54,7 +54,7 @@ curl -X POST http://localhost:3409/api/account/create \
   -d '{
     "accountName": "小红薯_3319",
     "platform": "xiaohongshu",
-    "cookieFile": "xiaohongshu_小红薯_3319_1755010749732.json",
+    "cookieFile": "xiaohongshu_剑桥学妹爱学习_1755482013627.json",
     "initialUrl": "https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video"
   }'
 

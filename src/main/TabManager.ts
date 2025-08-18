@@ -577,33 +577,21 @@ export class TabManager {
             console.log(`🚀 创建模拟Chrome认证行为的账号Tab: ${accountName} (${platform})`);
             
             // 🔥 先创建tab但不导航
-            const tabId = await this.createTab(accountName, platform, 'about:blank', headless);
-            
+            //const tabId = await this.createTab(accountName, platform, 'about:blank', headless);
+            const tabId = await this.createTab(accountName, platform, initialUrl, headless);
             // 🔥 先加载cookies
             console.log(`🍪 优先加载Cookie文件: ${cookieFile}`);
             await this.loadAccountCookies(tabId, cookieFile);
             
-            // 🔥 验证关键认证Cookie
-            //const hasValidAuth = await this.validateAuthenticationCookies(tabId, platform);
-            //if (!hasValidAuth) {
-            //    console.warn(`⚠️ 关键认证Cookie不足，但继续执行`);
-            //}
-            
-            console.log(`⏳ 等待Cookie生效...`);
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            //console.log(`⏳ 等待Cookie生效...`);
+            //await new Promise(resolve => setTimeout(resolve, 2000));
             
             // 🔥 Cookie生效后才导航
-            console.log(`🔗 Cookie验证完成，开始导航到: ${initialUrl}`);
-            await this.navigateTab(tabId, initialUrl);
+            //console.log(`🔗 Cookie验证完成，开始导航到: ${initialUrl}`);
+            //await this.navigateTab(tabId, initialUrl);
             
-            console.log(`⏳ 等待页面加载和认证检查...`);
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            
-            // 🔥 验证页面稳定性
-            //const isStable = await this.verifyPageStability(tabId);
-            //if (!isStable) {
-            //    console.warn(`⚠️ 页面存在重定向，但已采取缓解措施`);
-            //}
+            //console.log(`⏳ 等待页面加载和认证检查...`);
+            //await new Promise(resolve => setTimeout(resolve, 3000));
             
             console.log(`✅ 账号Tab创建完成: ${tabId}`);
             return tabId;
@@ -612,75 +600,6 @@ export class TabManager {
             console.error(`❌ 创建账号Tab失败:`, error);
             throw error;
         }
-    }
-    // 新增：验证认证Cookie
-    async validateAuthenticationCookies(tabId: string, platform: string): Promise<boolean> {
-        const tab = this.tabs.get(tabId);
-        if (!tab) return false;
-        
-        try {
-            const domain = platform === 'xiaohongshu' ? '.xiaohongshu.com' : 
-                        platform === 'wechat' ? '.weixin.qq.com' : 
-                        '.qq.com';
-            
-            const cookies = await tab.session.cookies.get({ domain });
-            console.log(`🍪 检查 ${platform} 认证Cookie: 共 ${cookies.length} 个`);
-            
-            // 不同平台的关键Cookie
-            const criticalCookiesByPlatform: Record<string, string[]> = {
-                'xiaohongshu': ['web_session', 'xsecappid', 'a1', 'webId'],
-                'wechat': ['session', 'token', 'openid'],
-                // 其他平台...
-            };
-            
-            const criticalCookies = criticalCookiesByPlatform[platform] || ['session'];
-            const foundCriticalCookies = criticalCookies.filter(name => 
-                cookies.some(cookie => cookie.name === name)
-            );
-            
-            console.log(`🔍 找到关键Cookie: ${foundCriticalCookies.join(', ')}`);
-            
-            return foundCriticalCookies.length >= 1; // 至少需要1个关键Cookie
-            
-        } catch (error) {
-            console.error(`❌ 验证认证Cookie失败:`, error);
-            return false;
-        }
-    }
-
-    // 新增：验证页面稳定性
-    async verifyPageStability(tabId: string, timeoutMs: number = 10000): Promise<boolean> {
-        const tab = this.tabs.get(tabId);
-        if (!tab) return false;
-        
-        let navigationCount = 0;
-        let hasAuth401 = false;
-        
-        const navigationListener = () => {
-            navigationCount++;
-            console.log(`🔄 检测到导航事件 #${navigationCount}`);
-        };
-        
-        tab.webContentsView.webContents.on('did-navigate', navigationListener);
-        
-        // 监听401响应
-        const responseHandler = (details: any) => {
-            if (details.statusCode === 401 && details.url.includes('xiaohongshu.com')) {
-                console.log(`🔐 检测到401响应: ${details.url}`);
-                hasAuth401 = true;
-            }
-        };
-        
-        tab.session.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, responseHandler);
-        
-        await new Promise(resolve => setTimeout(resolve, timeoutMs));
-        
-        tab.webContentsView.webContents.removeListener('did-navigate', navigationListener);
-        
-        const isStable = navigationCount <= 2 && !hasAuth401; // 允许最多2次导航
-        console.log(`📊 页面稳定性检查结果: ${navigationCount} 次导航, 401错误: ${hasAuth401}, 稳定: ${isStable}`);
-        
-        return isStable;
     }
 
     async getOrCreateTab(cookieFile: string, platform: string, initialUrl: string, tabNamePrefix?: string): Promise<string> {
@@ -957,13 +876,13 @@ export class TabManager {
 
     private setupWebContentsViewEvents(tab: AccountTab): void {
         const webContents = tab.webContentsView.webContents;
-        webContents.session.webRequest.onHeadersReceived((details, callback) => {
-            if (details.responseHeaders) {
-                delete details.responseHeaders['content-security-policy'];
-                delete details.responseHeaders['Content-Security-Policy'];
-            }
-            callback({ responseHeaders: details.responseHeaders });
-        });
+        //webContents.session.webRequest.onHeadersReceived((details, callback) => {
+        //    if (details.responseHeaders) {
+        //        delete details.responseHeaders['content-security-policy'];
+        //        delete details.responseHeaders['Content-Security-Policy'];
+        //    }
+        //    callback({ responseHeaders: details.responseHeaders });
+        //});
         let lastLoggedUrl = '';
         webContents.setUserAgent(
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -1537,8 +1456,8 @@ export class TabManager {
             const webContents = tab.webContentsView.webContents;
 
             webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-                // 快速拒绝不必要的权限请求
-                callback(false);
+                const allowedPermissions = ['notifications', 'media','geolocation'];
+                callback(allowedPermissions.includes(permission));
             });
             await webContents.loadURL(url);
 

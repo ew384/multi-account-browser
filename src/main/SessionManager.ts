@@ -42,11 +42,10 @@ export class SessionManager {
         isolatedSession.setPreloads([]);
 
         // 注释掉整个 webRequest 拦截
-        // isolatedSession.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
-        //     // 移除可能导致慢速的头部
-        //     delete details.requestHeaders['X-Requested-With'];
-        //     callback({ requestHeaders: details.requestHeaders });
-        // });
+        isolatedSession.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
+            delete details.requestHeaders['X-Requested-With'];
+            callback({ requestHeaders: details.requestHeaders });
+        });
 
         this.sessions.set(accountId, isolatedSession);
         console.log(`✅ Created isolated session for account: ${accountId}`);
