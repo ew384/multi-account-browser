@@ -19,6 +19,7 @@ export class APIServer {
     private socialAPI: SocialAutomationAPI;
     private messageAPI: MessageAutomationAPI;
     private uploadProgressClients: Map<number, Set<express.Response>> = new Map();
+    private urlChangedNotified: Map<string, boolean> = new Map();
     constructor(automationEngine: AutomationEngine, tabManager: TabManager) {
         this.automationEngine = automationEngine;
         this.tabManager = tabManager;
@@ -307,24 +308,35 @@ export class APIServer {
 
                     try {
                         const loginStatus = this.automationEngine.getLoginStatus(id);
-
                         if (!loginStatus) {
                             clearInterval(checkInterval);
+                            this.urlChangedNotified.delete(id); // 🔥 清理标记
                             if (isConnected) {
                                 res.write(`data: 500\n\n`);
                                 res.end();
                             }
                             return;
                         }
-
-                        if (loginStatus.status === 'completed') {
+                        // 🔥 URL跳转成功，只发送一次 url_changed
+                        if (!this.urlChangedNotified.get(id) && loginStatus.status === 'processing') {
+                            res.write(`data: url_changed\n\n`);
+                            console.log(`📡 SSE发送URL跳转状态: ${id}`);
+                            this.urlChangedNotified.set(id, true);
+                        }
+                        // 🔥 处理完成，断开连接
+                        else if (loginStatus.status === 'completed') {
                             clearInterval(checkInterval);
+                            this.urlChangedNotified.delete(id); // 🔥 清理标记
                             if (isConnected) {
                                 res.write(`data: 200\n\n`);
                                 res.end();
+                                console.log(`📡 SSE发送完成状态并断开: ${id}`);
                             }
-                        } else if (loginStatus.status === 'failed' || loginStatus.status === 'cancelled') {
+                        } 
+                        // 🔥 处理失败，断开连接
+                        else if (loginStatus.status === 'failed' || loginStatus.status === 'cancelled') {
                             clearInterval(checkInterval);
+                            this.urlChangedNotified.delete(id); // 🔥 清理标记
                             if (isConnected) {
                                 res.write(`data: 500\n\n`);
                                 res.end();
@@ -333,6 +345,7 @@ export class APIServer {
                     } catch (error) {
                         console.error(`❌ 登录状态检查错误:`, error);
                         clearInterval(checkInterval);
+                        this.urlChangedNotified.delete(id); // 🔥 清理标记
                         if (isConnected) {
                             res.write(`data: 500\n\n`);
                             res.end();
@@ -343,18 +356,19 @@ export class APIServer {
                 // 5分钟超时
                 setTimeout(() => {
                     clearInterval(checkInterval);
+                    this.urlChangedNotified.delete(id); // 🔥 清理标记
                     if (isConnected && !res.headersSent) {
                         res.write(`data: 500\n\n`);
                         res.end();
                     }
                 }, 300000);
-
             } else {
                 res.write(`data: 500\n\n`);
                 res.end();
             }
         } catch (error) {
             console.error(`❌ 登录启动失败:`, error);
+            this.urlChangedNotified.delete(id); // 🔥 清理标记
             if (isConnected) {
                 res.write(`data: 500\n\n`);
                 res.end();
@@ -1811,7 +1825,7 @@ export class APIServer {
                     });
                 }
                 this.uploadProgressClients.clear();
-                
+                this.urlChangedNotified.clear();
                 // 🔥 新增：清理全局通知器
                 global.uploadProgressNotifier = undefined;
                 console.log('✅ SSE连接已清理');

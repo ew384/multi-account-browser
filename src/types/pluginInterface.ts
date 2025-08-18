@@ -98,13 +98,14 @@ export interface LoginResult {
 export interface LoginStatus {
     userId: string;
     platform: string;
-    status: 'pending' | 'completed' | 'failed' | 'cancelled';
+    status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
     startTime: string;
     endTime?: string;
     tabId?: string;
     qrCodeUrl?: string;
-    cookieFile?: string;        // 🔥 新增
-    accountInfo?: LoginAccountInfo;  // 🔥 新增
+    cookieFile?: string;
+    accountInfo?: LoginAccountInfo;
+    error?: string;
 }
 /**
  * 插件基础接口

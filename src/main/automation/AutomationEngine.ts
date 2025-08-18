@@ -136,13 +136,19 @@ export class AutomationEngine {
                 // 🔥 1. 立即更新登录状态为完成
                 const loginStatus = this.activeLogins.get(userId);
                 if (loginStatus) {
-                    loginStatus.status = 'completed';
+                    loginStatus.status = 'processing';
                     loginStatus.endTime = new Date().toISOString();
                     this.activeLogins.set(userId, loginStatus);
-                    console.log(`✅ 登录状态已更新为完成: ${userId}`);
+                    console.log(`✅ 登录成功，开始后台处理: ${userId}`);
                 }
-
-                // 🔥 2. 小红书特殊处理：分两步执行点击操作
+                // 🔥 2. 立即将tab变为headless
+                try {
+                    await this.tabManager.makeTabHeadless(tabId);
+                    console.log(`🔇 登录成功，tab已转为后台模式: ${userId}`);
+                } catch (error) {
+                    console.warn(`⚠️ 转换headless失败，但继续处理: ${error}`);
+                }
+                // 🔥 3. 小红书特殊处理：分两步执行点击操作
                 if (platform === 'xiaohongshu') {
                     try {
                         console.log('🔗 小红书登录完成，正在点击发布按钮...');
@@ -254,17 +260,13 @@ export class AutomationEngine {
                     }
                 }
 
-                // 🔥 2. 立即将tab变为headless
-                try {
-                    await this.tabManager.makeTabHeadless(tabId);
-                    console.log(`🔇 登录成功，tab已转为后台模式: ${userId}`);
-                } catch (error) {
-                    console.warn(`⚠️ 转换headless失败，但继续处理: ${error}`);
-                }
 
-                // 🔥 3. 获取processor并进行后台处理
+
+                // 🔥 4. 获取processor并进行后台处理
                 const processor = this.pluginManager.getProcessor('login');
                 if (processor) {
+                    console.log(`🔄 开始账号信息处理: ${userId}`);
+                    
                     const completeResult = await processor.process({
                         tabId,
                         userId,
@@ -273,17 +275,27 @@ export class AutomationEngine {
                         accountId: accountId
                     });
 
-                    if (completeResult.success) {
-                        // 更新登录状态的详细信息（但不改变completed状态）
-                        if (loginStatus) {
+                    // 🔥 5. 处理完成后才设置为completed
+                    if (loginStatus) {
+                        if (completeResult.success) {
+                            loginStatus.status = 'completed';
                             loginStatus.cookieFile = completeResult.cookiePath;
                             loginStatus.accountInfo = completeResult.accountInfo;
-                            this.activeLogins.set(userId, loginStatus);
+                            console.log(`✅ 账号处理完全完成: ${userId}`);
+                        } else {
+                            loginStatus.status = 'failed';
+                            loginStatus.error = completeResult.error;
+                            console.log(`❌ 账号处理失败: ${userId}`);
                         }
-                        console.log(`✅ 后台处理完成: ${userId}`);
+                        this.activeLogins.set(userId, loginStatus);
                     }
                 } else {
-                    console.error('❌ 未找到登录处理器插件');
+                    // 🔥 没有processor时也要设置完成状态
+                    if (loginStatus) {
+                        loginStatus.status = 'completed';
+                        this.activeLogins.set(userId, loginStatus);
+                    }
+                    console.warn('❌ 未找到登录处理器插件，跳过后台处理');
                 }
             } else {
                 // URL未变化，登录失败
