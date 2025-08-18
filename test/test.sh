@@ -54,13 +54,22 @@ curl -X POST http://localhost:3409/api/account/create \
   -d '{
     "accountName": "剑桥学妹爱学习",
     "platform": "xiaohongshu",
-    "initialUrl": "https://creator.xiaohongshu.com/login"
+    "initialUrl": "https://www.xiaohongshu.com/login"
   }'
+
+curl -X POST http://localhost:3409/api/account/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accountName": "剑桥学妹爱学习",
+    "platform": "xiaohongshu",
+    "cookieFile": "xiaohongshu_剑桥学妹爱学习_1755515433852.json",
+    "initialUrl": "https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video"
+  }'  
 curl -X POST http://localhost:3409/api/account/save-cookies \
   -H "Content-Type: application/json" \
   -d '{
-    "tabId": "xiaohongshu-1755495328149",
-    "cookieFile": "xiaohongshu_剑桥学妹爱学习-b4.json"
+    "tabId": "xiaohongshu-1755510076733",
+    "cookieFile": "xiaohongshu_3319-home.json"
   }'
 curl -X POST http://localhost:3409/api/account/execute \
 -H "Content-Type: application/json" \

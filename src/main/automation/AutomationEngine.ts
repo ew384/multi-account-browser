@@ -255,12 +255,12 @@ export class AutomationEngine {
                 }
 
                 // 🔥 2. 立即将tab变为headless
-                //try {
-                //    await this.tabManager.makeTabHeadless(tabId);
-                //    console.log(`🔇 登录成功，tab已转为后台模式: ${userId}`);
-                //} catch (error) {
-                //    console.warn(`⚠️ 转换headless失败，但继续处理: ${error}`);
-                //}
+                try {
+                    await this.tabManager.makeTabHeadless(tabId);
+                    console.log(`🔇 登录成功，tab已转为后台模式: ${userId}`);
+                } catch (error) {
+                    console.warn(`⚠️ 转换headless失败，但继续处理: ${error}`);
+                }
 
                 // 🔥 3. 获取processor并进行后台处理
                 const processor = this.pluginManager.getProcessor('login');
@@ -302,15 +302,14 @@ export class AutomationEngine {
                 loginStatus.endTime = new Date().toISOString();
                 this.activeLogins.set(userId, loginStatus);
             }
-        } //finally {
-            // tab关闭逻辑移到这里
-            //try {
-            //    await this.tabManager.closeTab(tabId);
-            //    console.log(`🗑️ 登录完成，已关闭tab: ${tabId}`);
-            //} catch (error) {
-            //    console.error(`❌ 关闭登录tab失败: ${tabId}:`, error);
-            //}
-        //}
+        } finally {
+            try {
+                await this.tabManager.closeTab(tabId);
+                console.log(`🗑️ 登录完成，已关闭tab: ${tabId}`);
+            } catch (error) {
+                console.error(`❌ 关闭登录tab失败: ${tabId}:`, error);
+            }
+        }
     }
 
     getLoginStatus(userId: string): LoginStatus | null {
