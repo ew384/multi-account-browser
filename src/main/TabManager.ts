@@ -577,8 +577,8 @@ export class TabManager {
             console.log(`🚀 创建模拟Chrome认证行为的账号Tab: ${accountName} (${platform})`);
             
             // 🔥 先创建tab但不导航
-            //const tabId = await this.createTab(accountName, platform, 'about:blank', headless);
-            const tabId = await this.createTab(accountName, platform, initialUrl, headless);
+            const tabId = await this.createTab(accountName, platform, 'about:blank', headless);
+            //const tabId = await this.createTab(accountName, platform, initialUrl, headless);
             // 🔥 先加载cookies
             console.log(`🍪 优先加载Cookie文件: ${cookieFile}`);
             await this.loadAccountCookies(tabId, cookieFile);
@@ -588,7 +588,7 @@ export class TabManager {
             
             // 🔥 Cookie生效后才导航
             //console.log(`🔗 Cookie验证完成，开始导航到: ${initialUrl}`);
-            //await this.navigateTab(tabId, initialUrl);
+            await this.navigateTab(tabId, initialUrl);
             
             //console.log(`⏳ 等待页面加载和认证检查...`);
             //await new Promise(resolve => setTimeout(resolve, 3000));

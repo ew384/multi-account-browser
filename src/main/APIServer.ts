@@ -225,11 +225,11 @@ export class APIServer {
     private handleLoginSSE(req: express.Request, res: express.Response): void {
         const type = req.query.type as string;
         const id = (req.query.id as string) || `session_${Date.now()}`;
-        const mode = req.query.mode as string; // 🔥 新增
-        const accountId = req.query.accountId as string; // 🔥 新增
+        const mode = req.query.mode as string;
+        const accountId = req.query.accountId as string;
+        
         console.log(`🔐 SSE登录请求: type=${type}, id=${id}, mode=${mode}, accountId=${accountId}`);
 
-        // 验证参数
         if (!type) {
             res.write(`data: 500\n\n`);
             res.end();
@@ -249,7 +249,7 @@ export class APIServer {
             console.log(`📡 SSE连接断开: ${id}`);
         });
 
-        // 立即启动登录流程
+        // 立即启动登录流程（现在包含完整的监听逻辑）
         this.startLoginAndStream(type, id, res, mode, accountId);
     }
 
@@ -259,7 +259,16 @@ export class APIServer {
         res: express.Response, 
         mode?: string, 
         accountId?: string
-    ) {
+    ): Promise<void> {
+        // 🔥 添加连接状态检查
+        let isConnected = true;
+        
+        // 🔥 监听客户端断开
+        const originalOnClose = res.req.listeners('close');
+        res.req.on('close', () => {
+            isConnected = false;
+        });
+        
         try {
             // 平台类型映射
             const platformMap: Record<string, string> = {
@@ -281,99 +290,78 @@ export class APIServer {
                 isRecover: true,
                 accountId: parseInt(accountId)
             } : undefined;
+            
             const loginResult = await this.automationEngine.startLogin(platform, id, loginOptions);
 
             if (loginResult.success && loginResult.qrCodeUrl) {
                 // 发送二维码URL
                 res.write(`data: ${loginResult.qrCodeUrl}\n\n`);
 
-                // 监听登录完成 - 需要新的方法
-                this.monitorLoginCompletionSSE(id, platform, res, mode, accountId);
+                // 🔥 直接在这里监听登录完成，不调用其他方法
+                const checkInterval = setInterval(() => {
+                    // 检查连接状态
+                    if (!isConnected) {
+                        clearInterval(checkInterval);
+                        return;
+                    }
+
+                    try {
+                        const loginStatus = this.automationEngine.getLoginStatus(id);
+
+                        if (!loginStatus) {
+                            clearInterval(checkInterval);
+                            if (isConnected) {
+                                res.write(`data: 500\n\n`);
+                                res.end();
+                            }
+                            return;
+                        }
+
+                        if (loginStatus.status === 'completed') {
+                            clearInterval(checkInterval);
+                            if (isConnected) {
+                                res.write(`data: 200\n\n`);
+                                res.end();
+                            }
+                        } else if (loginStatus.status === 'failed' || loginStatus.status === 'cancelled') {
+                            clearInterval(checkInterval);
+                            if (isConnected) {
+                                res.write(`data: 500\n\n`);
+                                res.end();
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`❌ 登录状态检查错误:`, error);
+                        clearInterval(checkInterval);
+                        if (isConnected) {
+                            res.write(`data: 500\n\n`);
+                            res.end();
+                        }
+                    }
+                }, 2000);
+
+                // 5分钟超时
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    if (isConnected && !res.headersSent) {
+                        res.write(`data: 500\n\n`);
+                        res.end();
+                    }
+                }, 300000);
+
             } else {
                 res.write(`data: 500\n\n`);
                 res.end();
             }
         } catch (error) {
             console.error(`❌ 登录启动失败:`, error);
-            res.write(`data: 500\n\n`);
-            res.end();
-        }
-    }
-
-    // 新增：专门为SSE的监听方法
-    private async monitorLoginCompletionSSE(
-        userId: string, 
-        platform: string, 
-        res: express.Response,
-        mode?: string,
-        accountId?: string
-    ): Promise<void> {
-        const checkInterval = setInterval(async () => {
-            try {
-                const loginStatus = this.automationEngine.getLoginStatus(userId);
-
-                if (!loginStatus) {
-                    clearInterval(checkInterval);
-                    res.write(`data: 500\n\n`);
-                    res.end();
-                    return;
-                }
-
-                if (loginStatus.status === 'completed') {
-                    clearInterval(checkInterval);
-                    res.write(`data: 200\n\n`);
-                    res.end();
-                } else if (loginStatus.status === 'failed' || loginStatus.status === 'cancelled') {
-                    clearInterval(checkInterval);
-                    res.write(`data: 500\n\n`);
-                    res.end();
-                }
-
-            } catch (error) {
-                console.error(`❌ 登录状态检查错误:`, error);
-                clearInterval(checkInterval);
+            if (isConnected) {
                 res.write(`data: 500\n\n`);
                 res.end();
             }
-        }, 2000);
-
-        // 5分钟超时
-        setTimeout(() => {
-            clearInterval(checkInterval);
-            const loginStatus = this.automationEngine.getLoginStatus(userId);
-            if (loginStatus && loginStatus.status === 'pending') {
-                res.write(`data: 500\n\n`);
-                res.end();
-            }
-        }, 300000);
-    }
-    private async handleRecoveryMode(
-        userId: string, 
-        platform: string, 
-        accountId: string, 
-        loginStatus: any
-    ): Promise<void> {
-        try {
-            console.log(`🔄 处理恢复模式: 账号ID ${accountId}`);
-            
-            if (loginStatus.cookieFile && loginStatus.accountInfo) {
-                // 更新现有账号的Cookie和信息
-                const updated = await AccountStorage.updateAccountCookie(
-                    parseInt(accountId),
-                    loginStatus.cookieFile,
-                    loginStatus.accountInfo
-                );
-                
-                if (updated) {
-                    console.log(`✅ 账号恢复成功: ID ${accountId}`);
-                } else {
-                    console.error(`❌ 账号恢复失败: ID ${accountId}`);
-                }
-            }
-        } catch (error) {
-            console.error('❌ 处理恢复模式失败:', error);
         }
     }
+
     private setupSystemAndTabRoutes(): void {
         this.app.post('/api/automation/get-account-info', async (req, res) => {
             try {

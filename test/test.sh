@@ -52,12 +52,16 @@ curl -X POST http://localhost:3409/api/account/create \
 curl -X POST http://localhost:3409/api/account/create \
   -H "Content-Type: application/json" \
   -d '{
-    "accountName": "小红薯_3319",
+    "accountName": "剑桥学妹爱学习",
     "platform": "xiaohongshu",
-    "cookieFile": "xiaohongshu_剑桥学妹爱学习_1755482013627.json",
-    "initialUrl": "https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video"
+    "initialUrl": "https://creator.xiaohongshu.com/login"
   }'
-
+curl -X POST http://localhost:3409/api/account/save-cookies \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tabId": "xiaohongshu-1755495328149",
+    "cookieFile": "xiaohongshu_剑桥学妹爱学习-b4.json"
+  }'
 curl -X POST http://localhost:3409/api/account/execute \
 -H "Content-Type: application/json" \
 -d '{

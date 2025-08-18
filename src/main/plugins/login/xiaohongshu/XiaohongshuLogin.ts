@@ -45,7 +45,7 @@ export class XiaohongshuLogin implements PluginLogin {
             const tabId = await this.tabManager.createTab(
                 `小红书登录_${params.userId}`,
                 'xiaohongshu',
-                'https://creator.xiaohongshu.com/'
+                'https://www.xiaohongshu.com/login'
             );
 
             console.log(`📱 小红书登录标签页已创建: ${tabId}`);
@@ -54,7 +54,7 @@ export class XiaohongshuLogin implements PluginLogin {
             const qrCodeUrl = await this.getQRCode(tabId);
 
             if (!qrCodeUrl) {
-                await this.tabManager.closeTab(tabId);
+                //await this.tabManager.closeTab(tabId);
                 return {
                     success: false,
                     error: '未找到登录二维码'
@@ -116,9 +116,60 @@ export class XiaohongshuLogin implements PluginLogin {
     }
 
     /**
-     * 🔥 获取二维码（修复版本）
+     * 🔥 获取二维码
      */
     private async getQRCode(tabId: string): Promise<string | null> {
+        console.log('🔍 查找小红书登录二维码...');
+
+        const qrCodeScript = `
+            (async function() {
+                console.log('🔍 开始查找小红书二维码...');
+                
+                // 直接查找二维码图片
+                const qrImage = document.querySelector('.qrcode-img');
+                
+                if (qrImage && qrImage.src) {
+                    console.log('✅ 找到二维码图片');
+                    console.log('📏 图片尺寸:', qrImage.offsetWidth + 'x' + qrImage.offsetHeight);
+                    
+                    // 检查是否是base64格式的二维码
+                    if (qrImage.src.startsWith('data:image/')) {
+                        console.log('✅ 确认是base64格式的二维码');
+                        return qrImage.src;
+                    } else {
+                        console.log('⚠️ 不是base64格式，返回URL:', qrImage.src.substring(0, 100));
+                        return qrImage.src;
+                    }
+                } else {
+                    console.log('❌ 未找到 .qrcode-img 元素');
+                    
+                    // 备选方案：查找父容器内的图片
+                    const qrContainer = document.querySelector('.qrcode');
+                    if (qrContainer) {
+                        console.log('🔍 找到二维码容器，查找内部图片...');
+                        const imgInContainer = qrContainer.querySelector('img');
+                        if (imgInContainer && imgInContainer.src) {
+                            console.log('✅ 在容器内找到图片');
+                            return imgInContainer.src;
+                        }
+                    }
+                    
+                    console.log('❌ 完全未找到二维码');
+                    return null;
+                }
+            })()
+        `;
+
+        try {
+            const qrCodeUrl = await this.tabManager.executeScript(tabId, qrCodeScript);
+            return qrCodeUrl;
+        } catch (error) {
+            console.warn('二维码获取失败:', error);
+            return null;
+        }
+    }
+    /*
+    private async getQRCode_creatorPage(tabId: string): Promise<string | null> {
         console.log('🔍 查找小红书登录二维码...');
 
         const qrCodeScript = `
@@ -134,7 +185,7 @@ export class XiaohongshuLogin implements PluginLogin {
                 clickElement.click();
                 
                 // 2. 等待二维码出现，最多等待10秒
-                for (let i = 0; i < 10; i++) {
+                for (let i = 0; i < 20; i++) {
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     
                     // 查找二维码图片 - 160x160的正方形图片
@@ -172,5 +223,7 @@ export class XiaohongshuLogin implements PluginLogin {
             console.warn('二维码获取失败:', error);
             return null;
         }
-    }
+            
+    }*/
+        
 }

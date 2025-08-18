@@ -199,6 +199,9 @@ export class LoginCompleteProcessor implements PluginProcessor {
         realAccountName?: string  // 🔥 新增参数
     ): Promise<string | null> {
         try {
+        console.log('⏳ 等待认证cookies完全设置...');
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 增加到2秒
+     
             // 确保Cookie目录存在
             await fs.promises.mkdir(Config.COOKIE_DIR, { recursive: true });
 

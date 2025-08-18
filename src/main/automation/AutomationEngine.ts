@@ -141,14 +141,97 @@ export class AutomationEngine {
                     this.activeLogins.set(userId, loginStatus);
                     console.log(`✅ 登录状态已更新为完成: ${userId}`);
                 }
+                // 🔥 3. 小红书特殊处理：分两步执行点击操作
+                if (platform === 'xiaohongshu') {
+                    try {
+                        console.log('🔗 小红书登录完成，正在点击发布按钮...');
+                        
+                        // 第一步：点击发布按钮
+                        const clickPublishScript = `
+                            (function() {
+                                console.log('🔍 查找小红书发布按钮...');
+                                
+                                const publishLink = document.querySelector('a[href*="creator.xiaohongshu.com/publish"]');
+                                
+                                if (publishLink) {
+                                    console.log('✅ 找到发布按钮，准备点击');
+                                    publishLink.click();
+                                    console.log('✅ 发布按钮已点击');
+                                    return true;
+                                } else {
+                                    console.log('❌ 未找到发布按钮');
+                                    return false;
+                                }
+                            })()
+                        `;
+
+                        const clickResult = await this.tabManager.executeScript(tabId, clickPublishScript);
+                        
+                        if (clickResult) {
+                            console.log('✅ 小红书发布按钮点击成功');
+                            
+                            // 等待页面跳转完成
+                            console.log('⏳ 等待发布页面加载完成...');
+                            await new Promise(resolve => setTimeout(resolve, 3000));
+                            
+                            // 第二步：在新页面点击首页按钮
+                            console.log('🔗 开始在发布页面点击首页按钮...');
+                            
+                            const clickHomeScript = `
+                                (function() {
+                                    console.log('🔍 在发布页面查找首页按钮...');
+                                    
+                                    // 通过文本内容查找首页按钮
+                                    const allSpans = document.querySelectorAll('span');
+                                    for (const span of allSpans) {
+                                        if (span.textContent.trim() === '首页') {
+                                            console.log('✅ 在发布页面找到首页按钮');
+                                            console.log('📝 按钮文本:', span.textContent.trim());
+                                            
+                                            // 查找可点击的父元素
+                                            const clickableParent = span.closest('.menu-item') || span.closest('div[class*="menu"]') || span.closest('a');
+                                            if (clickableParent) {
+                                                console.log('✅ 找到可点击的父元素:', clickableParent.className);
+                                                clickableParent.click();
+                                                console.log('✅ 首页按钮已点击');
+                                                return true;
+                                            } else {
+                                                // 直接点击span
+                                                span.click();
+                                                console.log('✅ 直接点击span元素');
+                                                return true;
+                                            }
+                                        }
+                                    }
+                                    console.log('❌ 在发布页面未找到首页按钮');
+                                    return false;
+                                })()
+                            `;
+                            
+                            const homeClickResult = await this.tabManager.executeScript(tabId, clickHomeScript);
+                            
+                            if (homeClickResult) {
+                                console.log('✅ 小红书首页按钮点击成功');
+                            } else {
+                                console.warn('⚠️ 小红书首页按钮点击失败，但继续处理');
+                            }
+                            
+                        } else {
+                            console.warn('⚠️ 小红书发布按钮点击失败，但继续处理');
+                        }
+                        
+                    } catch (clickError) {
+                        console.warn('⚠️ 小红书按钮点击异常，但继续处理:', clickError);
+                    }
+                }
 
                 // 🔥 2. 立即将tab变为headless
-                try {
-                    await this.tabManager.makeTabHeadless(tabId);
-                    console.log(`🔇 登录成功，tab已转为后台模式: ${userId}`);
-                } catch (error) {
-                    console.warn(`⚠️ 转换headless失败，但继续处理: ${error}`);
-                }
+                //try {
+                //    await this.tabManager.makeTabHeadless(tabId);
+                //    console.log(`🔇 登录成功，tab已转为后台模式: ${userId}`);
+                //} catch (error) {
+                //    console.warn(`⚠️ 转换headless失败，但继续处理: ${error}`);
+                //}
 
                 // 🔥 3. 获取processor并进行后台处理
                 const processor = this.pluginManager.getProcessor('login');
@@ -190,15 +273,15 @@ export class AutomationEngine {
                 loginStatus.endTime = new Date().toISOString();
                 this.activeLogins.set(userId, loginStatus);
             }
-        } finally {
+        } //finally {
             // tab关闭逻辑移到这里
-            try {
-                await this.tabManager.closeTab(tabId);
-                console.log(`🗑️ 登录完成，已关闭tab: ${tabId}`);
-            } catch (error) {
-                console.error(`❌ 关闭登录tab失败: ${tabId}:`, error);
-            }
-        }
+            //try {
+            //    await this.tabManager.closeTab(tabId);
+            //    console.log(`🗑️ 登录完成，已关闭tab: ${tabId}`);
+            //} catch (error) {
+            //    console.error(`❌ 关闭登录tab失败: ${tabId}:`, error);
+            //}
+        //}
     }
 
     getLoginStatus(userId: string): LoginStatus | null {
