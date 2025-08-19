@@ -15,21 +15,20 @@ export class XiaohongshuValidator implements PluginValidator {
     async validateTab(tabId: string): Promise<boolean> {
         try {
             await new Promise(resolve => setTimeout(resolve, 3000));
-
-            // 检查URL重定向
+            
+            // 检查URL是否包含登录相关路径
             const currentUrl = await this.tabManager.executeScript(tabId, 'window.location.href');
-            if (currentUrl.includes('/login') || currentUrl.includes('/signin')) {
+            if (currentUrl.includes('/login')) {
                 return false; // 如果在登录页面，说明未登录
             }
-
-            // 修复：使用document.body.textContent或document.documentElement.textContent
-            const hasLoginButton = await this.tabManager.executeScript(tabId, `
+            
+            // 检查页面文本内容
+            const hasLoginText = await this.tabManager.executeScript(tabId, `
                 const textContent = document.body?.textContent || document.documentElement?.textContent || '';
-                textContent.includes('手机号登录') || textContent.includes('扫码登录')
+                textContent.includes('手机号登录') || textContent.includes('新用户可直接登录')
             `);
-
-            return !hasLoginButton;
-
+            
+            return !hasLoginText; // 有登录文本则返回false（未登录）
         } catch (error) {
             console.error('小红书Tab验证失败:', error);
             return false;

@@ -137,10 +137,41 @@ export class XiaoHongShuVideoUploader implements PluginUploader {
         await this.tabManager.executeScript(tabId, waitScript);
     }
 
+    private async clickPublishButton(tabId: string): Promise<void> {
+        console.log('🔍 点击小红书发布按钮...');
 
+        const clickPublishScript = `
+        (function() {
+            console.log('🔍 查找小红书发布按钮...');
+            
+            const publishLink = document.querySelector('a[href*="creator.xiaohongshu.com/publish"]');
+            
+            if (publishLink) {
+                console.log('✅ 找到发布按钮，准备点击');
+                publishLink.click();
+                console.log('✅ 发布按钮已点击');
+                return true;
+            } else {
+                console.log('❌ 未找到发布按钮');
+                return false;
+            }
+        })()
+        `;
+
+        const clickResult = await this.tabManager.executeScript(tabId, clickPublishScript);
+        
+        if (!clickResult) {
+            throw new Error('未找到或点击发布按钮失败');
+        }
+
+        // 等待页面加载
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        console.log('✅ 发布按钮点击完成，页面已加载');
+    }
     async uploadVideoComplete(params: UploadParams, tabId: string): Promise<{ success: boolean; tabId?: string }> {
         try {
-
+            // 🔥 0. 点击页面发布按钮
+            await this.clickPublishButton(tabId);
             // 🔥 1. 使用修复版的文件上传
             await this.uploadFile(params.filePath, tabId);
 

@@ -181,80 +181,14 @@ export class AutomationEngine {
                             console.log('⏳ 等待发布页面加载完成...');
                             await new Promise(resolve => setTimeout(resolve, 5000)); // 增加到5秒
                             
-                            // 第二步：在新页面点击首页按钮（增加重试机制）
-                            console.log('🔗 开始在发布页面点击首页按钮...');
-                            
-                            const clickHomeScript = `
-                                (async function() {
-                                    console.log('🔍 在发布页面查找首页按钮...');
-                                    
-                                    // 重试机制：最多尝试3次，每次间隔2秒
-                                    for (let attempt = 1; attempt <= 5; attempt++) {
-                                        console.log('🔄 尝试第' + attempt + '次查找首页按钮...');
-                                        
-                                        // 通过文本内容查找首页按钮
-                                        const allSpans = document.querySelectorAll('span');
-                                        for (const span of allSpans) {
-                                            if (span.textContent.trim() === '首页') {
-                                                console.log('✅ 在发布页面找到首页按钮 (第' + attempt + '次尝试)');
-                                                console.log('📝 按钮文本:', span.textContent.trim());
-                                                
-                                                // 查找可点击的父元素
-                                                const clickableParent = span.closest('.menu-item') || span.closest('div[class*="menu"]') || span.closest('a') || span.closest('[class*="nav"]');
-                                                if (clickableParent) {
-                                                    console.log('✅ 找到可点击的父元素:', clickableParent.className);
-                                                    clickableParent.click();
-                                                    console.log('✅ 首页按钮已点击');
-                                                    return true;
-                                                } else {
-                                                    // 直接点击span
-                                                    span.click();
-                                                    console.log('✅ 直接点击span元素');
-                                                    return true;
-                                                }
-                                            }
-                                        }
-                                        
-                                        console.log('❌ 第' + attempt + '次未找到首页按钮');
-                                        
-                                        // 如果不是最后一次尝试，等待2秒再重试
-                                        if (attempt < 5) {
-                                            console.log('⏳ 等待2秒后重试...');
-                                            await new Promise(resolve => setTimeout(resolve, 2000));
-                                        }
-                                    }
-                                    
-                                    // 所有尝试都失败，输出调试信息
-                                    console.log('❌ 所有尝试都失败，输出调试信息...');
-                                    console.log('🔍 当前页面URL:', window.location.href);
-                                    console.log('🔍 当前页面标题:', document.title);
-                                    
-                                    // 查找所有可能的菜单元素
-                                    const menuElements = document.querySelectorAll('[class*="menu"], [class*="nav"], [class*="sidebar"]');
-                                    console.log('🔍 找到的菜单元素数量:', menuElements.length);
-                                    
-                                    menuElements.forEach((element, index) => {
-                                        if (element.textContent && element.textContent.includes('首页')) {
-                                            console.log('📍 包含"首页"的元素' + index + ':', element.className, element.textContent.trim().substring(0, 50));
-                                        }
-                                    });
-                                    
-                                    return false;
-                                })()
-                            `;
-                            
-                            const homeClickResult = await this.tabManager.executeScript(tabId, clickHomeScript);
-                            
-                            if (homeClickResult) {
-                                console.log('✅ 小红书首页按钮点击成功');
-                            } else {
-                                console.warn('⚠️ 小红书首页按钮点击失败，但继续处理');
+                            console.log('🔗 直接导航到小红书首页...');
+                            try {
+                                await this.tabManager.navigateTab(tabId, 'https://creator.xiaohongshu.com/new/home?source=official');
+                                console.log('✅ 小红书首页导航成功');
+                            } catch (navError) {
+                                console.warn('⚠️ 小红书首页导航失败，但继续处理:', navError);
                             }
-                            
-                        } else {
-                            console.warn('⚠️ 小红书发布按钮点击失败，但继续处理');
                         }
-                        
                     } catch (clickError) {
                         console.warn('⚠️ 小红书按钮点击异常，但继续处理:', clickError);
                     }
@@ -1096,7 +1030,7 @@ export class AutomationEngine {
     private getPlatformUrl(platform: string): string {
         const platformUrls: Record<string, string> = {
             'wechat': 'https://channels.weixin.qq.com/platform/post/create',
-            'xiaohongshu': 'https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video',
+            'xiaohongshu': 'https://www.xiaohongshu.com/login',
             'douyin': 'https://creator.douyin.com/creator-micro/content/upload',
             'kuaishou': 'https://cp.kuaishou.com/article/publish/video'
         };
