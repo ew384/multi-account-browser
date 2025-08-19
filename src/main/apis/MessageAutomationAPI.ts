@@ -1,51 +1,234 @@
-// src/main/apis/MessageAutomationAPI.ts
-
+// src/main/apis/MessageAutomationAPI.ts - MVP简化版本
 
 import { Request, Response } from 'express';
+import * as express from 'express';
 import { MessageAutomationEngine } from '../automation/MessageAutomationEngine';
 import { TabManager } from '../TabManager';
-import {
-    MessageSyncParams,
-    MessageSendParams,
-    BatchMessageSyncRequest,
-    BatchMessageSendRequest,
-    MessageScheduleConfig
-} from '../../types/pluginInterface';
 import { AutomationEngine } from '../automation/AutomationEngine';
+
 export class MessageAutomationAPI {
+    private router = express.Router();
     private messageEngine: MessageAutomationEngine;
 
-    constructor(tabManager: TabManager,automationEngine: AutomationEngine) {
+    constructor(tabManager: TabManager, automationEngine: AutomationEngine) {
         this.messageEngine = new MessageAutomationEngine(tabManager, automationEngine);
-        console.log('✅ MessageAutomationAPI 已初始化');
+        this.setupRoutes();
+        console.log('✅ MessageAutomationAPI MVP 已初始化');
     }
 
     /**
-     * 获取消息引擎实例（供其他模块使用）
+     * 🔥 MVP路由设置 - 只包含核心功能
      */
-    getMessageEngine(): MessageAutomationEngine {
-        return this.messageEngine;
+    private setupRoutes(): void {
+        // 🔥 事件驱动监听管理
+        this.router.post('/monitoring/start', this.handleStartMonitoring.bind(this));
+        this.router.post('/monitoring/stop', this.handleStopMonitoring.bind(this));
+        this.router.post('/monitoring/batch-start', this.handleStartBatchMonitoring.bind(this));
+        this.router.post('/monitoring/stop-all', this.handleStopAllMonitoring.bind(this));
+        this.router.get('/monitoring/status', this.handleGetMonitoringStatus.bind(this));
+
+        // 🔥 手动消息同步（原有功能保留）
+        this.router.post('/sync', this.handleSyncMessages.bind(this));
+        this.router.post('/sync/batch', this.handleBatchSyncMessages.bind(this));
+
+        // 🔥 消息发送
+        this.router.post('/send', this.handleSendMessage.bind(this));
+        this.router.post('/send/batch', this.handleBatchSendMessages.bind(this));
+
+        // 🔥 消息查询
+        this.router.get('/threads', this.handleGetMessageThreads.bind(this));
+        this.router.get('/threads/:threadId/messages', this.handleGetThreadMessages.bind(this));
+        this.router.post('/messages/mark-read', this.handleMarkMessagesAsRead.bind(this));
+
+        // 🔥 搜索和统计
+        this.router.get('/search', this.handleSearchMessages.bind(this));
+        this.router.get('/statistics', this.handleGetMessageStatistics.bind(this));
+        this.router.get('/unread-count', this.handleGetUnreadCount.bind(this));
+
+        // 🔥 系统状态
+        this.router.get('/engine/status', this.handleGetEngineStatus.bind(this));
+        this.router.get('/platforms', this.handleGetSupportedPlatforms.bind(this));
     }
 
-    // ==================== 消息同步相关API ====================
+    // ==================== 事件驱动监听API ====================
 
     /**
-     * 🔥 POST /api/messages/sync - 同步单个平台消息
+     * 🔥 启动消息监听
      */
-    async syncMessages(req: Request, res: Response): Promise<void> {
+    async handleStartMonitoring(req: Request, res: Response): Promise<void> {
+        try {
+            const { platform, accountId, cookieFile, headless = true } = req.body;
+
+            if (!platform || !accountId || !cookieFile) {
+                res.status(400).json({
+                    success: false,
+                    error: '缺少必需参数: platform, accountId, cookieFile'
+                });
+                return;
+            }
+
+            console.log(`🚀 API: 启动消息监听 - ${platform}_${accountId}`);
+
+            const result = await this.messageEngine.startMessageMonitoring({
+                platform, accountId, cookieFile, headless
+            });
+
+            res.json({
+                success: result.success,
+                data: {
+                    accountKey: `${platform}_${accountId}`,
+                    tabId: result.tabId,
+                    startedAt: new Date().toISOString(),
+                    ...(result.error && { error: result.error })
+                }
+            });
+
+        } catch (error) {
+            console.error('❌ 启动监听API失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error'
+            });
+        }
+    }
+
+    /**
+     * 🔥 停止消息监听
+     */
+    async handleStopMonitoring(req: Request, res: Response): Promise<void> {
+        try {
+            const { accountKey } = req.body;
+
+            if (!accountKey) {
+                res.status(400).json({
+                    success: false,
+                    error: '缺少必需参数: accountKey'
+                });
+                return;
+            }
+
+            console.log(`⏹️ API: 停止消息监听 - ${accountKey}`);
+
+            const success = await this.messageEngine.stopMessageMonitoring(accountKey);
+
+            res.json({
+                success: success,
+                data: {
+                    accountKey,
+                    stoppedAt: new Date().toISOString()
+                }
+            });
+
+        } catch (error) {
+            console.error('❌ 停止监听API失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error'
+            });
+        }
+    }
+
+    /**
+     * 🔥 批量启动监听
+     */
+    async handleStartBatchMonitoring(req: Request, res: Response): Promise<void> {
+        try {
+            const { accounts } = req.body;
+
+            if (!accounts || !Array.isArray(accounts)) {
+                res.status(400).json({
+                    success: false,
+                    error: '缺少必需参数: accounts (array)'
+                });
+                return;
+            }
+
+            console.log(`🚀 API: 批量启动监听 - ${accounts.length} 个账号`);
+
+            const result = await this.messageEngine.startBatchMonitoring(accounts);
+
+            res.json({
+                success: result.success > 0,
+                data: result
+            });
+
+        } catch (error) {
+            console.error('❌ 批量启动监听API失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error'
+            });
+        }
+    }
+
+    /**
+     * 🔥 停止所有监听
+     */
+    async handleStopAllMonitoring(req: Request, res: Response): Promise<void> {
+        try {
+            console.log('⏹️ API: 停止所有监听');
+
+            const result = await this.messageEngine.stopAllMonitoring();
+
+            res.json({
+                success: true,
+                data: result
+            });
+
+        } catch (error) {
+            console.error('❌ 停止所有监听API失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error'
+            });
+        }
+    }
+
+    /**
+     * 🔥 获取监听状态
+     */
+    async handleGetMonitoringStatus(req: Request, res: Response): Promise<void> {
+        try {
+            const status = this.messageEngine.getActiveMonitoringStatus();
+
+            res.json({
+                success: true,
+                data: {
+                    monitoring: status,
+                    summary: {
+                        total: status.length,
+                        active: status.filter(s => s.isMonitoring).length
+                    }
+                }
+            });
+
+        } catch (error) {
+            console.error('❌ 获取监听状态API失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error'
+            });
+        }
+    }
+
+    // ==================== 原有核心API（保持不变） ====================
+
+    /**
+     * 🔥 手动同步消息
+     */
+    async handleSyncMessages(req: Request, res: Response): Promise<void> {
         try {
             const { platform, accountName, cookieFile } = req.body;
 
             if (!platform || !accountName || !cookieFile) {
                 res.status(400).json({
                     success: false,
-                    error: '缺少必需参数: platform, accountName, cookieFile',
-                    code: 'MISSING_PARAMS'
+                    error: '缺少必需参数: platform, accountName, cookieFile'
                 });
                 return;
             }
 
-            console.log(`🔄 API请求: 同步 ${platform} 消息 - ${accountName}`);
+            console.log(`🔄 API: 同步消息 - ${platform} ${accountName}`);
 
             const result = await this.messageEngine.syncPlatformMessages(
                 platform,
@@ -55,84 +238,67 @@ export class MessageAutomationAPI {
 
             res.json({
                 success: result.success,
-                data: result,
-                timestamp: new Date().toISOString()
+                data: result
             });
 
         } catch (error) {
             console.error('❌ 同步消息API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'SYNC_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
     /**
-     * 🔥 POST /api/messages/batch-sync - 批量同步消息
+     * 🔥 批量同步消息
      */
-    async batchSyncMessages(req: Request, res: Response): Promise<void> {
+    async handleBatchSyncMessages(req: Request, res: Response): Promise<void> {
         try {
-            const request: BatchMessageSyncRequest = req.body;
+            const request = req.body;
 
-            if (!request.platform || !request.accounts || request.accounts.length === 0) {
+            if (!request.platform || !request.accounts) {
                 res.status(400).json({
                     success: false,
-                    error: '缺少必需参数: platform, accounts',
-                    code: 'MISSING_PARAMS'
+                    error: '缺少必需参数: platform, accounts'
                 });
                 return;
             }
 
-            console.log(`🔄 API请求: 批量同步 ${request.platform} 消息 - ${request.accounts.length} 个账号`);
+            console.log(`🔄 API: 批量同步消息 - ${request.platform} ${request.accounts.length} 个账号`);
 
             const result = await this.messageEngine.batchSyncMessages(request);
 
             res.json({
                 success: result.success,
-                data: result,
-                timestamp: new Date().toISOString()
+                data: result
             });
 
         } catch (error) {
             console.error('❌ 批量同步消息API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'BATCH_SYNC_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
-    // ==================== 消息发送相关API ====================
-
     /**
-     * 🔥 POST /api/messages/send - 发送单条消息
+     * 🔥 发送消息
      */
-    async sendMessage(req: Request, res: Response): Promise<void> {
+    async handleSendMessage(req: Request, res: Response): Promise<void> {
         try {
             const { platform, tabId, userName, content, type, accountId } = req.body;
 
             if (!platform || !tabId || !userName || !content || !type) {
                 res.status(400).json({
                     success: false,
-                    error: '缺少必需参数: platform, tabId, userName, content, type',
-                    code: 'MISSING_PARAMS'
+                    error: '缺少必需参数: platform, tabId, userName, content, type'
                 });
                 return;
             }
 
-            if (!['text', 'image'].includes(type)) {
-                res.status(400).json({
-                    success: false,
-                    error: 'type 必须是 text 或 image',
-                    code: 'INVALID_TYPE'
-                });
-                return;
-            }
-
-            console.log(`📤 API请求: 发送 ${platform} 消息 - ${userName} (${type})`);
+            console.log(`📤 API: 发送消息 - ${platform} ${userName} (${type})`);
 
             const result = await this.messageEngine.sendPlatformMessage(
                 platform,
@@ -145,66 +311,59 @@ export class MessageAutomationAPI {
 
             res.json({
                 success: result.success,
-                data: result,
-                timestamp: new Date().toISOString()
+                data: result
             });
 
         } catch (error) {
             console.error('❌ 发送消息API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'SEND_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
     /**
-     * 🔥 POST /api/messages/batch-send - 批量发送消息
+     * 🔥 批量发送消息
      */
-    async batchSendMessages(req: Request, res: Response): Promise<void> {
+    async handleBatchSendMessages(req: Request, res: Response): Promise<void> {
         try {
-            const request: BatchMessageSendRequest = req.body;
+            const request = req.body;
 
-            if (!request.platform || !request.messages || request.messages.length === 0) {
+            if (!request.platform || !request.messages) {
                 res.status(400).json({
                     success: false,
-                    error: '缺少必需参数: platform, messages',
-                    code: 'MISSING_PARAMS'
+                    error: '缺少必需参数: platform, messages'
                 });
                 return;
             }
 
-            console.log(`📤 API请求: 批量发送 ${request.platform} 消息 - ${request.messages.length} 条`);
+            console.log(`📤 API: 批量发送消息 - ${request.platform} ${request.messages.length} 条`);
 
             const result = await this.messageEngine.batchSendMessages(request);
 
             res.json({
                 success: result.success,
-                data: result,
-                timestamp: new Date().toISOString()
+                data: result
             });
 
         } catch (error) {
             console.error('❌ 批量发送消息API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'BATCH_SEND_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
-    // ==================== 消息查询相关API ====================
-
     /**
-     * 🔥 GET /api/messages/threads - 获取消息线程列表
+     * 🔥 获取消息线程
      */
-    async getMessageThreads(req: Request, res: Response): Promise<void> {
+    async handleGetMessageThreads(req: Request, res: Response): Promise<void> {
         try {
             const { platform, accountId } = req.query;
 
-            console.log(`📋 API请求: 获取消息线程 - ${platform || 'all'}`);
+            console.log('📋 API: 获取消息线程');
 
             const threads = await this.messageEngine.getAllMessageThreads(
                 platform as string,
@@ -216,24 +375,22 @@ export class MessageAutomationAPI {
                 data: {
                     threads: threads,
                     total: threads.length
-                },
-                timestamp: new Date().toISOString()
+                }
             });
 
         } catch (error) {
             console.error('❌ 获取消息线程API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'GET_THREADS_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
     /**
-     * 🔥 GET /api/messages/thread/:threadId - 获取指定线程的消息
+     * 🔥 获取线程消息
      */
-    async getThreadMessages(req: Request, res: Response): Promise<void> {
+    async handleGetThreadMessages(req: Request, res: Response): Promise<void> {
         try {
             const { threadId } = req.params;
             const { limit = 50, offset = 0 } = req.query;
@@ -241,13 +398,12 @@ export class MessageAutomationAPI {
             if (!threadId || isNaN(Number(threadId))) {
                 res.status(400).json({
                     success: false,
-                    error: '无效的 threadId',
-                    code: 'INVALID_THREAD_ID'
+                    error: '无效的 threadId'
                 });
                 return;
             }
 
-            console.log(`📋 API请求: 获取线程消息 - ${threadId}`);
+            console.log(`📋 API: 获取线程消息 - ${threadId}`);
 
             const messages = await this.messageEngine.getThreadMessages(
                 Number(threadId),
@@ -260,40 +416,35 @@ export class MessageAutomationAPI {
                 data: {
                     threadId: Number(threadId),
                     messages: messages,
-                    count: messages.length,
-                    limit: Number(limit),
-                    offset: Number(offset)
-                },
-                timestamp: new Date().toISOString()
+                    count: messages.length
+                }
             });
 
         } catch (error) {
             console.error('❌ 获取线程消息API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'GET_MESSAGES_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
     /**
-     * 🔥 POST /api/messages/mark-read - 标记消息为已读
+     * 🔥 标记消息已读
      */
-    async markMessagesAsRead(req: Request, res: Response): Promise<void> {
+    async handleMarkMessagesAsRead(req: Request, res: Response): Promise<void> {
         try {
             const { threadId, messageIds } = req.body;
 
             if (!threadId || isNaN(Number(threadId))) {
                 res.status(400).json({
                     success: false,
-                    error: '无效的 threadId',
-                    code: 'INVALID_THREAD_ID'
+                    error: '无效的 threadId'
                 });
                 return;
             }
 
-            console.log(`✅ API请求: 标记消息已读 - 线程 ${threadId}`);
+            console.log(`✅ API: 标记消息已读 - 线程 ${threadId}`);
 
             const success = await this.messageEngine.markMessagesAsRead(
                 Number(threadId),
@@ -304,39 +455,35 @@ export class MessageAutomationAPI {
                 success: success,
                 data: {
                     threadId: Number(threadId),
-                    messageIds: messageIds,
-                    markedAt: new Date().toISOString()
-                },
-                timestamp: new Date().toISOString()
+                    messageIds: messageIds
+                }
             });
 
         } catch (error) {
             console.error('❌ 标记消息已读API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'MARK_READ_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
     /**
-     * 🔥 GET /api/messages/search - 搜索消息
+     * 🔥 搜索消息
      */
-    async searchMessages(req: Request, res: Response): Promise<void> {
+    async handleSearchMessages(req: Request, res: Response): Promise<void> {
         try {
             const { platform, accountId, keyword, limit = 20 } = req.query;
 
             if (!platform || !accountId || !keyword) {
                 res.status(400).json({
                     success: false,
-                    error: '缺少必需参数: platform, accountId, keyword',
-                    code: 'MISSING_PARAMS'
+                    error: '缺少必需参数: platform, accountId, keyword'
                 });
                 return;
             }
 
-            console.log(`🔍 API请求: 搜索消息 - ${keyword}`);
+            console.log(`🔍 API: 搜索消息 - ${keyword}`);
 
             const results = await this.messageEngine.searchMessages(
                 platform as string,
@@ -351,55 +498,49 @@ export class MessageAutomationAPI {
                     keyword: keyword,
                     results: results,
                     count: results.length
-                },
-                timestamp: new Date().toISOString()
+                }
             });
 
         } catch (error) {
             console.error('❌ 搜索消息API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'SEARCH_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
-    // ==================== 统计相关API ====================
-
     /**
-     * 🔥 GET /api/messages/statistics - 获取消息统计
+     * 🔥 获取消息统计
      */
-    async getMessageStatistics(req: Request, res: Response): Promise<void> {
+    async handleGetMessageStatistics(req: Request, res: Response): Promise<void> {
         try {
-            console.log('📊 API请求: 获取消息统计');
+            console.log('📊 API: 获取消息统计');
 
             const stats = await this.messageEngine.getMessageStatistics();
 
             res.json({
                 success: true,
-                data: stats,
-                timestamp: new Date().toISOString()
+                data: stats
             });
 
         } catch (error) {
             console.error('❌ 获取消息统计API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'STATS_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
     /**
-     * 🔥 GET /api/messages/unread-count - 获取未读消息数
+     * 🔥 获取未读消息数
      */
-    async getUnreadCount(req: Request, res: Response): Promise<void> {
+    async handleGetUnreadCount(req: Request, res: Response): Promise<void> {
         try {
             const { platform, accountId } = req.query;
 
-            console.log('📊 API请求: 获取未读消息数');
+            console.log('📊 API: 获取未读消息数');
 
             const count = await this.messageEngine.getUnreadCount(
                 platform as string,
@@ -412,240 +553,43 @@ export class MessageAutomationAPI {
                     platform: platform || 'all',
                     accountId: accountId || 'all',
                     unreadCount: count
-                },
-                timestamp: new Date().toISOString()
+                }
             });
 
         } catch (error) {
             console.error('❌ 获取未读数API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'UNREAD_COUNT_ERROR'
-            });
-        }
-    }
-
-    // ==================== 调度管理相关API ====================
-
-    /**
-     * 🔥 POST /api/messages/scheduler/system/start - 启动完整消息系统
-     */
-    async startCompleteSystem(req: Request, res: Response): Promise<void> {
-        try {
-            console.log('🚀 API请求: 启动完整消息系统');
-
-            const success = await this.messageEngine.startCompleteMessageSystem();
-            const status = this.messageEngine.getScheduleSystemStatus();
-
-            res.json({
-                success: success,
-                data: {
-                    systemStarted: success,
-                    schedulerStatus: status,
-                    message: success ? '消息自动化系统已启动，所有有效账号已加载' : '系统启动失败或无可用账号',
-                    startedAt: new Date().toISOString()
-                },
-                timestamp: new Date().toISOString()
-            });
-
-        } catch (error) {
-            console.error('❌ 启动完整系统API失败:', error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'START_COMPLETE_SYSTEM_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
     /**
-     * 🔥 POST /api/messages/scheduler/system/stop - 停止整个调度系统
+     * 🔥 获取引擎状态
      */
-    async stopSchedulerSystem(req: Request, res: Response): Promise<void> {
+    async handleGetEngineStatus(req: Request, res: Response): Promise<void> {
         try {
-            console.log(`⏹️ API请求: 停止整个消息调度系统`);
-
-            await this.messageEngine.stopScheduleSystem();
+            const status = this.messageEngine.getEngineStatus();
 
             res.json({
                 success: true,
-                data: {
-                    message: '消息调度系统已停止',
-                    stoppedAt: new Date().toISOString()
-                },
-                timestamp: new Date().toISOString()
+                data: status
             });
 
         } catch (error) {
-            console.error('❌ 停止调度系统API失败:', error);
+            console.error('❌ 获取引擎状态API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'STOP_SCHEDULER_SYSTEM_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
     /**
-     * 🔥 POST /api/messages/scheduler/system/reload - 重新加载所有有效账号
+     * 🔥 获取支持的平台
      */
-    async reloadAllAccounts(req: Request, res: Response): Promise<void> {
-        try {
-            console.log('🔄 API请求: 重新加载所有有效账号');
-
-            const loadResult = await this.messageEngine.autoLoadValidAccountsToSchedule();
-
-            res.json({
-                success: loadResult.success > 0,
-                data: {
-                    ...loadResult,
-                    reloadedAt: new Date().toISOString()
-                },
-                timestamp: new Date().toISOString()
-            });
-
-        } catch (error) {
-            console.error('❌ 重新加载账号API失败:', error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'RELOAD_ACCOUNTS_ERROR'
-            });
-        }
-    }
-
-    /**
-     * 🔥 POST /api/messages/scheduler/account/stop - 停止指定账号调度
-     */
-    async stopAccountScheduler(req: Request, res: Response): Promise<void> {
-        try {
-            const { platform, accountId } = req.body;
-
-            if (!platform || !accountId) {
-                res.status(400).json({
-                    success: false,
-                    error: '缺少必需参数: platform, accountId',
-                    code: 'MISSING_PARAMS'
-                });
-                return;
-            }
-
-            console.log(`⏹️ API请求: 停止账号消息调度 - ${platform}_${accountId}`);
-
-            const success = this.messageEngine.removeAccountFromSchedule(platform, accountId);
-
-            res.json({
-                success: success,
-                data: {
-                    platform,
-                    accountId,
-                    stoppedAt: new Date().toISOString()
-                },
-                timestamp: new Date().toISOString()
-            });
-
-        } catch (error) {
-            console.error('❌ 停止账号调度API失败:', error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'STOP_ACCOUNT_SCHEDULER_ERROR'
-            });
-        }
-    }
-
-    /**
-     * 🔥 POST /api/messages/accounts/update-cookie - 更新账号Cookie
-     */
-    async updateAccountCookie(req: Request, res: Response): Promise<void> {
-        try {
-            const { platform, accountId, newCookieFile } = req.body;
-
-            if (!platform || !accountId || !newCookieFile) {
-                res.status(400).json({
-                    success: false,
-                    error: '缺少必需参数: platform, accountId, newCookieFile',
-                    code: 'MISSING_PARAMS'
-                });
-                return;
-            }
-
-            console.log(`🔄 API请求: 更新账号Cookie - ${platform}_${accountId}`);
-
-            const success = this.messageEngine.updateAccountCookie(platform, accountId, newCookieFile);
-
-            res.json({
-                success,
-                data: {
-                    platform,
-                    accountId,
-                    newCookieFile,
-                    updatedAt: new Date().toISOString()
-                },
-                timestamp: new Date().toISOString()
-            });
-
-        } catch (error) {
-            console.error('❌ 更新Cookie API失败:', error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'UPDATE_COOKIE_ERROR'
-            });
-        }
-    }
-
-    /**
-     * 🔥 GET /api/messages/scheduler/status - 获取调度状态
-     */
-    async getSchedulerStatus(req: Request, res: Response): Promise<void> {
-        try {
-            const { platform, accountId } = req.query;
-
-            if (platform && accountId) {
-                // 获取单个调度状态
-                const status = this.messageEngine.getScheduleStatus(
-                    platform as string,
-                    accountId as string
-                );
-
-                res.json({
-                    success: true,
-                    data: status,
-                    timestamp: new Date().toISOString()
-                });
-            } else {
-                // 获取所有调度状态
-                const statuses = this.messageEngine.getAllScheduleStatuses();
-
-                res.json({
-                    success: true,
-                    data: {
-                        statuses: statuses,
-                        total: statuses.length,
-                        active: statuses.filter(s => s.isRunning).length
-                    },
-                    timestamp: new Date().toISOString()
-                });
-            }
-
-        } catch (error) {
-            console.error('❌ 获取调度状态API失败:', error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'GET_SCHEDULER_STATUS_ERROR'
-            });
-        }
-    }
-
-    // ==================== 系统管理相关API ====================
-
-    /**
-     * 🔥 GET /api/messages/platforms - 获取支持的平台列表
-     */
-    async getSupportedPlatforms(req: Request, res: Response): Promise<void> {
+    async handleGetSupportedPlatforms(req: Request, res: Response): Promise<void> {
         try {
             const platforms = this.messageEngine.getSupportedPlatforms();
 
@@ -654,97 +598,24 @@ export class MessageAutomationAPI {
                 data: {
                     platforms: platforms,
                     total: platforms.length
-                },
-                timestamp: new Date().toISOString()
+                }
             });
 
         } catch (error) {
             console.error('❌ 获取支持平台API失败:', error);
             res.status(500).json({
                 success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'GET_PLATFORMS_ERROR'
+                error: error instanceof Error ? error.message : 'unknown error'
             });
         }
     }
 
     /**
-     * 🔥 POST /api/messages/maintenance - 执行系统维护
+     * 🔥 获取路由器实例
      */
-    async performMaintenance(req: Request, res: Response): Promise<void> {
-        try {
-            const { 
-                cleanupOldMessages = true, 
-                daysToKeep = 30, 
-                repairDataConsistency = false,
-                checkDatabaseHealth = true 
-            } = req.body;
-
-            console.log('🔧 API请求: 执行系统维护');
-
-            const results: any = {
-                timestamp: new Date().toISOString(),
-                tasks: {}
-            };
-
-            // 清理旧消息
-            if (cleanupOldMessages) {
-                const deletedCount = await this.messageEngine.cleanupOldMessages(daysToKeep);
-                results.tasks.cleanup = { deletedMessages: deletedCount };
-            }
-
-            // 修复数据一致性
-            if (repairDataConsistency) {
-                const repairResult = await this.messageEngine.repairDataConsistency();
-                results.tasks.repair = repairResult;
-            }
-
-            // 检查数据库健康
-            if (checkDatabaseHealth) {
-                const healthResult = await this.messageEngine.getDatabaseHealth();
-                results.tasks.health = healthResult;
-            }
-
-            res.json({
-                success: true,
-                data: results,
-                timestamp: new Date().toISOString()
-            });
-
-        } catch (error) {
-            console.error('❌ 系统维护API失败:', error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'MAINTENANCE_ERROR'
-            });
-        }
+    getRouter(): express.Router {
+        return this.router;
     }
-
-    /**
-     * 🔥 GET /api/messages/engine/status - 获取消息引擎状态
-     */
-    async getEngineStatus(req: Request, res: Response): Promise<void> {
-        try {
-            const status = this.messageEngine.getEngineStatus();
-
-            res.json({
-                success: true,
-                data: status,
-                timestamp: new Date().toISOString()
-            });
-
-        } catch (error) {
-            console.error('❌ 获取引擎状态API失败:', error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : 'unknown error',
-                code: 'GET_ENGINE_STATUS_ERROR'
-            });
-        }
-    }
-
-    // ==================== 生命周期管理 ====================
 
     /**
      * 🔥 销毁API实例

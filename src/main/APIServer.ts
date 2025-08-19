@@ -70,44 +70,6 @@ export class APIServer {
     }
         private setupMessageRoutes(): void {
         console.log('🔌 设置消息自动化API路由...');
-
-        // ==================== 消息同步相关API ====================
-        this.app.post('/api/messages/sync', this.messageAPI.syncMessages.bind(this.messageAPI));
-        this.app.post('/api/messages/batch-sync', this.messageAPI.batchSyncMessages.bind(this.messageAPI));
-
-        // ==================== 消息发送相关API ====================
-        this.app.post('/api/messages/send', this.messageAPI.sendMessage.bind(this.messageAPI));
-        this.app.post('/api/messages/batch-send', this.messageAPI.batchSendMessages.bind(this.messageAPI));
-
-        // ==================== 消息查询相关API ====================
-        this.app.get('/api/messages/threads', this.messageAPI.getMessageThreads.bind(this.messageAPI));
-        this.app.get('/api/messages/thread/:threadId', this.messageAPI.getThreadMessages.bind(this.messageAPI));
-        this.app.post('/api/messages/mark-read', this.messageAPI.markMessagesAsRead.bind(this.messageAPI));
-        this.app.get('/api/messages/search', this.messageAPI.searchMessages.bind(this.messageAPI));
-
-        // ==================== 统计相关API ====================
-        this.app.get('/api/messages/statistics', this.messageAPI.getMessageStatistics.bind(this.messageAPI));
-        this.app.get('/api/messages/unread-count', this.messageAPI.getUnreadCount.bind(this.messageAPI));
-
-        // ==================== 系统级调度管理API ====================
-        this.app.post('/api/messages/scheduler/system/start', this.messageAPI.startCompleteSystem.bind(this.messageAPI));
-        this.app.post('/api/messages/scheduler/system/stop', this.messageAPI.stopSchedulerSystem.bind(this.messageAPI));
-        this.app.post('/api/messages/scheduler/system/reload', this.messageAPI.reloadAllAccounts.bind(this.messageAPI));
-
-        // ==================== 单个账号调度管理API ====================
-        this.app.post('/api/messages/scheduler/account/stop', this.messageAPI.stopAccountScheduler.bind(this.messageAPI));
-
-        // ==================== 账号Cookie管理API ====================
-        this.app.post('/api/messages/accounts/update-cookie', this.messageAPI.updateAccountCookie.bind(this.messageAPI));
-
-        // ==================== 调度状态查询API ====================
-        this.app.get('/api/messages/scheduler/status', this.messageAPI.getSchedulerStatus.bind(this.messageAPI));
-
-        // ==================== 系统管理相关API ====================
-        this.app.get('/api/messages/platforms', this.messageAPI.getSupportedPlatforms.bind(this.messageAPI));
-        this.app.post('/api/messages/maintenance', this.messageAPI.performMaintenance.bind(this.messageAPI));
-        this.app.get('/api/messages/engine/status', this.messageAPI.getEngineStatus.bind(this.messageAPI));
-
         console.log('✅ 消息自动化API路由设置完成');
     }
     private setupSpecialRoutes(): void {
@@ -1693,66 +1655,6 @@ export class APIServer {
             }
         });
 
-        // 健康检查接口
-        this.app.get('/health', (req, res) => {
-            try {
-                const systemStatus = this.automationEngine.getSystemStatus();
-                const messageEngineStatus = this.messageAPI.getMessageEngine().getEngineStatus();
-                const scheduleSystemStatus = this.messageAPI.getMessageEngine().getScheduleSystemStatus();
-
-                res.json({
-                    success: true,
-                    status: 'healthy',
-                    timestamp: new Date().toISOString(),
-                    system: systemStatus,
-                    messageEngine: {
-                        initializedPlugins: messageEngineStatus.initializedPlugins,
-                        activeSchedulers: scheduleSystemStatus.runningTasks,      // ✅ 使用正确的属性
-                        totalTasks: scheduleSystemStatus.totalTasks,              // ✅ 使用正确的属性
-                        syncStatuses: messageEngineStatus.syncStatuses.length
-                    }
-                });
-            } catch (error) {
-                res.status(500).json({
-                    success: false,
-                    status: 'unhealthy',
-                    error: error instanceof Error ? error.message : 'unknown error',
-                    timestamp: new Date().toISOString()
-                });
-            }
-        });
-
-        // 🔥 新增：消息功能总览API
-        this.app.get('/api/messages/overview', async (req, res) => {
-            try {
-                const [statistics, engineStatus, platforms] = await Promise.all([
-                    this.messageAPI.getMessageEngine().getMessageStatistics(),
-                    Promise.resolve(this.messageAPI.getMessageEngine().getEngineStatus()),
-                    Promise.resolve(this.messageAPI.getMessageEngine().getSupportedPlatforms())
-                ]);
-
-                res.json({
-                    success: true,
-                    data: {
-                        statistics,
-                        engineStatus,
-                        supportedPlatforms: platforms,
-                        apiEndpoints: {
-                            sync: '/api/messages/sync',
-                            send: '/api/messages/send',
-                            threads: '/api/messages/threads',
-                            scheduler: '/api/messages/scheduler/start'
-                        }
-                    },
-                    timestamp: new Date().toISOString()
-                });
-            } catch (error) {
-                res.status(500).json({
-                    success: false,
-                    error: error instanceof Error ? error.message : 'unknown error'
-                });
-            }
-        });
 
 
         // 获取支持的平台
@@ -1855,29 +1757,7 @@ export class APIServer {
         return this.messageAPI;
     }
 
-    // 🔥 新增：快速检查消息功能是否可用
-    isMessageFunctionAvailable(): boolean {
-        try {
-            return !!(this.messageAPI && this.messageAPI.getMessageEngine());
-        } catch {
-            return false;
-        }
-    }
 
-    // 🔥 新增：获取扩展的服务器状态
-    getExtendedServerStatus(): {
-        isRunning: boolean;
-        hasMessageFunction: boolean;
-        supportedPlatforms: string[];
-        activeSchedulers: number;
-    } {
-        return {
-            isRunning: this.isRunning(),
-            hasMessageFunction: this.isMessageFunctionAvailable(),
-            supportedPlatforms: this.messageAPI ? this.messageAPI.getMessageEngine().getSupportedPlatforms() : [],
-            activeSchedulers: this.messageAPI ? this.messageAPI.getMessageEngine().getAllScheduleStatuses().length : 0
-        };
-    }
     isRunning(): boolean {
         return !!this.server && this.server.listening;
     }
