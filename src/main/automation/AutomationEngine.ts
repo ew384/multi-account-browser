@@ -63,12 +63,8 @@ export class AutomationEngine {
             // 检查是否已有进行中的登录
             if (this.activeLogins.has(userId)) {
                 const status = this.activeLogins.get(userId)!;
-                if (status.status === 'pending') {
-                    return {
-                        success: false,
-                        error: `用户 ${userId} 已有进行中的登录`
-                    };
-                }
+                console.log(`🧹 清理用户 ${userId} 的旧登录状态: ${status.status}`);
+                this.activeLogins.delete(userId);
             }
 
             const plugin = this.pluginManager.getPlugin<PluginLogin>(PluginType.LOGIN, platform);

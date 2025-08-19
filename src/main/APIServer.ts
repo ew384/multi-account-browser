@@ -225,11 +225,21 @@ export class APIServer {
         accountId?: string
     ): Promise<void> {
         // 🔥 添加连接状态检查
+        console.log(`🔍 startLoginAndStream 开始:`, {
+            type, id, mode, accountId,
+            urlChangedNotified: this.urlChangedNotified.has(id),
+            timestamp: new Date().toISOString()
+        });
         let isConnected = true;
+        // 🔥 清理可能存在的旧状态
+        if (this.urlChangedNotified.has(id)) {
+            console.log(`🧹 清理 ${id} 的旧 urlChangedNotified 状态`);
+            this.urlChangedNotified.delete(id);
+        }
         
         // 🔥 监听客户端断开
-        const originalOnClose = res.req.listeners('close');
         res.req.on('close', () => {
+            console.log(`📡 SSE客户端断开连接: ${id}`);
             isConnected = false;
         });
         
@@ -254,9 +264,7 @@ export class APIServer {
                 isRecover: true,
                 accountId: parseInt(accountId)
             } : undefined;
-            
             const loginResult = await this.automationEngine.startLogin(platform, id, loginOptions);
-
             if (loginResult.success && loginResult.qrCodeUrl) {
                 // 发送二维码URL
                 res.write(`data: ${loginResult.qrCodeUrl}\n\n`);

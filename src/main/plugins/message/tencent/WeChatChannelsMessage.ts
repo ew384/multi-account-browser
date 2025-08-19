@@ -27,63 +27,168 @@ export class WeChatChannelsMessage implements PluginMessage {
     async destroy(): Promise<void> {
         console.log('🧹 微信视频号消息插件已销毁');
     }
+    /**
+     * 🔥 点击微信视频号助手的互动管理 > 私信
+     */
+    private async clickPrivateMessage(tabId: string): Promise<boolean> {
+        try {
+            console.log('🖱️ 执行点击私信导航...');
+            
+            const clickScript = `
+                (function clickPrivateMessage() {
+                    console.log('开始执行脚本...');
+                    
+                    // 第一步：点击互动管理折叠按钮
+                    const interactionMenu = document.querySelector('a[class*="finder-ui-desktop-menu__sub__link"] span[class*="finder-ui-desktop-menu__link__inner"] span[class*="finder-ui-desktop-menu__name"] span');
+                    
+                    if (!interactionMenu) {
+                        console.error('未找到互动管理菜单');
+                        return false;
+                    }
+                    
+                    // 查找包含"互动管理"文本的元素
+                    let interactionLink = null;
+                    const menuItems = document.querySelectorAll('a[class*="finder-ui-desktop-menu__sub__link"]');
+                    
+                    for (let item of menuItems) {
+                        const nameSpan = item.querySelector('span[class*="finder-ui-desktop-menu__name"] span');
+                        if (nameSpan && nameSpan.textContent.trim() === '互动管理') {
+                            interactionLink = item;
+                            break;
+                        }
+                    }
+                    
+                    if (!interactionLink) {
+                        console.error('未找到互动管理链接');
+                        return false;
+                    }
+                    
+                    console.log('找到互动管理菜单，准备点击...');
+                    
+                    // 点击互动管理展开子菜单
+                    interactionLink.click();
+                    
+                    // 等待子菜单展开后再点击私信
+                    return new Promise((resolve) => {
+                        setTimeout(() => {
+                            console.log('查找私信菜单项...');
+                            
+                            // 查找私信菜单项
+                            const subMenuItems = document.querySelectorAll('li[class*="finder-ui-desktop-sub-menu__item"] a');
+                            let privateMessageLink = null;
+                            
+                            for (let item of subMenuItems) {
+                                const nameSpan = item.querySelector('span[class*="finder-ui-desktop-menu__name"] span');
+                                if (nameSpan && nameSpan.textContent.trim() === '私信') {
+                                    privateMessageLink = item;
+                                    break;
+                                }
+                            }
+                            
+                            if (!privateMessageLink) {
+                                console.error('未找到私信菜单项');
+                                resolve(false);
+                                return;
+                            }
+                            
+                            console.log('找到私信菜单项，准备点击...');
+                            
+                            // 点击私信
+                            privateMessageLink.click();
+                            
+                            console.log('脚本执行完成！');
+                            resolve(true);
+                            
+                        }, 500); // 等待500毫秒让子菜单展开
+                    });
+                })()
+            `;
 
+            const result = await this.tabManager.executeScript(tabId, clickScript);
+            
+            if (result) {
+                console.log('✅ 私信导航点击成功');
+                // 等待页面跳转完成
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                return true;
+            } else {
+                console.log('❌ 私信导航点击失败');
+                return false;
+            }
+
+        } catch (error) {
+            console.error('❌ 点击私信导航异常:', error);
+            return false;
+        }
+    }
     /**
      * 🔥 同步消息功能 - 执行消息获取脚本
      */
     async syncMessages(params: MessageSyncParams): Promise<MessageSyncResult> {
         try {
             console.log(`🔄 开始同步微信视频号消息: ${params.accountId}`);
-
+            console.log(`🖱️ 点击私信导航...`);
+            const navSuccess = await this.clickPrivateMessage(params.tabId);
+            if (!navSuccess) {
+                console.warn('⚠️ 私信导航失败，尝试继续...');
+            }
+            await new Promise(resolve => setTimeout(resolve, 3000));
             // 验证标签页上下文
             const isValidContext = await this.validateTabContext(params.tabId);
             if (!isValidContext) {
-                return {
-                    success: false,
-                    threads: [],
-                    newMessages: 0,
-                    updatedThreads: 0,
-                    errors: ['标签页不在微信视频号助手页面'],
-                    syncTime: new Date().toISOString()
-                };
+                throw new Error('标签页不在微信视频号助手页面');
             }
-
-            // 🔥 执行消息同步脚本 - 使用你已验证的脚本
             const syncScript = this.generateWechatSyncScript();
-            console.log('📱 执行微信消息同步脚本...');
-
-            const scriptResult = await this.tabManager.executeScript(params.tabId, syncScript);
-            console.log('📊 脚本执行返回的原始结果:');
-            console.log('📊 结果类型:', typeof scriptResult);
-            console.log('📊 结果内容:', JSON.stringify(scriptResult, null, 2));
-            if (!scriptResult) {
-                throw new Error('脚本执行返回空结果');
-            }
-
-            // 解析脚本返回的数据
-            const parsedData = this.parseMessageData(scriptResult);
+            // 🔥 重试执行同步脚本
+            const maxRetries = 120; // 2分钟
+            let lastError = '';
             
-            if (!parsedData.success || !parsedData.users) {
-                return {
-                    success: false,
-                    threads: [],
-                    newMessages: 0,
-                    updatedThreads: 0,
-                    errors: parsedData.errors || ['数据解析失败或无用户数据'],
-                    syncTime: new Date().toISOString()
-                };
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    // 执行同步脚本
+                    const scriptResult = await this.tabManager.executeScript(params.tabId, syncScript);
+                    
+                    if (!scriptResult) {
+                        throw new Error('脚本执行返回空结果');
+                    }
+
+                    // 解析脚本返回的数据
+                    const parsedData = this.parseMessageData(scriptResult);
+                    
+                    if (parsedData.success && parsedData.users) {
+                        // 转换为标准格式
+                        const threads = this.convertToStandardFormat(parsedData.users, params.platform, params.accountId);
+                        
+                        console.log(`✅ 微信消息同步成功: 获取到 ${threads.length} 个对话线程`);
+                        return {
+                            success: true,
+                            threads: threads,
+                            newMessages: this.countTotalMessages(threads),
+                            updatedThreads: threads.length,
+                            syncTime: new Date().toISOString()
+                        };
+                    }
+                    
+                    throw new Error(parsedData.errors?.[0] || '数据解析失败');
+                    
+                } catch (error) {
+                    lastError = error instanceof Error ? error.message : 'unknown error';
+                    console.log(`⚠️ 第 ${attempt} 次尝试失败: ${lastError}`);
+                    
+                    if (attempt < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        continue;
+                    }
+                }
             }
 
-            // 转换为标准格式 - 现在 parsedData.users 确保不为 undefined
-            const threads = this.convertToStandardFormat(parsedData.users, params.platform, params.accountId);
-
-            console.log(`✅ 微信消息同步完成: 获取到 ${threads.length} 个对话线程`);
-
+            // 所有重试都失败
             return {
-                success: true,
-                threads: threads,
-                newMessages: this.countTotalMessages(threads),
-                updatedThreads: threads.length,
+                success: false,
+                threads: [],
+                newMessages: 0,
+                updatedThreads: 0,
+                errors: [`重试 ${maxRetries} 次后失败: ${lastError}`],
                 syncTime: new Date().toISOString()
             };
 
@@ -99,7 +204,6 @@ export class WeChatChannelsMessage implements PluginMessage {
             };
         }
     }
-
     /**
      * 🔥 发送消息功能 - 执行消息发送脚本
      */

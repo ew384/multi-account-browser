@@ -65,6 +65,7 @@ export class MessageAutomationEngine {
         this.pluginManager = new PluginManager(tabManager);
         this.initializeDatabase();
         this.setupIPCListeners();
+        this.initializePlugins();
         console.log('✅ MessageAutomationEngine MVP 已初始化');
     }
 
@@ -76,7 +77,14 @@ export class MessageAutomationEngine {
     getPluginManager(): PluginManager {
         return this.pluginManager;
     }
-
+    private async initializePlugins(): Promise<void> {
+        try {
+            await this.pluginManager.initializeAllPlugins();
+            console.log('✅ MessageAutomationEngine 插件初始化完成');
+        } catch (error) {
+            console.error('❌ MessageAutomationEngine 插件初始化失败:', error);
+        }
+    }
     // ==================== 🔧 初始化方法 ====================
 
     /**
@@ -431,8 +439,15 @@ export class MessageAutomationEngine {
 
             // 4. 等待页面加载
             console.log(`⏳ 等待页面加载完成...`);
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
+            await new Promise(resolve => setTimeout(resolve, 4000));
+            if (params.platform === 'wechat') {
+                console.log(`🖱️ 点击私信导航以确保监听环境准备...`);
+                const navSuccess = await (plugin as any).clickPrivateMessage(tabId);
+                if (!navSuccess) {
+                        console.warn('⚠️ 私信导航失败，尝试继续...');
+                }
+                await new Promise(resolve => setTimeout(resolve, 3000));
+            }
             // 5. 注入监听脚本
             const listenerScript = `
                 (function() {
@@ -457,11 +472,44 @@ export class MessageAutomationEngine {
                     }, 5000);
                 })()
             `;
+            console.log(`🎧 开始注入监听脚本...`);
+            let scriptInjected = false;
+            const maxScriptRetries = 30; // 30次重试，每次1秒
 
-            await this.tabManager.executeScript(tabId, listenerScript);
+            for (let attempt = 1; attempt <= maxScriptRetries; attempt++) {
+                try {
+                    await this.tabManager.executeScript(tabId, listenerScript);
+                    
+                    // 验证脚本是否成功注入
+                    const verifyScript = `window.__messageListenerInjected === true`;
+                    const isInjected = await this.tabManager.executeScript(tabId, verifyScript);
+                    
+                    if (isInjected) {
+                        scriptInjected = true;
+                        console.log(`✅ 监听脚本注入成功 (第${attempt}次尝试)`);
+                        break;
+                    } else {
+                        throw new Error('脚本注入验证失败');
+                    }
+                } catch (error) {
+                    console.log(`⚠️ 监听脚本注入失败 (第${attempt}次): ${error instanceof Error ? error.message : 'unknown'}`);
+                    
+                    if (attempt < maxScriptRetries) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        continue;
+                    }
+                }
+            }
+
+            if (!scriptInjected) {
+                return {
+                    success: false,
+                    error: `监听脚本注入失败，重试${maxScriptRetries}次后放弃`
+                };
+            }
 
             // 6. 锁定Tab
-            this.tabManager.lockTab(tabId, 'message', '消息监听专用');
+            //this.tabManager.lockTab(tabId, 'message', '消息监听专用');
 
             // 7. 记录监听状态
             this.activeMonitoring.set(accountKey, {
@@ -614,7 +662,7 @@ export class MessageAutomationEngine {
      */
     private getMessageUrl(platform: string): string {
         const messageUrls: Record<string, string> = {
-            'wechat': 'https://channels.weixin.qq.com/platform/private_msg',
+            'wechat': 'https://channels.weixin.qq.com/',
             'xiaohongshu': 'https://creator.xiaohongshu.com/im',
             'douyin': 'https://creator.douyin.com/im',
             'kuaishou': 'https://cp.kuaishou.com/profile/msg'
@@ -650,11 +698,11 @@ export class MessageAutomationEngine {
                 cookieFile,
                 platform,
                 this.getMessageUrl(platform),
-                true
+                false
             );
             
             // 等待页面就绪
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            await new Promise(resolve => setTimeout(resolve, 5000));
 
             // 执行同步
             const syncParams: MessageSyncParams = {
@@ -694,15 +742,15 @@ export class MessageAutomationEngine {
                 errors: [error instanceof Error ? error.message : 'unknown error'],
                 syncTime: new Date().toISOString()
             };
-        } finally {
-            if (tabId) {
-                try {
-                    await this.tabManager.closeTab(tabId);
-                } catch (error) {
-                    console.error(`❌ 关闭临时同步Tab失败: ${tabId}:`, error);
-                }
-            }
-        }
+        }// finally {
+        //    if (tabId) {
+        //        try {
+        //            await this.tabManager.closeTab(tabId);
+        //        } catch (error) {
+        //            console.error(`❌ 关闭临时同步Tab失败: ${tabId}:`, error);
+        //        }
+        //    }
+        //}
     }
 
     /**
