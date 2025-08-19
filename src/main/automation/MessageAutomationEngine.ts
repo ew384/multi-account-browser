@@ -1,430 +1,650 @@
-// src/main/automation/MessageAutomationEngine.ts - 重构后的版本
+// src/main/automation/MessageAutomationEngine.ts
 
+import { TabManager } from '../TabManager';
+import { MessageStorage } from '../plugins/message/base/MessageStorage';
 import { 
-    PluginMessage,
+    createMessagePlugin,
+    getSupportedMessagePlatforms,
+    getMessagePlatformConfig,
+    getAllMessagePlatformConfigs
+} from '../plugins/message';
+import { 
+    PluginMessage, 
     MessageSyncParams,
     MessageSyncResult,
     MessageSendParams,
     MessageSendResult,
+    UserMessageThread,
+    MessageStatistics,
+    Message,
     BatchMessageSyncRequest,
     BatchMessageSyncResult,
     BatchMessageSendRequest,
-    BatchMessageSendResult,
-    MessageStatistics,
-    UserMessageThread,
-    MessageScheduleConfig,
-    MessageScheduleStatus
+    BatchMessageSendResult
 } from '../../types/pluginInterface';
+import { ipcMain } from 'electron';
+import * as path from 'path';
 
-import { MessageStorage } from '../plugins/message/base/MessageStorage';
-import { 
-    getSupportedMessagePlatforms,
-    createMessagePlugin,
-    isMessagePlatformSupported,
-    getMessagePlatformConfig
-} from '../plugins/message/index';
-import { AutomationEngine } from './AutomationEngine';
-import { AccountStorage } from '../plugins/login/base/AccountStorage';
-import { TabManager } from '../TabManager';
+// ==================== 接口定义 ====================
 
-import { MessageTabManager, MessageScheduler } from './message';
+export interface MessageMonitoringParams {
+    platform: string;
+    accountId: string;
+    cookieFile: string;
+    headless?: boolean;
+}
 
+export interface MessageMonitoringStatus {
+    accountKey: string;
+    platform: string;
+    accountId: string;
+    tabId?: string;
+    isMonitoring: boolean;
+    lastActivity?: string;
+    plugin?: PluginMessage;
+}
+
+export interface MessageSyncOptions {
+    forceSync?: boolean;
+    maxRetries?: number;
+    timeout?: number;
+}
+
+/**
+ * 🔥 消息自动化引擎 - IPC事件驱动版本
+ * 
+ * 核心功能：
+ * 1. 多账号跨平台私信管理
+ * 2. 实时监听页面新消息
+ * 3. 检测账号失效并自动清理
+ * 4. 简化的Tab生命周期管理
+ */
 export class MessageAutomationEngine {
     private tabManager: TabManager;
-    private automationEngine: AutomationEngine;
+    private automationEngine: any; // AutomationEngine 实例
     private messagePlugins: Map<string, PluginMessage> = new Map();
-    private messageTabManager: MessageTabManager;
-    private messageScheduler: MessageScheduler;
-    private messageSyncStatus: Map<string, MessageScheduleStatus> = new Map();
+    private activeMonitoring: Map<string, MessageMonitoringStatus> = new Map();
+    private scheduleIntervals: Map<string, NodeJS.Timeout> = new Map();
+    private isSystemRunning: boolean = false;
 
-    constructor(tabManager: TabManager,automationEngine: AutomationEngine) {
+    constructor(tabManager: TabManager, automationEngine: any) {
         this.tabManager = tabManager;
         this.automationEngine = automationEngine;
-        // 🔥 初始化专用管理器
-        this.messageTabManager = new MessageTabManager(tabManager);
-        this.messageScheduler = new MessageScheduler(this.messageTabManager);
-        
-        // 🔥 设置调度器的同步函数（依赖注入）
-        this.messageScheduler.setSyncFunction(this.syncPlatformMessages.bind(this));
-        
-        //console.log('🔌 MessageAutomationEngine 已初始化 (重构版)');
+        this.initializeDatabase();
+        this.setupIPCListeners();
+        console.log('🔥 MessageAutomationEngine 已初始化');
     }
 
-    // ==================== 插件管理方法（保持不变） ====================
+    // ==================== 🔧 初始化方法 ====================
 
     /**
-     * 🔥 初始化消息插件
+     * 🔥 初始化消息数据库
      */
-    async initializeMessagePlugin(platform: string): Promise<boolean> {
+    private initializeDatabase(): void {
         try {
-            //console.log(`🔌 初始化 ${platform} 消息插件...`);
-
-            if (!isMessagePlatformSupported(platform)) {
-                console.error(`❌ 不支持的消息平台: ${platform}`);
-                return false;
-            }
-
-            if (this.messagePlugins.has(platform)) {
-                console.log(`✅ ${platform} 消息插件已存在`);
-                return true;
-            }
-
-            const plugin = await createMessagePlugin(platform, this.tabManager);
-            if (!plugin) {
-                console.error(`❌ 创建 ${platform} 消息插件失败`);
-                return false;
-            }
-
-            this.messagePlugins.set(platform, plugin);
-            //console.log(`✅ ${platform} 消息插件初始化成功`);
-
-            return true;
-
+            MessageStorage.ensureMessageDatabaseInitialized();
+            console.log('✅ 消息数据库初始化完成');
         } catch (error) {
-            console.error(`❌ 初始化 ${platform} 消息插件失败:`, error);
-            return false;
-        }
-    }
-
-    /**
-     * 🔥 批量初始化消息插件
-     */
-    async initializeAllMessagePlugins(): Promise<{ 
-        success: number; 
-        failed: number; 
-        results: Record<string, boolean> 
-    }> {
-        //console.log('🔌 批量初始化所有消息插件...');
-
-        const platforms = getSupportedMessagePlatforms();
-        const results: Record<string, boolean> = {};
-        let success = 0;
-        let failed = 0;
-
-        for (const platform of platforms) {
-            const result = await this.initializeMessagePlugin(platform);
-            results[platform] = result;
-            
-            if (result) {
-                success++;
-            } else {
-                failed++;
-            }
-        }
-
-        //console.log(`📊 消息插件初始化完成: 成功 ${success}, 失败 ${failed}`);
-        return { success, failed, results };
-    }
-
-    getMessagePlugin(platform: string): PluginMessage | null {
-        return this.messagePlugins.get(platform) || null;
-    }
-
-    getSupportedPlatforms(): string[] {
-        return getSupportedMessagePlatforms();
-    }
-
-    isPlatformSupported(platform: string): boolean {
-        return isMessagePlatformSupported(platform);
-    }
-
-    // ==================== Tab管理 - 委托给MessageTabManager ====================
-
-    /**
-     * 🔥 确保消息Tab存在并健康 - 委托给MessageTabManager
-     */
-    async ensureMessageTab(platform: string, accountId: string, cookieFile: string): Promise<string> {
-        return await this.messageTabManager.ensureMessageTab(platform, accountId, cookieFile);
-    }
-
-    /**
-     * 🔥 清理消息Tab - 委托给MessageTabManager
-     */
-    async cleanupMessageTab(platform: string, accountId: string): Promise<void> {
-        const accountKey = `${platform}_${accountId}`;
-        await this.messageTabManager.cleanupMessageTab(accountKey);
-    }
-
-    /**
-     * 🔥 获取消息Tab状态
-     */
-    async getMessageTabsStatus() {
-        return await this.messageTabManager.getAllTabsStatus();
-    }
-
-    // ==================== 调度管理 - 委托给MessageScheduler ====================
-    /**
-     * 🔥 自动加载所有有效账号到调度系统
-     */
-    async autoLoadValidAccountsToSchedule(): Promise<{
-        success: number;
-        failed: number;
-        results: Array<{ accountKey: string; success: boolean; taskId?: string; error?: string }>;
-    }> {
-        console.log('🔍 自动加载所有有效账号到消息调度系统...');
-        
-        try {
-            // 🔥 通过注入的 AutomationEngine 获取有效账号
-            const allAccounts = await AccountStorage.getAccountsWithGroupsForFrontend();
-           console.log(`📋 发现 ${allAccounts.length} 个账号`);
-
-            const results = [];
-            let success = 0;
-            let failed = 0;
-
-            for (const account of allAccounts) {
-                try {
-                    // 🔥 需要确认 AccountStorage.getPlatformName 方法
-                    const platform = AccountStorage.getPlatformName(account.type);
-                    const accountId = account.userName;
-                    const cookieFile = account.filePath;
-                    const accountKey = `${platform}_${accountId}`;
-                    
-                    // 检查是否已存在
-                    const existingTask = this.messageScheduler.getTaskByAccount(platform, accountId);
-                    
-                    if (existingTask) {
-                        // 检查Cookie文件是否更新
-                        if (existingTask.currentCookieFile !== cookieFile) {
-                            this.messageScheduler.updateTaskCookie(accountKey, cookieFile, 'auto_reload');
-                            console.log(`🔄 更新账号Cookie: ${accountKey}`);
-                        } else {
-                            console.log(`⚠️ 账号已存在，跳过: ${accountKey}`);
-                        }
-                        
-                        results.push({ accountKey, success: true, taskId: existingTask.id });
-                        success++;
-                        continue;
-                    }
-
-                    // 添加新任务
-                    const taskId = this.addAccountToSchedule({
-                        platform: platform,
-                        accountId: accountId,
-                        cookieFile: cookieFile,
-                        syncInterval: 5,
-                        autoStart: true
-                    });
-
-                    results.push({ accountKey, success: true, taskId });
-                    success++;
-                    
-                    console.log(`✅ 已添加到调度: ${accountKey}`);
-                    
-                } catch (error) {
-                    const accountKey = `unknown_${account.userName}`;
-                    results.push({ 
-                        accountKey, 
-                        success: false, 
-                        error: error instanceof Error ? error.message : 'unknown error' 
-                    });
-                    failed++;
-                    console.error(`❌ 添加账号失败: ${account.userName}:`, error);
-                }
-            }
-
-            console.log(`📊 自动加载完成: 成功 ${success}, 失败 ${failed}`);
-            return { success, failed, results };
-            
-        } catch (error) {
-            console.error('❌ 自动加载账号失败:', error);
-            throw error;
-        }
-    }
-    /**
-     * 🔥 启动完整的消息自动化系统
-     */
-    async startCompleteMessageSystem(): Promise<boolean> {
-        try {
-            console.log('🚀 启动完整的消息自动化系统...');
-            
-            // 1. 自动加载所有有效账号
-            const loadResult = await this.autoLoadValidAccountsToSchedule();
-            console.log(`📋 账号加载结果: 成功 ${loadResult.success}, 失败 ${loadResult.failed}`);
-            
-            // 2. 启动调度器（如果有任务）
-            if (loadResult.success > 0) {
-                await this.messageScheduler.start();  // 🔥 直接调用 messageScheduler.start()
-                console.log('✅ 消息调度器已启动');
-                return true;
-            } else {
-                console.log('⚠️ 没有可用账号，调度器未启动');
-                return false;
-            }
-            
-        } catch (error) {
-            console.error('❌ 启动消息自动化系统失败:', error);
-            return false;
-        }
-    }
-
-    /**
-     * 🔥 启动消息自动化调度系统
-     */
-    async startScheduleSystem(): Promise<void> {
-        console.log('🚀 启动消息自动化调度系统...');
-        
-        try {
-            // 1. 初始化所有消息插件
-            await this.initializeAllMessagePlugins();
-            
-            // 2. 启动调度器
-            await this.messageScheduler.start();
-            
-            console.log('✅ 消息自动化调度系统已启动');
-            
-        } catch (error) {
-            console.error('❌ 启动调度系统失败:', error);
+            console.error('❌ 消息数据库初始化失败:', error);
             throw error;
         }
     }
 
     /**
-     * 🔥 停止消息自动化调度系统
+     * 🔥 设置 IPC 监听器
      */
-    async stopScheduleSystem(): Promise<void> {
-        console.log('⏹️ 停止消息自动化调度系统...');
-        
-        try {
-            await this.messageScheduler.stop();
-            console.log('✅ 消息自动化调度系统已停止');
-        } catch (error) {
-            console.error('❌ 停止调度系统失败:', error);
-        }
-    }
+    private setupIPCListeners(): void {
+        console.log('🔌 设置 MessageAutomationEngine IPC 监听器...');
 
-    /**
-     * 🔥 添加账号到调度系统
-     */
-    addAccountToSchedule(params: {
-        platform: string;
-        accountId: string;
-        cookieFile: string;
-        syncInterval?: number;
-        priority?: number;
-        autoStart?: boolean;
-    }): string {
-        console.log(`➕ 添加账号到调度系统: ${params.platform}_${params.accountId}`);
-        
-        const taskId = this.messageScheduler.addTask({
-            platform: params.platform,
-            accountId: params.accountId,
-            cookieFile: params.cookieFile,
-            syncInterval: params.syncInterval || 5,
-            priority: params.priority || 5,
-            enabled: params.autoStart !== false
+        // 页面事件上报监听
+        ipcMain.on('message-new-message', (event, data) => {
+            this.handleIPCNewMessage(event, data);
         });
-        
-        return taskId;
-    }
 
+        ipcMain.on('message-account-status', (event, data) => {
+            this.handleIPCAccountStatus(event, data);
+        });
 
-    /**
-     * 🔥 从调度系统移除账号
-     */
-    removeAccountFromSchedule(platform: string, accountId: string): boolean {
-        const task = this.messageScheduler.getTaskByAccount(platform, accountId);
-        if (task) {
-            return this.messageScheduler.removeTask(task.id);
-        }
-        return false;
-    }
+        // 消息监听控制
+        ipcMain.handle('message-start-monitoring', async (event, params) => {
+            return await this.startMessageMonitoring(params);
+        });
 
-    /**
-     * 🔥 获取调度系统状态
-     */
-    getScheduleSystemStatus() {
-        return this.messageScheduler.getSchedulerStatus();
-    }
+        ipcMain.handle('message-stop-monitoring', async (event, accountKey) => {
+            return { success: await this.stopMessageMonitoring(accountKey) };
+        });
 
-    /**
-     * 🔥 获取账号调度状态
-     */
-    getAccountScheduleStatus(platform: string, accountId: string) {
-        return this.messageScheduler.getTaskByAccount(platform, accountId);
-    }
+        ipcMain.handle('message-start-batch-monitoring', async (event, accounts) => {
+            return await this.startBatchMonitoring(accounts);
+        });
 
-    // ==================== 消息同步功能（核心业务逻辑） ====================
+        ipcMain.handle('message-stop-all-monitoring', async (event) => {
+            return await this.stopAllMonitoring();
+        });
 
-    /**
-     * 🔥 同步单个平台的消息
-     */
-    async syncPlatformMessages(
-        platform: string, 
-        accountName: string, 
-        cookieFile: string,
-        options?: {
-            fullSync?: boolean;
-            timeout?: number;
-        }
-    ): Promise<MessageSyncResult> {
-        try {
-            console.log(`🔄 开始同步 ${platform} 平台消息: ${accountName}`);
-
-
-            
-            // 🔥 关键：使用MessageTabManager自动创建或复用tab
-            const actualTabId = await this.ensureMessageTab(platform, accountName, cookieFile);
-            console.log(`✅ 消息Tab已就绪: ${actualTabId}`);
-            
-            // 确保消息数据库已初始化
-            await MessageStorage.ensureMessageDatabaseInitialized();
-
-            // 初始化插件（如果需要）
-            await this.initializeMessagePlugin(platform);
-            const plugin = this.getMessagePlugin(platform);
-
-            if (!plugin) {
-                throw new Error(`${platform} 消息插件不可用`);
-            }
-
-            // 获取最后同步时间（用于增量同步）
-            const lastSyncTime = options?.fullSync ? 
-                undefined : 
-                await MessageStorage.getLastSyncTime(platform, accountName);
-
-            // 执行同步
-            const syncParams: MessageSyncParams = {
-                tabId:actualTabId,
-                platform,
-                accountId: accountName,
-                lastSyncTime: lastSyncTime || undefined,
-                fullSync: options?.fullSync || false
+        ipcMain.handle('message-get-monitoring-status', async (event) => {
+            const status = this.getActiveMonitoringStatus();
+            return {
+                success: true,
+                data: {
+                    monitoring: status,
+                    summary: {
+                        total: status.length,
+                        active: status.filter(s => s.isMonitoring).length
+                    }
+                }
             };
+        });
 
-            const syncResult = await plugin.syncMessages(syncParams);
-
-            if (syncResult.success && syncResult.threads.length > 0) {
-                // 保存同步结果到数据库
-                const incrementalResult = await MessageStorage.incrementalSync(
-                    platform,
-                    accountName,
-                    syncResult.threads
+        // 手动同步和发送
+        ipcMain.handle('message-sync-messages', async (event, params) => {
+            try {
+                const result = await this.syncPlatformMessages(
+                    params.platform,
+                    params.accountName,
+                    params.cookieFile,
+                    params.options
                 );
-
-                console.log(`✅ ${platform} 消息同步完成: 新消息 ${incrementalResult.newMessages} 条`);
-
-                // 合并统计信息
+                return { success: result.success, data: result };
+            } catch (error) {
                 return {
-                    ...syncResult,
-                    newMessages: incrementalResult.newMessages,
-                    updatedThreads: incrementalResult.updatedThreads,
-                    errors: [...(syncResult.errors || []), ...incrementalResult.errors]
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        ipcMain.handle('message-batch-sync-messages', async (event, request) => {
+            try {
+                const result = await this.batchSyncMessages(request);
+                return { success: result.success, data: result };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        ipcMain.handle('message-send-message', async (event, params) => {
+            try {
+                const result = await this.sendPlatformMessage(
+                    params.platform,
+                    params.tabId,
+                    params.userName,
+                    params.content,
+                    params.type,
+                    params.accountId
+                );
+                return { success: result.success, data: result };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        ipcMain.handle('message-batch-send-messages', async (event, request) => {
+            try {
+                const result = await this.batchSendMessages(request);
+                return { success: result.success, data: result };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        // 消息查询
+        ipcMain.handle('message-get-threads', async (event, params) => {
+            try {
+                const threads = await this.getAllMessageThreads(
+                    params?.platform,
+                    params?.accountId
+                );
+                return {
+                    success: true,
+                    data: {
+                        threads: threads,
+                        total: threads.length
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        ipcMain.handle('message-get-thread-messages', async (event, params) => {
+            try {
+                const messages = await this.getThreadMessages(
+                    params.threadId,
+                    params.limit,
+                    params.offset
+                );
+                return {
+                    success: true,
+                    data: {
+                        threadId: params.threadId,
+                        messages: messages,
+                        count: messages.length
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        ipcMain.handle('message-mark-read', async (event, params) => {
+            try {
+                const success = await this.markMessagesAsRead(
+                    params.threadId,
+                    params.messageIds
+                );
+                return {
+                    success: success,
+                    data: {
+                        threadId: params.threadId,
+                        messageIds: params.messageIds
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        // 搜索和统计
+        ipcMain.handle('message-search', async (event, params) => {
+            try {
+                const results = await this.searchMessages(
+                    params.platform,
+                    params.accountId,
+                    params.keyword,
+                    params.limit
+                );
+                return {
+                    success: true,
+                    data: {
+                        keyword: params.keyword,
+                        results: results,
+                        count: results.length
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        ipcMain.handle('message-get-statistics', async (event) => {
+            try {
+                const stats = await this.getMessageStatistics();
+                return { success: true, data: stats };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        ipcMain.handle('message-get-unread-count', async (event, params) => {
+            try {
+                const count = await this.getUnreadCount(
+                    params?.platform,
+                    params?.accountId
+                );
+                return {
+                    success: true,
+                    data: {
+                        platform: params?.platform || 'all',
+                        accountId: params?.accountId || 'all',
+                        unreadCount: count
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        // 系统状态
+        ipcMain.handle('message-get-engine-status', async (event) => {
+            try {
+                const status = this.getEngineStatus();
+                return { success: true, data: status };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        ipcMain.handle('message-get-supported-platforms', async (event) => {
+            try {
+                const platforms = this.getSupportedPlatforms();
+                return {
+                    success: true,
+                    data: {
+                        platforms: platforms,
+                        total: platforms.length
+                    }
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                };
+            }
+        });
+
+        console.log('✅ MessageAutomationEngine IPC 监听器设置完成');
+    }
+
+    // ==================== 🔥 核心公共接口 ====================
+
+    /**
+     * 🔥 启动单个账号消息监听
+     */
+    async startMessageMonitoring(params: MessageMonitoringParams): Promise<{
+        success: boolean;
+        tabId?: string;
+        error?: string;
+    }> {
+        const accountKey = `${params.platform}_${params.accountId}`;
+        
+        try {
+            console.log(`🚀 启动消息监听: ${accountKey}`);
+
+            // 1. 检查是否已在监听
+            if (this.activeMonitoring.has(accountKey)) {
+                return {
+                    success: false,
+                    error: `账号 ${accountKey} 已在监听中`
                 };
             }
 
-            return syncResult;
+            // 2. 获取或创建插件
+            const plugin = await this.getOrCreatePlugin(params.platform);
+            if (!plugin) {
+                return {
+                    success: false,
+                    error: `平台 ${params.platform} 不支持消息功能`
+                };
+            }
 
-        } catch (error) {
-            console.error(`❌ ${platform} 消息同步失败:`, error);
-            
-            // 记录同步错误
-            await MessageStorage.recordSyncError(
-                platform, 
-                accountName, 
-                error instanceof Error ? error.message : 'unknown error'
+            // 3. 创建专用Tab (使用 createAccountTab)
+            const tabId = await this.tabManager.createAccountTab(
+                params.cookieFile,
+                params.platform,
+                this.getMessageUrl(params.platform),
+                params.headless ?? true
             );
 
+            // 4. 等待页面就绪
+            const isReady = await this.waitForPageReady(tabId, params.platform);
+            if (!isReady) {
+                await this.tabManager.closeTab(tabId);
+                return {
+                    success: false,
+                    error: '页面加载超时或失败'
+                };
+            }
+
+            // 5. 注入监听脚本
+            await this.injectMessageListener(tabId, params.platform);
+
+            // 6. 锁定Tab防止被其他功能使用
+            const lockSuccess = this.tabManager.lockTab(tabId, 'message', '消息监听专用');
+            if (!lockSuccess) {
+                console.warn(`⚠️ 无法锁定消息Tab: ${tabId}`);
+            }
+
+            // 7. 记录监听状态
+            this.activeMonitoring.set(accountKey, {
+                accountKey,
+                platform: params.platform,
+                accountId: params.accountId,
+                tabId,
+                isMonitoring: true,
+                lastActivity: new Date().toISOString(),
+                plugin
+            });
+
+            console.log(`✅ 消息监听启动成功: ${accountKey} -> ${tabId}`);
+            return { success: true, tabId };
+
+        } catch (error) {
+            console.error(`❌ 启动消息监听失败: ${accountKey}:`, error);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error'
+            };
+        }
+    }
+
+    /**
+     * 🔥 停止单个账号消息监听
+     */
+    async stopMessageMonitoring(accountKey: string): Promise<boolean> {
+        try {
+            const monitoring = this.activeMonitoring.get(accountKey);
+            if (!monitoring) {
+                console.warn(`⚠️ 账号未在监听: ${accountKey}`);
+                return false;
+            }
+
+            console.log(`🛑 停止消息监听: ${accountKey}`);
+
+            // 1. 解锁并清理Tab
+            if (monitoring.tabId) {
+                this.tabManager.unlockTab(monitoring.tabId, 'message');
+                await this.tabManager.closeTab(monitoring.tabId);
+            }
+
+            // 2. 移除监听状态
+            this.activeMonitoring.delete(accountKey);
+
+            console.log(`✅ 消息监听已停止: ${accountKey}`);
+            return true;
+
+        } catch (error) {
+            console.error(`❌ 停止消息监听失败: ${accountKey}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * 🔥 批量启动监听
+     */
+    async startBatchMonitoring(accounts: MessageMonitoringParams[]): Promise<{
+        success: number;
+        failed: number;
+        results: any[];
+    }> {
+        console.log(`🚀 批量启动监听: ${accounts.length} 个账号`);
+
+        const results = [];
+        let successCount = 0;
+        let failedCount = 0;
+
+        for (const account of accounts) {
+            try {
+                const result = await this.startMessageMonitoring(account);
+                
+                if (result.success) {
+                    successCount++;
+                } else {
+                    failedCount++;
+                }
+
+                results.push({
+                    accountKey: `${account.platform}_${account.accountId}`,
+                    ...result
+                });
+
+                // 避免并发过多，添加短暂延迟
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+            } catch (error) {
+                failedCount++;
+                results.push({
+                    accountKey: `${account.platform}_${account.accountId}`,
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                });
+            }
+        }
+
+        console.log(`📊 批量启动完成: 成功 ${successCount}, 失败 ${failedCount}`);
+        return { success: successCount, failed: failedCount, results };
+    }
+
+    /**
+     * 🔥 停止所有监听
+     */
+    async stopAllMonitoring(): Promise<{stopped: number; failed: number}> {
+        console.log('🛑 停止所有消息监听...');
+
+        const accountKeys = Array.from(this.activeMonitoring.keys());
+        let stoppedCount = 0;
+        let failedCount = 0;
+
+        for (const accountKey of accountKeys) {
+            try {
+                const success = await this.stopMessageMonitoring(accountKey);
+                if (success) {
+                    stoppedCount++;
+                } else {
+                    failedCount++;
+                }
+            } catch (error) {
+                console.error(`❌ 停止监听失败: ${accountKey}:`, error);
+                failedCount++;
+            }
+        }
+
+        console.log(`📊 停止监听完成: 成功 ${stoppedCount}, 失败 ${failedCount}`);
+        return { stopped: stoppedCount, failed: failedCount };
+    }
+
+    /**
+     * 🔥 获取活动监听状态
+     */
+    getActiveMonitoringStatus(): Array<{
+        accountKey: string;
+        platform: string;
+        accountId: string;
+        tabId?: string;
+        isMonitoring: boolean;
+        lastActivity?: string;
+    }> {
+        return Array.from(this.activeMonitoring.values()).map(status => ({
+            accountKey: status.accountKey,
+            platform: status.platform,
+            accountId: status.accountId,
+            tabId: status.tabId,
+            isMonitoring: status.isMonitoring,
+            lastActivity: status.lastActivity
+        }));
+    }
+
+    /**
+     * 🔥 获取特定账号监听状态
+     */
+    getMonitoringStatus(accountKey: string): {
+        isActive: boolean;
+        tabId?: string;
+        lastActivity?: string;
+    } {
+        const monitoring = this.activeMonitoring.get(accountKey);
+        
+        if (!monitoring) {
+            return { isActive: false };
+        }
+
+        return {
+            isActive: monitoring.isMonitoring,
+            tabId: monitoring.tabId,
+            lastActivity: monitoring.lastActivity
+        };
+    }
+
+    /**
+     * 🔥 手动同步平台消息
+     */
+    async syncPlatformMessages(
+        platform: string,
+        accountName: string,
+        cookieFile: string,
+        options?: MessageSyncOptions
+    ): Promise<MessageSyncResult> {
+        let tabId: string | null = null;
+        
+        try {
+            console.log(`🔄 手动同步消息: ${platform} - ${accountName}`);
+
+            const plugin = await this.getOrCreatePlugin(platform);
+            if (!plugin) {
+                throw new Error(`平台 ${platform} 不支持消息功能`);
+            }
+
+            // 创建临时Tab进行同步
+            tabId = await this.tabManager.createAccountTab(
+                cookieFile,
+                platform,
+                this.getMessageUrl(platform),
+                true // headless模式
+            );
+            
+            // 等待页面就绪
+            await this.waitForPageReady(tabId, platform, 30000);
+
+            // 执行同步
+            const syncParams: MessageSyncParams = {
+                tabId,
+                platform,
+                accountId: accountName,
+                fullSync: options?.forceSync || false
+            };
+
+            const result = await plugin.syncMessages(syncParams);
+
+            // 保存同步结果到数据库
+            if (result.success && result.threads.length > 0) {
+                const syncResult = MessageStorage.incrementalSync(
+                    platform,
+                    accountName,
+                    result.threads
+                );
+                
+                result.newMessages = syncResult.newMessages;
+                result.updatedThreads = syncResult.updatedThreads;
+                if (syncResult.errors.length > 0) {
+                    result.errors = (result.errors || []).concat(syncResult.errors);
+                }
+            }
+
+            console.log(`✅ 手动同步完成: ${platform} - ${accountName}`);
+            return result;
+
+        } catch (error) {
+            console.error(`❌ 手动同步失败: ${platform} - ${accountName}:`, error);
             return {
                 success: false,
                 threads: [],
@@ -433,13 +653,19 @@ export class MessageAutomationEngine {
                 errors: [error instanceof Error ? error.message : 'unknown error'],
                 syncTime: new Date().toISOString()
             };
+        } finally {
+            if (tabId) {
+                try {
+                    await this.tabManager.closeTab(tabId);
+                } catch (error) {
+                    console.error(`❌ 关闭临时同步Tab失败: ${tabId}:`, error);
+                }
+            }
         }
     }
 
-    // ==================== 消息发送功能（保持不变） ====================
-
     /**
-     * 🔥 发送单条消息
+     * 🔥 发送平台消息
      */
     async sendPlatformMessage(
         platform: string,
@@ -450,13 +676,11 @@ export class MessageAutomationEngine {
         accountId?: string
     ): Promise<MessageSendResult> {
         try {
-            console.log(`📤 发送 ${platform} 消息: ${userName} (${type})`);
+            console.log(`📤 发送消息: ${platform} - ${userName} (${type})`);
 
-            await this.initializeMessagePlugin(platform);
-            const plugin = this.getMessagePlugin(platform);
-
+            const plugin = await this.getOrCreatePlugin(platform);
             if (!plugin) {
-                throw new Error(`${platform} 消息插件不可用`);
+                throw new Error(`平台 ${platform} 不支持消息功能`);
             }
 
             const sendParams: MessageSendParams = {
@@ -468,18 +692,13 @@ export class MessageAutomationEngine {
                 accountId
             };
 
-            const sendResult = await plugin.sendMessage(sendParams);
+            const result = await plugin.sendMessage(sendParams);
 
-            if (sendResult.success) {
-                console.log(`✅ ${platform} 消息发送成功: ${userName}`);
-            } else {
-                console.error(`❌ ${platform} 消息发送失败: ${sendResult.error}`);
-            }
-
-            return sendResult;
+            console.log(`${result.success ? '✅' : '❌'} 消息发送${result.success ? '成功' : '失败'}: ${userName}`);
+            return result;
 
         } catch (error) {
-            console.error(`❌ ${platform} 消息发送异常:`, error);
+            console.error(`❌ 发送消息异常: ${platform} - ${userName}:`, error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'unknown error',
@@ -489,218 +708,189 @@ export class MessageAutomationEngine {
         }
     }
 
-    // ==================== 批量操作（保持不变） ====================
-
+    /**
+     * 🔥 批量同步消息
+     */
     async batchSyncMessages(request: BatchMessageSyncRequest): Promise<BatchMessageSyncResult> {
-        try {
-            console.log(`🔄 批量同步消息: ${request.platform} 平台 ${request.accounts.length} 个账号`);
+        console.log(`🔄 批量同步消息: ${request.platform} - ${request.accounts.length} 个账号`);
 
-            const maxConcurrency = request.options?.maxConcurrency || 5;
-            const timeout = request.options?.timeout || 300000;
+        const results = [];
+        let successCount = 0;
+        let failedCount = 0;
+        let totalNewMessages = 0;
+        let totalUpdatedThreads = 0;
 
-            const results: BatchMessageSyncResult['results'] = [];
-            let totalNewMessages = 0;
-            let totalUpdatedThreads = 0;
-
-            for (let i = 0; i < request.accounts.length; i += maxConcurrency) {
-                const batch = request.accounts.slice(i, i + maxConcurrency);
-                
-                const batchPromises = batch.map(async (account) => {
-                    try {
-                        const tabId = await this.ensureMessageTab(
-                            request.platform,
-                            account.accountId,
-                            account.cookieFile
-                        );
-
-                        const syncResult = await Promise.race([
-                            this.syncPlatformMessages(
-                                request.platform,
-                                account.accountId,
-                                tabId,
-                                {
-                                    fullSync: request.options?.fullSync,
-                                    timeout: timeout
-                                }
-                            ),
-                            new Promise<MessageSyncResult>((_, reject) => 
-                                setTimeout(() => reject(new Error('同步超时')), timeout)
-                            )
-                        ]);
-
-                        totalNewMessages += syncResult.newMessages;
-                        totalUpdatedThreads += syncResult.updatedThreads;
-
-                        return {
-                            accountId: account.accountId,
-                            tabId: tabId,
-                            success: syncResult.success,
-                            syncResult: syncResult
-                        };
-
-                    } catch (error) {
-                        return {
-                            accountId: account.accountId,
-                            tabId: '',
-                            success: false,
-                            error: error instanceof Error ? error.message : 'unknown error'
-                        };
+        for (const account of request.accounts) {
+            try {
+                const syncResult = await this.syncPlatformMessages(
+                    request.platform,
+                    account.accountId,
+                    account.cookieFile,
+                    {
+                        forceSync: request.options?.fullSync,
+                        timeout: request.options?.timeout
                     }
+                );
+
+                if (syncResult.success) {
+                    successCount++;
+                    totalNewMessages += syncResult.newMessages;
+                    totalUpdatedThreads += syncResult.updatedThreads;
+                } else {
+                    failedCount++;
+                }
+
+                results.push({
+                    accountId: account.accountId,
+                    tabId: '', // 临时Tab，同步完成后已关闭
+                    success: syncResult.success,
+                    syncResult,
+                    error: syncResult.success ? undefined : syncResult.errors?.[0]
                 });
 
-                const batchResults = await Promise.all(batchPromises);
-                results.push(...batchResults);
+                // 避免并发过多
+                await new Promise(resolve => setTimeout(resolve, 1000));
 
-                if (i + maxConcurrency < request.accounts.length) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
+            } catch (error) {
+                failedCount++;
+                results.push({
+                    accountId: account.accountId,
+                    tabId: '',
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error'
+                });
             }
-
-            const successCount = results.filter(r => r.success).length;
-            const failedCount = results.length - successCount;
-
-            console.log(`📊 批量同步完成: ${successCount}/${request.accounts.length} 成功`);
-
-            return {
-                success: successCount > 0,
-                results: results,
-                summary: {
-                    totalAccounts: request.accounts.length,
-                    successCount,
-                    failedCount,
-                    totalNewMessages,
-                    totalUpdatedThreads
-                },
-                syncTime: new Date().toISOString()
-            };
-
-        } catch (error) {
-            console.error('❌ 批量消息同步失败:', error);
-            throw error;
         }
+
+        console.log(`📊 批量同步完成: 成功 ${successCount}, 失败 ${failedCount}`);
+
+        return {
+            success: successCount > 0,
+            results,
+            summary: {
+                totalAccounts: request.accounts.length,
+                successCount,
+                failedCount,
+                totalNewMessages,
+                totalUpdatedThreads
+            },
+            syncTime: new Date().toISOString()
+        };
     }
 
+    /**
+     * 🔥 批量发送消息
+     */
     async batchSendMessages(request: BatchMessageSendRequest): Promise<BatchMessageSendResult> {
-        // ... 现有实现保持不变
-        try {
-            console.log(`📤 批量发送消息: ${request.platform} 平台 ${request.messages.length} 条消息`);
+        console.log(`📤 批量发送消息: ${request.platform} - ${request.messages.length} 条`);
 
-            const delay = request.options?.delay || 1000;
-            const timeout = request.options?.timeout || 30000;
-            const continueOnError = request.options?.continueOnError !== false;
+        const results = [];
+        let successCount = 0;
+        let failedCount = 0;
+        const delay = request.options?.delay || 1000;
+        const continueOnError = request.options?.continueOnError ?? true;
 
-            const results: MessageSendResult[] = [];
+        for (const message of request.messages) {
+            try {
+                const result = await this.sendPlatformMessage(
+                    request.platform,
+                    message.tabId,
+                    message.userName,
+                    message.content,
+                    message.type,
+                    message.accountId
+                );
 
-            for (const message of request.messages) {
-                try {
-                    const sendResult = await Promise.race([
-                        this.sendPlatformMessage(
-                            request.platform,
-                            message.tabId,
-                            message.userName,
-                            message.content,
-                            message.type,
-                            message.accountId
-                        ),
-                        new Promise<MessageSendResult>((_, reject) => 
-                            setTimeout(() => reject(new Error('发送超时')), timeout)
-                        )
-                    ]);
+                results.push(result);
 
-                    results.push(sendResult);
-
-                    if (!sendResult.success && !continueOnError) {
-                        console.warn(`⚠️ 消息发送失败，中止批量发送: ${sendResult.error}`);
-                        break;
-                    }
-
-                } catch (error) {
-                    const errorResult: MessageSendResult = {
-                        success: false,
-                        error: error instanceof Error ? error.message : 'unknown error',
-                        user: message.userName,
-                        type: message.type
-                    };
-
-                    results.push(errorResult);
-
+                if (result.success) {
+                    successCount++;
+                } else {
+                    failedCount++;
                     if (!continueOnError) {
-                        console.warn(`⚠️ 消息发送异常，中止批量发送: ${errorResult.error}`);
+                        console.log('❌ 遇到错误，停止批量发送');
                         break;
                     }
                 }
 
-                if (results.length < request.messages.length) {
+                // 消息间延迟
+                if (delay > 0) {
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
+
+            } catch (error) {
+                failedCount++;
+                results.push({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error',
+                    user: message.userName,
+                    type: message.type
+                });
+
+                if (!continueOnError) {
+                    break;
+                }
             }
-
-            const successCount = results.filter(r => r.success).length;
-            const failedCount = results.length - successCount;
-
-            console.log(`📊 批量发送完成: ${successCount}/${request.messages.length} 成功`);
-
-            return {
-                success: successCount > 0,
-                results: results,
-                summary: {
-                    totalMessages: request.messages.length,
-                    successCount,
-                    failedCount
-                },
-                sendTime: new Date().toISOString()
-            };
-
-        } catch (error) {
-            console.error('❌ 批量消息发送失败:', error);
-            throw error;
         }
+
+        console.log(`📊 批量发送完成: 成功 ${successCount}, 失败 ${failedCount}`);
+
+        return {
+            success: successCount > 0,
+            results,
+            summary: {
+                totalMessages: request.messages.length,
+                successCount,
+                failedCount
+            },
+            sendTime: new Date().toISOString()
+        };
     }
 
-    // ==================== 查询和统计功能（保持不变） ====================
-
+    /**
+     * 🔥 获取所有消息线程
+     */
     async getAllMessageThreads(platform?: string, accountId?: string): Promise<UserMessageThread[]> {
         try {
-            await MessageStorage.ensureMessageDatabaseInitialized();
-
             if (platform && accountId) {
-                return await MessageStorage.getAllThreads(platform, accountId);
+                return MessageStorage.getAllThreads(platform, accountId);
             } else {
-                const activeAccounts = await MessageStorage.getActiveSyncAccounts();
+                // 如果没有指定平台和账号，返回所有线程
+                const platforms = this.getSupportedPlatforms();
                 const allThreads: UserMessageThread[] = [];
-
-                for (const account of activeAccounts) {
-                    const threads = await MessageStorage.getAllThreads(account.platform, account.account_id);
-                    allThreads.push(...threads);
+                
+                for (const plt of platforms) {
+                    // 这里需要获取该平台的所有账号，暂时返回空数组
+                    // 实际应用中可以从账号存储中获取
+                    console.warn(`⚠️ 需要实现获取平台 ${plt} 的所有账号逻辑`);
                 }
-
-                return allThreads.sort((a, b) => {
-                    const timeA = a.last_message_time || '0';
-                    const timeB = b.last_message_time || '0';
-                    return timeB.localeCompare(timeA);
-                });
+                
+                return allThreads;
             }
-
         } catch (error) {
             console.error('❌ 获取消息线程失败:', error);
             return [];
         }
     }
 
-    async getThreadMessages(threadId: number, limit: number = 50, offset: number = 0) {
+    /**
+     * 🔥 获取线程消息
+     */
+    async getThreadMessages(threadId: number, limit?: number, offset?: number): Promise<Message[]> {
         try {
-            await MessageStorage.ensureMessageDatabaseInitialized();
-            return await MessageStorage.getThreadMessages(threadId, limit, offset);
+            return MessageStorage.getThreadMessages(threadId, limit || 50, offset || 0);
         } catch (error) {
             console.error('❌ 获取线程消息失败:', error);
             return [];
         }
     }
 
+    /**
+     * 🔥 标记消息已读
+     */
     async markMessagesAsRead(threadId: number, messageIds?: number[]): Promise<boolean> {
         try {
-            await MessageStorage.ensureMessageDatabaseInitialized();
-            await MessageStorage.markMessagesAsRead(threadId, messageIds);
+            MessageStorage.markMessagesAsRead(threadId, messageIds);
             return true;
         } catch (error) {
             console.error('❌ 标记消息已读失败:', error);
@@ -708,25 +898,24 @@ export class MessageAutomationEngine {
         }
     }
 
-    async searchMessages(
-        platform: string,
-        accountId: string,
-        keyword: string,
-        limit: number = 20
-    ) {
+    /**
+     * 🔥 搜索消息
+     */
+    async searchMessages(platform: string, accountId: string, keyword: string, limit?: number): Promise<any[]> {
         try {
-            await MessageStorage.ensureMessageDatabaseInitialized();
-            return await MessageStorage.searchMessages(platform, accountId, keyword, limit);
+            return MessageStorage.searchMessages(platform, accountId, keyword, limit || 20);
         } catch (error) {
             console.error('❌ 搜索消息失败:', error);
             return [];
         }
     }
 
+    /**
+     * 🔥 获取消息统计
+     */
     async getMessageStatistics(): Promise<MessageStatistics> {
         try {
-            await MessageStorage.ensureMessageDatabaseInitialized();
-            return await MessageStorage.getMessageStatistics();
+            return MessageStorage.getMessageStatistics();
         } catch (error) {
             console.error('❌ 获取消息统计失败:', error);
             return {
@@ -738,167 +927,52 @@ export class MessageAutomationEngine {
         }
     }
 
+    /**
+     * 🔥 获取未读消息数
+     */
     async getUnreadCount(platform?: string, accountId?: string): Promise<number> {
         try {
-            await MessageStorage.ensureMessageDatabaseInitialized();
-            return await MessageStorage.getUnreadCount(platform, accountId);
+            return MessageStorage.getUnreadCount(platform, accountId);
         } catch (error) {
-            console.error('❌ 获取未读消息统计失败:', error);
+            console.error('❌ 获取未读消息数失败:', error);
             return 0;
         }
     }
 
     /**
-     * 🔥 获取调度状态 (兼容方法)
+     * 🔥 获取支持的平台
      */
-    getScheduleStatus(platform: string, accountId: string): MessageScheduleStatus | null {
-        const task = this.getAccountScheduleStatus(platform, accountId);
-        if (!task) return null;
-        
-        // 转换为旧格式
-        return {
-            platform: task.platform,
-            accountId: task.accountId,
-            isRunning: task.status === 'running' || task.status === 'pending',
-            lastSyncTime: task.lastSyncTime,
-            nextSyncTime: task.nextSyncTime,
-            syncCount: task.syncCount,
-            errorCount: task.errorCount,
-            lastError: task.lastError
-        };
+    getSupportedPlatforms(): string[] {
+        return getSupportedMessagePlatforms();
     }
-
-    /**
-     * 🔥 获取所有调度状态 (兼容方法)
-     */
-    getAllScheduleStatuses(): MessageScheduleStatus[] {
-        const schedulerStatus = this.getScheduleSystemStatus();
-        
-        return schedulerStatus.tasks.map(task => ({
-            platform: task.platform,
-            accountId: task.accountId,
-            isRunning: task.status === 'running' || task.status === 'pending',
-            lastSyncTime: task.lastSyncTime,
-            nextSyncTime: task.nextSyncTime,
-            syncCount: task.syncCount,
-            errorCount: task.errorCount,
-            lastError: task.lastError
-        }));
-    }
-    /**
-     * 🔥 新增：更新账号Cookie
-     */
-    updateAccountCookie(platform: string, accountId: string, newCookieFile: string): boolean {
-        const accountKey = `${platform}_${accountId}`;
-        return this.messageScheduler.updateTaskCookie(accountKey, newCookieFile, 'relogin');
-    }
-
-    // ==================== 数据清理功能 ====================
-
-    /**
-     * 🔥 清理旧消息数据
-     */
-    async cleanupOldMessages(daysToKeep: number = 30): Promise<number> {
-        try {
-            await MessageStorage.ensureMessageDatabaseInitialized();
-            return await MessageStorage.cleanupOldMessages(daysToKeep);
-        } catch (error) {
-            console.error('❌ 清理旧消息失败:', error);
-            return 0;
-        }
-    }
-
-    /**
-     * 🔥 修复数据一致性
-     */
-    async repairDataConsistency() {
-        try {
-            await MessageStorage.ensureMessageDatabaseInitialized();
-            return await MessageStorage.repairDataConsistency();
-        } catch (error) {
-            console.error('❌ 修复数据一致性失败:', error);
-            return { repairedThreads: 0, orphanedMessages: 0 };
-        }
-    }
-
-    /**
-     * 🔥 获取数据库健康状态
-     */
-    async getDatabaseHealth() {
-        try {
-            await MessageStorage.ensureMessageDatabaseInitialized();
-            return await MessageStorage.getDatabaseHealth();
-        } catch (error) {
-            console.error('❌ 获取数据库健康状态失败:', error);
-            return {
-                isHealthy: false,
-                issues: ['检查数据库健康状态失败'],
-                suggestions: ['检查数据库连接'],
-                stats: {
-                    totalThreads: 0,
-                    totalMessages: 0,
-                    unreadMessages: 0,
-                    platformStats: {}
-                }
-            };
-        }
-    }
-
-
-    // ==================== 生命周期管理 ====================
 
     /**
      * 🔥 获取引擎状态
      */
     getEngineStatus(): {
+        isRunning: boolean;
+        activeMonitoring: number;
+        supportedPlatforms: string[];
         initializedPlugins: string[];
-        schedulerStatus: any;
-        tabsStatus: any;
-        syncStatuses: MessageScheduleStatus[];
+        syncStatuses: any[];
     } {
         return {
+            isRunning: this.isSystemRunning,
+            activeMonitoring: this.activeMonitoring.size,
+            supportedPlatforms: this.getSupportedPlatforms(),
             initializedPlugins: Array.from(this.messagePlugins.keys()),
-            schedulerStatus: this.getScheduleSystemStatus(),
-            tabsStatus: null, // 异步方法，这里不调用
-            syncStatuses: this.getAllScheduleStatuses()
+            syncStatuses: Array.from(this.activeMonitoring.values())
         };
     }
 
     /**
-     * 🔥 销毁消息自动化引擎
+     * 🔥 获取所有调度状态（为API兼容性添加）
      */
-    async destroy(): Promise<void> {
-        try {
-            console.log('🧹 销毁MessageAutomationEngine...');
-
-            // 按顺序销毁组件
-            if (this.messageScheduler) {
-                await this.messageScheduler.destroy();
-            }
-            
-            if (this.messageTabManager) {
-                await this.messageTabManager.destroy();
-            }
-
-            // 销毁所有插件
-            for (const [platform, plugin] of this.messagePlugins) {
-                try {
-                    if (plugin.destroy) {
-                        await plugin.destroy();
-                    }
-                } catch (error) {
-                    console.warn(`⚠️ 销毁 ${platform} 插件失败:`, error);
-                }
-            }
-
-            // 清理资源
-            this.messagePlugins.clear();
-            this.messageSyncStatus.clear();
-
-            console.log('✅ MessageAutomationEngine已销毁');
-
-        } catch (error) {
-            console.error('❌ 销毁MessageAutomationEngine失败:', error);
-        }
+    getAllScheduleStatuses(): any[] {
+        return Array.from(this.scheduleIntervals.entries()).map(([key, interval]) => ({
+            key,
+            intervalId: interval,
+            isActive: !!interval
+        }));
     }
 }
