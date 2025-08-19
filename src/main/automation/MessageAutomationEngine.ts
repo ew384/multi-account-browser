@@ -1,15 +1,11 @@
-// src/main/automation/MessageAutomationEngine.ts
+// src/main/automation/MessageAutomationEngine.ts - MVP简化版本
 
 import { TabManager } from '../TabManager';
+import { PluginManager } from '../PluginManager';
 import { MessageStorage } from '../plugins/message/base/MessageStorage';
 import { 
-    createMessagePlugin,
-    getSupportedMessagePlatforms,
-    getMessagePlatformConfig,
-    getAllMessagePlatformConfigs
-} from '../plugins/message';
-import { 
     PluginMessage, 
+    PluginType,
     MessageSyncParams,
     MessageSyncResult,
     MessageSendParams,
@@ -23,7 +19,6 @@ import {
     BatchMessageSendResult
 } from '../../types/pluginInterface';
 import { ipcMain } from 'electron';
-import * as path from 'path';
 
 // ==================== 接口定义 ====================
 
@@ -41,7 +36,6 @@ export interface MessageMonitoringStatus {
     tabId?: string;
     isMonitoring: boolean;
     lastActivity?: string;
-    plugin?: PluginMessage;
 }
 
 export interface MessageSyncOptions {
@@ -51,7 +45,7 @@ export interface MessageSyncOptions {
 }
 
 /**
- * 🔥 消息自动化引擎 - IPC事件驱动版本
+ * 🔥 消息自动化引擎 - MVP简化版本
  * 
  * 核心功能：
  * 1. 多账号跨平台私信管理
@@ -61,18 +55,26 @@ export interface MessageSyncOptions {
  */
 export class MessageAutomationEngine {
     private tabManager: TabManager;
-    private automationEngine: any; // AutomationEngine 实例
-    private messagePlugins: Map<string, PluginMessage> = new Map();
+    private pluginManager: PluginManager;
     private activeMonitoring: Map<string, MessageMonitoringStatus> = new Map();
     private scheduleIntervals: Map<string, NodeJS.Timeout> = new Map();
     private isSystemRunning: boolean = false;
 
     constructor(tabManager: TabManager, automationEngine: any) {
         this.tabManager = tabManager;
-        this.automationEngine = automationEngine;
+        this.pluginManager = new PluginManager(tabManager);
         this.initializeDatabase();
         this.setupIPCListeners();
-        console.log('🔥 MessageAutomationEngine 已初始化');
+        console.log('✅ MessageAutomationEngine MVP 已初始化');
+    }
+
+    // ==================== 🔧 插件管理器访问 ====================
+
+    /**
+     * 🔥 获取插件管理器实例
+     */
+    getPluginManager(): PluginManager {
+        return this.pluginManager;
     }
 
     // ==================== 🔧 初始化方法 ====================
@@ -356,6 +358,36 @@ export class MessageAutomationEngine {
         console.log('✅ MessageAutomationEngine IPC 监听器设置完成');
     }
 
+    // ==================== 🔥 IPC 事件处理方法 ====================
+
+    /**
+     * 🔥 处理页面新消息事件
+     */
+    private handleIPCNewMessage(event: any, data: any): void {
+        try {
+            console.log('📨 收到新消息事件:', data);
+            if (data.platform && data.timestamp) {
+                console.log(`🔔 ${data.platform} 平台检测到 ${data.diff || 0} 条新消息`);
+            }
+        } catch (error) {
+            console.error('❌ 处理新消息事件失败:', error);
+        }
+    }
+
+    /**
+     * 🔥 处理账号状态变化事件
+     */
+    private handleIPCAccountStatus(event: any, data: any): void {
+        try {
+            console.log('📊 收到账号状态事件:', data);
+            if (data.status === 'logged_out' && data.platform) {
+                console.warn(`⚠️ ${data.platform} 账号已登出，可能需要重新登录`);
+            }
+        } catch (error) {
+            console.error('❌ 处理账号状态事件失败:', error);
+        }
+    }
+
     // ==================== 🔥 核心公共接口 ====================
 
     /**
@@ -379,8 +411,9 @@ export class MessageAutomationEngine {
                 };
             }
 
-            // 2. 获取或创建插件
-            const plugin = await this.getOrCreatePlugin(params.platform);
+            // 2. 通过 PluginManager 获取插件
+            const plugin = this.pluginManager.getPlugin<PluginMessage>(PluginType.MESSAGE, params.platform);
+            
             if (!plugin) {
                 return {
                     success: false,
@@ -388,7 +421,7 @@ export class MessageAutomationEngine {
                 };
             }
 
-            // 3. 创建专用Tab (使用 createAccountTab)
+            // 3. 创建专用Tab
             const tabId = await this.tabManager.createAccountTab(
                 params.cookieFile,
                 params.platform,
@@ -396,24 +429,39 @@ export class MessageAutomationEngine {
                 params.headless ?? true
             );
 
-            // 4. 等待页面就绪
-            const isReady = await this.waitForPageReady(tabId, params.platform);
-            if (!isReady) {
-                await this.tabManager.closeTab(tabId);
-                return {
-                    success: false,
-                    error: '页面加载超时或失败'
-                };
-            }
+            // 4. 等待页面加载
+            console.log(`⏳ 等待页面加载完成...`);
+            await new Promise(resolve => setTimeout(resolve, 3000));
 
             // 5. 注入监听脚本
-            await this.injectMessageListener(tabId, params.platform);
+            const listenerScript = `
+                (function() {
+                    console.log('🎧 消息监听脚本已注入: ${params.platform}');
+                    if (window.__messageListenerInjected) return;
+                    window.__messageListenerInjected = true;
+                    
+                    setInterval(() => {
+                        try {
+                            // 简单的消息检查逻辑
+                            const messageElements = document.querySelectorAll('.session-wrap, .message-item, .chat-item');
+                            if (window.electronAPI && window.electronAPI.notifyNewMessage) {
+                                window.electronAPI.notifyNewMessage({
+                                    total: messageElements.length,
+                                    timestamp: Date.now(),
+                                    platform: '${params.platform}'
+                                });
+                            }
+                        } catch (error) {
+                            console.error('消息检查失败:', error);
+                        }
+                    }, 5000);
+                })()
+            `;
 
-            // 6. 锁定Tab防止被其他功能使用
-            const lockSuccess = this.tabManager.lockTab(tabId, 'message', '消息监听专用');
-            if (!lockSuccess) {
-                console.warn(`⚠️ 无法锁定消息Tab: ${tabId}`);
-            }
+            await this.tabManager.executeScript(tabId, listenerScript);
+
+            // 6. 锁定Tab
+            this.tabManager.lockTab(tabId, 'message', '消息监听专用');
 
             // 7. 记录监听状态
             this.activeMonitoring.set(accountKey, {
@@ -422,8 +470,7 @@ export class MessageAutomationEngine {
                 accountId: params.accountId,
                 tabId,
                 isMonitoring: true,
-                lastActivity: new Date().toISOString(),
-                plugin
+                lastActivity: new Date().toISOString()
             });
 
             console.log(`✅ 消息监听启动成功: ${accountKey} -> ${tabId}`);
@@ -451,15 +498,12 @@ export class MessageAutomationEngine {
 
             console.log(`🛑 停止消息监听: ${accountKey}`);
 
-            // 1. 解锁并清理Tab
             if (monitoring.tabId) {
                 this.tabManager.unlockTab(monitoring.tabId, 'message');
                 await this.tabManager.closeTab(monitoring.tabId);
             }
 
-            // 2. 移除监听状态
             this.activeMonitoring.delete(accountKey);
-
             console.log(`✅ 消息监听已停止: ${accountKey}`);
             return true;
 
@@ -498,7 +542,6 @@ export class MessageAutomationEngine {
                     ...result
                 });
 
-                // 避免并发过多，添加短暂延迟
                 await new Promise(resolve => setTimeout(resolve, 1000));
 
             } catch (error) {
@@ -564,26 +607,23 @@ export class MessageAutomationEngine {
         }));
     }
 
-    /**
-     * 🔥 获取特定账号监听状态
-     */
-    getMonitoringStatus(accountKey: string): {
-        isActive: boolean;
-        tabId?: string;
-        lastActivity?: string;
-    } {
-        const monitoring = this.activeMonitoring.get(accountKey);
-        
-        if (!monitoring) {
-            return { isActive: false };
-        }
+    // ==================== 🔥 工具方法 ====================
 
-        return {
-            isActive: monitoring.isMonitoring,
-            tabId: monitoring.tabId,
-            lastActivity: monitoring.lastActivity
+    /**
+     * 🔥 获取平台消息URL
+     */
+    private getMessageUrl(platform: string): string {
+        const messageUrls: Record<string, string> = {
+            'wechat': 'https://channels.weixin.qq.com/platform/private_msg',
+            'xiaohongshu': 'https://creator.xiaohongshu.com/im',
+            'douyin': 'https://creator.douyin.com/im',
+            'kuaishou': 'https://cp.kuaishou.com/profile/msg'
         };
+        
+        return messageUrls[platform] || 'about:blank';
     }
+
+    // ==================== 🔥 原有核心API（保持不变） ====================
 
     /**
      * 🔥 手动同步平台消息
@@ -599,7 +639,8 @@ export class MessageAutomationEngine {
         try {
             console.log(`🔄 手动同步消息: ${platform} - ${accountName}`);
 
-            const plugin = await this.getOrCreatePlugin(platform);
+            const plugin = this.pluginManager.getPlugin<PluginMessage>(PluginType.MESSAGE, platform);
+            
             if (!plugin) {
                 throw new Error(`平台 ${platform} 不支持消息功能`);
             }
@@ -609,11 +650,11 @@ export class MessageAutomationEngine {
                 cookieFile,
                 platform,
                 this.getMessageUrl(platform),
-                true // headless模式
+                true
             );
             
             // 等待页面就绪
-            await this.waitForPageReady(tabId, platform, 30000);
+            await new Promise(resolve => setTimeout(resolve, 3000));
 
             // 执行同步
             const syncParams: MessageSyncParams = {
@@ -678,7 +719,8 @@ export class MessageAutomationEngine {
         try {
             console.log(`📤 发送消息: ${platform} - ${userName} (${type})`);
 
-            const plugin = await this.getOrCreatePlugin(platform);
+            const plugin = this.pluginManager.getPlugin<PluginMessage>(PluginType.MESSAGE, platform);
+            
             if (!plugin) {
                 throw new Error(`平台 ${platform} 不支持消息功能`);
             }
@@ -693,7 +735,6 @@ export class MessageAutomationEngine {
             };
 
             const result = await plugin.sendMessage(sendParams);
-
             console.log(`${result.success ? '✅' : '❌'} 消息发送${result.success ? '成功' : '失败'}: ${userName}`);
             return result;
 
@@ -742,13 +783,12 @@ export class MessageAutomationEngine {
 
                 results.push({
                     accountId: account.accountId,
-                    tabId: '', // 临时Tab，同步完成后已关闭
+                    tabId: '',
                     success: syncResult.success,
                     syncResult,
                     error: syncResult.success ? undefined : syncResult.errors?.[0]
                 });
 
-                // 避免并发过多
                 await new Promise(resolve => setTimeout(resolve, 1000));
 
             } catch (error) {
@@ -813,7 +853,6 @@ export class MessageAutomationEngine {
                     }
                 }
 
-                // 消息间延迟
                 if (delay > 0) {
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
@@ -855,17 +894,8 @@ export class MessageAutomationEngine {
             if (platform && accountId) {
                 return MessageStorage.getAllThreads(platform, accountId);
             } else {
-                // 如果没有指定平台和账号，返回所有线程
-                const platforms = this.getSupportedPlatforms();
-                const allThreads: UserMessageThread[] = [];
-                
-                for (const plt of platforms) {
-                    // 这里需要获取该平台的所有账号，暂时返回空数组
-                    // 实际应用中可以从账号存储中获取
-                    console.warn(`⚠️ 需要实现获取平台 ${plt} 的所有账号逻辑`);
-                }
-                
-                return allThreads;
+                console.warn(`⚠️ 需要实现获取所有平台账号的逻辑`);
+                return [];
             }
         } catch (error) {
             console.error('❌ 获取消息线程失败:', error);
@@ -943,7 +973,13 @@ export class MessageAutomationEngine {
      * 🔥 获取支持的平台
      */
     getSupportedPlatforms(): string[] {
-        return getSupportedMessagePlatforms();
+        try {
+            // 通过 pluginManager 获取支持的消息平台
+            return this.pluginManager.getSupportedPlatforms(PluginType.MESSAGE);
+        } catch (error) {
+            console.error('❌ 获取支持平台失败:', error);
+            return ['wechat']; // 默认返回微信
+        }
     }
 
     /**
@@ -960,7 +996,7 @@ export class MessageAutomationEngine {
             isRunning: this.isSystemRunning,
             activeMonitoring: this.activeMonitoring.size,
             supportedPlatforms: this.getSupportedPlatforms(),
-            initializedPlugins: Array.from(this.messagePlugins.keys()),
+            initializedPlugins: Array.from(this.activeMonitoring.keys()).map(key => key.split('_')[0]),
             syncStatuses: Array.from(this.activeMonitoring.values())
         };
     }
@@ -974,5 +1010,31 @@ export class MessageAutomationEngine {
             intervalId: interval,
             isActive: !!interval
         }));
+    }
+
+    /**
+     * 🔥 销毁引擎
+     */
+    async destroy(): Promise<void> {
+        try {
+            console.log('🛑 MessageAutomationEngine 开始销毁...');
+            
+            // 停止所有监听
+            await this.stopAllMonitoring();
+            
+            // 清理调度任务
+            for (const [key, interval] of this.scheduleIntervals.entries()) {
+                clearInterval(interval);
+                this.scheduleIntervals.delete(key);
+            }
+            
+            // 清理状态
+            this.activeMonitoring.clear();
+            this.isSystemRunning = false;
+            
+            console.log('✅ MessageAutomationEngine 销毁完成');
+        } catch (error) {
+            console.error('❌ MessageAutomationEngine 销毁失败:', error);
+        }
     }
 }

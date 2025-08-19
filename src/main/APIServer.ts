@@ -1731,12 +1731,6 @@ export class APIServer {
                 // 🔥 新增：清理全局通知器
                 global.uploadProgressNotifier = undefined;
                 console.log('✅ SSE连接已清理');
-                
-                // 保持原有逻辑：先销毁消息API
-                if (this.messageAPI) {
-                    await this.messageAPI.destroy();
-                    console.log('✅ 消息API已销毁');
-                }
 
                 // 保持原有逻辑：然后停止HTTP服务器
                 if (this.server) {
