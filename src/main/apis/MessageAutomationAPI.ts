@@ -11,7 +11,7 @@ export class MessageAutomationAPI {
     private messageEngine: MessageAutomationEngine;
 
     constructor(tabManager: TabManager, automationEngine: AutomationEngine) {
-        this.messageEngine = new MessageAutomationEngine(tabManager, automationEngine);
+        this.messageEngine = new MessageAutomationEngine(tabManager);
         this.setupRoutes();
         console.log('✅ MessageAutomationAPI MVP 已初始化');
     }

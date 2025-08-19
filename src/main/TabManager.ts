@@ -468,7 +468,7 @@ export class TabManager {
                     experimentalFeatures: true,
                     enableBlinkFeatures: 'CSSContainerQueries',
                     disableBlinkFeatures: 'AutomationControlled',
-                    preload: undefined,
+                    preload: path.join(__dirname, '../preload/preload.js'),
                     // 🔥 新增：根据headless模式设置
                     offscreen: finalHeadless,  // headless时启用离屏渲染
                 }

@@ -441,7 +441,7 @@ export class MessageStorage {
     // ==================== 消息管理方法 ====================
 
     /**
-     * 🔥 批量添加消息
+     * 🔥 批量添加消息 - 加强去重 + 保留图片处理
      */
     static async addMessages(threadId: number, messages: Message[]): Promise<void> {
         if (messages.length === 0) return;
@@ -476,7 +476,7 @@ export class MessageStorage {
 
                         if (savedImages.length > 0) {
                             // 只存储相对路径
-                            imagePaths = JSON.stringify(savedImages.map(img => img.path));
+                            imagePaths = JSON.stringify(savedImages.map((img: any) => img.path));
                         }
                     } catch (error) {
                         console.error(`❌ 保存消息图片失败:`, error);
@@ -492,9 +492,13 @@ export class MessageStorage {
 
             // 使用事务确保数据一致性
             const transaction = db.transaction(() => {
+                // 🔥 强化去重：基于时间戳 + 发送者 + 内容前50字符
                 const checkStmt = db.prepare(`
                     SELECT id FROM messages 
-                    WHERE thread_id = ? AND timestamp = ? AND sender = ?
+                    WHERE thread_id = ? 
+                    AND timestamp = ? 
+                    AND sender = ? 
+                    AND substr(COALESCE(text_content, ''), 1, 50) = substr(COALESCE(?, ''), 1, 50)
                 `);
 
                 const insertStmt = db.prepare(`
@@ -504,12 +508,21 @@ export class MessageStorage {
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 `);
 
+                let skipCount = 0;
+                let insertCount = 0;
+
                 for (const message of processedMessages) {
-                    // 检查消息是否已存在（基于时间戳和发送者去重）
-                    const existing = checkStmt.get(threadId, message.timestamp, message.sender);
+                    // 🔥 快速去重检查
+                    const existing = checkStmt.get(
+                        threadId, 
+                        message.timestamp, 
+                        message.sender,
+                        message.text || ''
+                    );
 
                     if (existing) {
-                        console.log(`⚠️ 消息已存在，跳过: ${message.timestamp}`);
+                        skipCount++;
+                        console.log(`⚠️ 消息已存在，跳过: ${message.timestamp} - ${(message.text || '').substring(0, 20)}...`);
                         continue;
                     }
 
@@ -529,23 +542,37 @@ export class MessageStorage {
                         message.timestamp,
                         message.is_read ? 1 : 0
                     );
+                    
+                    insertCount++;
                 }
 
-                // 更新线程的最后消息时间
-                const lastMessage = messages[messages.length - 1];
-                const isFromUser = lastMessage.sender === 'user';
-                this.updateThreadStatus(threadId, lastMessage.timestamp, isFromUser);
+                // 🔥 统计日志
+                if (skipCount > 0) {
+                    console.log(`📊 跳过重复消息 ${skipCount} 条，新增 ${insertCount} 条`);
+                } else if (insertCount > 0) {
+                    console.log(`✅ 新增消息 ${insertCount} 条`);
+                }
+
+                // 🔥 更新线程的最后消息时间
+                if (insertCount > 0) {
+                    const lastMessage = messages[messages.length - 1];
+                    const isFromUser = lastMessage.sender === 'user';
+                    this.updateThreadStatus(threadId, lastMessage.timestamp, isFromUser);
+                }
             });
 
             transaction();
-            console.log(`✅ 成功添加 ${messages.length} 条消息到线程 ${threadId}`);
+            
+            if (processedMessages.some(m => m.processedImagePaths)) {
+                const imageCount = processedMessages.filter(m => m.processedImagePaths).length;
+                console.log(`🖼️ 处理图片消息 ${imageCount} 条`);
+            }
 
         } catch (error) {
             console.error('❌ 添加消息失败:', error);
             throw error;
         }
     }
-
     /**
      * 🔥 获取对话线程的消息
      */

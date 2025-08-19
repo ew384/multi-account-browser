@@ -127,21 +127,37 @@ export class WeChatChannelsMessage implements PluginMessage {
     async syncMessages(params: MessageSyncParams): Promise<MessageSyncResult> {
         try {
             console.log(`🔄 开始同步微信视频号消息: ${params.accountId}`);
-            console.log(`🖱️ 点击私信导航...`);
-            const navSuccess = await this.clickPrivateMessage(params.tabId);
-            if (!navSuccess) {
-                console.warn('⚠️ 私信导航失败，尝试继续...');
+            
+            // 🔥 如果有事件数据，说明是实时同步
+            if (params.eventData) {
+                console.log(`⚡ 实时同步模式 - 事件数据:`, params.eventData);
+                // 实时同步不需要点击导航，因为页面已经在正确位置
+            } else {
+                console.log(`🔄 常规同步模式`);
+                // 常规同步需要点击私信导航
+                console.log(`🖱️ 点击私信导航...`);
+                const navSuccess = await this.clickPrivateMessage(params.tabId);
+                if (!navSuccess) {
+                    console.warn('⚠️ 私信导航失败，尝试继续...');
+                }
+                await new Promise(resolve => setTimeout(resolve, 3000));
             }
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            
             // 验证标签页上下文
             const isValidContext = await this.validateTabContext(params.tabId);
             if (!isValidContext) {
                 throw new Error('标签页不在微信视频号助手页面');
             }
-            const syncScript = this.generateWechatSyncScript();
-            // 🔥 重试执行同步脚本
-            const maxRetries = 120; // 2分钟
+            
+            // 🔥 生成同步脚本（可以根据是否有eventData优化）
+            const syncScript = this.generateWechatSyncScript(params.eventData);
+            
+            // 🔥 调整重试策略
+            const maxRetries = params.eventData ? 10 : 120; // 实时同步减少重试次数，但给一定容错
+            const retryDelay = params.eventData ? 300 : 1000; // 实时同步更快重试
             let lastError = '';
+            
+            console.log(`📝 开始执行同步脚本 (${params.eventData ? '实时' : '常规'}模式)...`);
             
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
@@ -173,22 +189,28 @@ export class WeChatChannelsMessage implements PluginMessage {
                     
                 } catch (error) {
                     lastError = error instanceof Error ? error.message : 'unknown error';
-                    console.log(`⚠️ 第 ${attempt} 次尝试失败: ${lastError}`);
+                    
+                    if (params.eventData) {
+                        console.log(`⚠️ 实时同步第 ${attempt} 次尝试失败: ${lastError}`);
+                    } else {
+                        console.log(`⚠️ 常规同步第 ${attempt} 次尝试失败: ${lastError}`);
+                    }
                     
                     if (attempt < maxRetries) {
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await new Promise(resolve => setTimeout(resolve, retryDelay));
                         continue;
                     }
                 }
             }
 
             // 所有重试都失败
+            const syncMode = params.eventData ? '实时' : '常规';
             return {
                 success: false,
                 threads: [],
                 newMessages: 0,
                 updatedThreads: 0,
-                errors: [`重试 ${maxRetries} 次后失败: ${lastError}`],
+                errors: [`${syncMode}同步重试 ${maxRetries} 次后失败: ${lastError}`],
                 syncTime: new Date().toISOString()
             };
 
@@ -202,6 +224,22 @@ export class WeChatChannelsMessage implements PluginMessage {
                 errors: [error instanceof Error ? error.message : 'unknown error'],
                 syncTime: new Date().toISOString()
             };
+        }
+    }
+
+    // 🔥 新增/更新：生成微信消息同步脚本
+    private generateWechatSyncScript(eventData?: any): string {
+        if (eventData) {
+            // 🔥 实时同步：可能可以优化脚本，针对性获取最新消息
+            console.log('📜 生成实时同步脚本...');
+            // 当前先使用相同的脚本，将来可以优化
+            const scriptPath = path.join(__dirname, './scripts/wechat-sync.js');
+            return fs.readFileSync(scriptPath, 'utf-8');
+        } else {
+            // 🔥 常规同步：使用完整的同步脚本
+            console.log('📜 生成常规同步脚本...');
+            const scriptPath = path.join(__dirname, './scripts/wechat-sync.js');
+            return fs.readFileSync(scriptPath, 'utf-8');
         }
     }
     /**
@@ -386,14 +424,6 @@ export class WeChatChannelsMessage implements PluginMessage {
     }
 
     // ==================== 私有方法 ====================
-
-    /**
-     * 🔥 生成微信消息同步脚本
-     */
-    private generateWechatSyncScript(): string {
-        const scriptPath = path.join(__dirname, './scripts/wechat-sync.js');
-        return fs.readFileSync(scriptPath, 'utf-8');
-    }
     /**
      * 🔥 生成微信消息发送脚本
      */

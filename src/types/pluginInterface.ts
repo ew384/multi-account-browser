@@ -318,6 +318,8 @@ export interface MessageSyncParams {
     accountId: string;              // 账号ID
     lastSyncTime?: string;          // 上次同步时间（增量同步用）
     fullSync?: boolean;             // 是否全量同步
+    // 🔥 新增：事件数据，用于实时同步
+    eventData?: any;
 }
 
 /**
