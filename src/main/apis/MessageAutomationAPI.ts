@@ -617,20 +617,4 @@ export class MessageAutomationAPI {
         return this.router;
     }
 
-    /**
-     * 🔥 销毁API实例
-     */
-    async destroy(): Promise<void> {
-        try {
-            console.log('🧹 销毁 MessageAutomationAPI...');
-            
-            if (this.messageEngine) {
-                await this.messageEngine.destroy();
-            }
-            
-            console.log('✅ MessageAutomationAPI 已销毁');
-        } catch (error) {
-            console.error('❌ 销毁 MessageAutomationAPI 失败:', error);
-        }
-    }
 }
