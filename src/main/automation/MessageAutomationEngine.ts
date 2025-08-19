@@ -368,17 +368,54 @@ export class MessageAutomationEngine {
 
     // ==================== 🔥 IPC 事件处理方法 ====================
 
-    /**
-     * 🔥 处理页面新消息事件
-     */
     private handleIPCNewMessage(event: any, data: any): void {
         try {
             console.log('📨 收到新消息事件:', data);
-            if (data.platform && data.timestamp) {
-                console.log(`🔔 ${data.platform} 平台检测到 ${data.diff || 0} 条新消息`);
+            
+            if (data.action === 'trigger_sync') {
+                // 收到同步触发请求，执行消息同步
+                console.log(`🔄 执行自动消息同步: ${data.platform} - ${data.accountId}`);
+                this.autoSyncMessages(data.platform, data.accountId);
+                
+            } else if (data.event === 'NewMsgNotify') {
+                // 收到新消息通知
+                console.log(`🔔 ${data.platform} 平台检测到新消息:`, data.eventData);
+                
+            } else if (data.source === 'dom_observer') {
+                // DOM变化检测到新消息
+                console.log(`👁️ ${data.platform} DOM监听检测到变化`);
             }
+            
         } catch (error) {
             console.error('❌ 处理新消息事件失败:', error);
+        }
+    }
+
+    // 🔥 添加自动同步方法
+    private async autoSyncMessages(platform: string, accountId: string): Promise<void> {
+        try {
+            const monitoring = this.activeMonitoring.get(`${platform}_${accountId}`);
+            if (!monitoring || !monitoring.tabId) {
+                console.warn(`⚠️ 账号未在监听: ${platform}_${accountId}`);
+                return;
+            }
+
+            // 执行快速同步（复用现有的同步逻辑）
+            const result = await this.syncPlatformMessages(
+                platform,
+                accountId,
+                '', // 使用监听tab，不需要cookie文件
+                { forceSync: false, timeout: 10000 }
+            );
+
+            if (result.success) {
+                console.log(`✅ 自动同步完成: 新消息 ${result.newMessages} 条`);
+            } else {
+                console.error(`❌ 自动同步失败:`, result.errors);
+            }
+
+        } catch (error) {
+            console.error('❌ 自动消息同步异常:', error);
         }
     }
 
@@ -451,25 +488,102 @@ export class MessageAutomationEngine {
             // 5. 注入监听脚本
             const listenerScript = `
                 (function() {
-                    console.log('🎧 消息监听脚本已注入: ${params.platform}');
+                    console.log('🎧 微信消息监听脚本已注入: ${params.platform}');
                     if (window.__messageListenerInjected) return;
                     window.__messageListenerInjected = true;
                     
-                    setInterval(() => {
+                    // 🔥 劫持console.log来监听微信的NewMsgNotify事件
+                    const originalLog = console.log;
+                    console.log = function(...args) {
                         try {
-                            // 简单的消息检查逻辑
-                            const messageElements = document.querySelectorAll('.session-wrap, .message-item, .chat-item');
+                            // 检查是否为新消息通知
+                            if (args.length > 0 && args[0] && 
+                                typeof args[0] === 'object' && 
+                                args[0].name === 'NewMsgNotify') {
+                                
+                                console.log('🔔 检测到微信新消息事件:', args[0]);
+                                
+                                // 立即通知主进程并获取消息
+                                if (window.electronAPI && window.electronAPI.notifyNewMessage) {
+                                    window.electronAPI.notifyNewMessage({
+                                        event: 'NewMsgNotify',
+                                        eventData: args[0],
+                                        timestamp: Date.now(),
+                                        platform: '${params.platform}',
+                                        accountId: '${params.accountId}'
+                                    });
+                                    
+                                    // 延迟获取最新消息内容
+                                    setTimeout(() => {
+                                        triggerMessageSync();
+                                    }, 1000);
+                                }
+                            }
+                        } catch (error) {
+                            console.error('处理新消息事件失败:', error);
+                        }
+                        
+                        // 调用原始console.log
+                        originalLog.apply(console, args);
+                    };
+                    
+                    // 🔥 触发消息同步的函数
+                    function triggerMessageSync() {
+                        try {
+                            console.log('🔄 触发消息同步...');
                             if (window.electronAPI && window.electronAPI.notifyNewMessage) {
                                 window.electronAPI.notifyNewMessage({
-                                    total: messageElements.length,
+                                    action: 'trigger_sync',
                                     timestamp: Date.now(),
-                                    platform: '${params.platform}'
+                                    platform: '${params.platform}',
+                                    accountId: '${params.accountId}'
                                 });
                             }
                         } catch (error) {
-                            console.error('消息检查失败:', error);
+                            console.error('触发消息同步失败:', error);
                         }
-                    }, 5000);
+                    }
+                    
+                    // 🔥 备用方案：DOM变化监听
+                    const observer = new MutationObserver((mutations) => {
+                        let hasNewMessage = false;
+                        
+                        mutations.forEach((mutation) => {
+                            if (mutation.addedNodes.length > 0) {
+                                for (let node of mutation.addedNodes) {
+                                    if (node.nodeType === 1) {
+                                        // 检查是否有新消息相关的DOM元素
+                                        if (node.classList && (
+                                            node.classList.contains('message-item') ||
+                                            node.classList.contains('session-wrap') ||
+                                            node.classList.contains('msg-item')
+                                        )) {
+                                            hasNewMessage = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        
+                        if (hasNewMessage && window.electronAPI && window.electronAPI.notifyNewMessage) {
+                            console.log('🔔 DOM监听检测到新消息');
+                            window.electronAPI.notifyNewMessage({
+                                source: 'dom_observer',
+                                timestamp: Date.now(),
+                                platform: '${params.platform}',
+                                accountId: '${params.accountId}'
+                            });
+                        }
+                    });
+                    
+                    // 开始监听DOM变化
+                    observer.observe(document.body, {
+                        childList: true,
+                        subtree: true
+                    });
+                    
+                    console.log('✅ 微信消息监听器设置完成');
                 })()
             `;
             console.log(`🎧 开始注入监听脚本...`);
