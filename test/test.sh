@@ -4,7 +4,7 @@
 # 临时显示10秒
 curl -X POST http://localhost:3409/api/window/show-temp -d '{"duration":10000}'
 
-curl -X POST http://localhost:3409/api/tabs/xiaohongshu-1754981039318/make-visible
+curl -X POST http://localhost:3409/api/tabs/xiaohongshu-1755567819052/make-visible
 curl -X POST http://localhost:3409/api/tabs/xiaohongshu-1754981039318/make-headless
 # 获取有效账号列表
 curl -X GET http://localhost:3409/getValidAccounts
@@ -38,8 +38,8 @@ curl -X POST http://localhost:3409/api/account/create \
   -d '{
     "accountName": "endian",
     "platform": "wechat",
-    "cookieFile": "wechat_endian_1755136618141.json",
-    "initialUrl": "https://creator.douyin.com/creator-micro/content/upload"
+    "cookieFile": "wechat_endian_1755556442922.json",
+    "initialUrl": "https://channels.weixin.qq.com/platform/post/create"
   }'
 curl -X POST http://localhost:3409/api/account/create \
   -H "Content-Type: application/json" \
