@@ -151,14 +151,18 @@ interface ElectronAPI {
     // 🔥 添加消息API
     // 📤 页面事件上报接口 - 供注入脚本使用
     notifyNewMessage: (data: {
-        diff?: number;          // 新消息数量差异
-        total?: number;         // 总消息数量
-        timestamp: number;      // 时间戳
-        userList?: any[];       // 用户列表（可选）
-        messages?: any[];       // 具体消息数据（可选）
-        platform?: string;     // 平台标识
+        diff?: number;
+        total?: number;
+        timestamp: number;
+        userList?: any[];
+        messages?: any[];
+        platform?: string;
+        event?: string;
+        eventData?: any;
+        action?: string;
+        accountId?: string;
+        source?: string;
     }) => void;
-
     notifyAccountStatus: (status: {
         status: 'logged_out' | 'logged_in' | 'error';
         timestamp: number;
