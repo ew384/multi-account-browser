@@ -9,7 +9,7 @@ import { HeadlessManager } from './HeadlessManager';
 
 import { SocialAutomationAPI } from './apis/SocialAutomationAPI';
 import { MessageAutomationAPI } from './apis/MessageAutomationAPI';
-import { AccountStorage } from './plugins/login/base/AccountStorage';
+
 export class APIServer {
     private app: express.Application;
     private server: any;
@@ -68,8 +68,9 @@ export class APIServer {
         // 🔥 第四优先级：系统级API和Tab管理API
         this.setupSystemAndTabRoutes();
     }
-        private setupMessageRoutes(): void {
+    private setupMessageRoutes(): void {
         console.log('🔌 设置消息自动化API路由...');
+        this.app.use('/api/messages', this.messageAPI.getRouter());
         console.log('✅ 消息自动化API路由设置完成');
     }
     private setupSpecialRoutes(): void {
