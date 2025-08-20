@@ -7,6 +7,7 @@ import { AutomationEngine } from './automation/AutomationEngine';
 import { AccountStorage } from './plugins/login/base/AccountStorage';
 import { PublishRecordStorage } from './plugins/uploader/base/PublishRecordStorage';
 import { HeadlessManager } from './HeadlessManager';
+import { globalDB } from './config/DatabaseManager'
 class MultiAccountBrowser {
     private mainWindow: BrowserWindow | null = null;
     private sessionManager: SessionManager;
@@ -890,12 +891,15 @@ class MultiAccountBrowser {
         this.createWindow();
         if (this.mainWindow) {
             try {
-                // 🔥 步骤0：首先初始化数据库
-                console.log('🗄️ 初始化数据库...');
+                // 🔥 步骤0：使用全局数据库管理器
+                console.log('🗄️ 初始化全局数据库管理器...');
+                globalDB.getConnection(); // 这会触发数据库初始化
+                console.log('✅ 全局数据库管理器初始化完成');
+
+                // 🔥 确保各个存储类的数据库已初始化
                 AccountStorage.ensureDatabaseInitialized();
-                console.log('✅ 数据库初始化完成');
                 PublishRecordStorage.ensureDatabaseInitialized();
-                console.log('✅ 发布记录数据库初始化完成');
+                console.log('✅ 所有存储类数据库初始化完成');
                 // 🔥 步骤1：初始化 TabManager
                 console.log('📋 初始化 TabManager...');
                 this.tabManager = new TabManager(this.mainWindow, this.sessionManager);
@@ -942,7 +946,17 @@ class MultiAccountBrowser {
     }
     private logInitializationComplete(mode: string): void {
         console.log(`🎉 Multi-Account Browser 初始化完成 (${mode} 模式)`);
-
+        // 🔥 新增：显示数据库状态
+        try {
+            const dbInfo = globalDB.getConnectionInfo();
+            console.log('📊 数据库状态:', {
+                连接状态: dbInfo.isConnected ? '已连接' : '未连接',
+                连接数: dbInfo.connectionCount,
+                WAL文件大小: dbInfo.walSize ? `${(dbInfo.walSize / 1024).toFixed(1)} KB` : '无'
+            });
+        } catch (error) {
+            console.warn('⚠️ 获取数据库状态失败:', error);
+        }
         switch (mode) {
             case 'headless':
                 console.log('🔇 无界面模式 - 可用功能:');
@@ -1025,15 +1039,15 @@ class MultiAccountBrowser {
                     console.log('🔌 销毁插件系统...');
                     await this.automationEngine.getPluginManager().destroyAllPlugins();
                 }
-                // 🔥 步骤4：关闭数据库连接
-                console.log('🗄️ 关闭数据库连接...');
+                // 🔥 步骤4：关闭全局数据库连接（新增）
+                console.log('🗄️ 关闭全局数据库连接...');
                 try {
-                    AccountStorage.closeDatabase();
-                    PublishRecordStorage.closeDatabase();
-                    console.log('✅ 数据库连接已关闭');
+                    globalDB.closeConnection();
+                    console.log('✅ 全局数据库连接已关闭');
                 } catch (dbError) {
                     console.warn('⚠️ 关闭数据库连接时出现错误:', dbError);
                 }
+
                 // 新增：清理 HeadlessManager
                 console.log('🔇 清理 HeadlessManager...');
                 this.headlessManager.destroy();

@@ -1,4 +1,4 @@
-// src/main/plugins/message/base/MessageStorage.ts - Better-SQLite3 版本
+// src/main/plugins/message/base/MessageStorage.ts
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -9,7 +9,7 @@ import {
     UserMessageThread, 
     MessageStatistics 
 } from '../../../../types/pluginInterface';
-
+import { globalDB } from '../../../config/DatabaseManager';
 // 🔥 内部数据库记录类型定义
 interface MessageRecord {
     id?: number;
@@ -54,33 +54,13 @@ interface SyncStatusRecord {
 let messageDbInitialized = false;
 let messageDbInitializing = false;
 
-// 🔥 数据库单例
-let dbInstance: Database.Database | null = null;
 
 export class MessageStorage {
-
     /**
-     * 🔥 获取数据库实例（单例模式）
+     * 🔥 使用全局数据库连接
      */
     private static getDatabase(): Database.Database {
-        if (!dbInstance) {
-            // 确保数据库目录存在
-            if (!fs.existsSync(Config.DB_DIR)) {
-                fs.mkdirSync(Config.DB_DIR, { recursive: true });
-            }
-
-            dbInstance = new Database(Config.DB_PATH);
-            
-            // 设置性能优化选项
-            dbInstance.pragma('journal_mode = WAL');
-            dbInstance.pragma('synchronous = NORMAL');
-            dbInstance.pragma('cache_size = 1000');
-            dbInstance.pragma('temp_store = memory');
-            dbInstance.pragma('wal_autocheckpoint = 1000');
-            console.log('✅ Better-SQLite3 数据库连接已建立');
-        }
-        
-        return dbInstance;
+        return globalDB.getConnection();
     }
 
     /**
@@ -417,6 +397,9 @@ export class MessageStorage {
         try {
             const db = this.getDatabase();
 
+            // 🔥 确保时间戳不为空
+            const validTimestamp = lastMessageTime || new Date().toISOString();
+
             let stmt;
             if (incrementUnread) {
                 stmt = db.prepare(`
@@ -426,7 +409,7 @@ export class MessageStorage {
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 `);
-                stmt.run(lastMessageTime, threadId);
+                stmt.run(validTimestamp, threadId);
             } else {
                 stmt = db.prepare(`
                     UPDATE message_threads 
@@ -434,18 +417,14 @@ export class MessageStorage {
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 `);
-                stmt.run(lastMessageTime, threadId);
+                stmt.run(validTimestamp, threadId);
             }
 
-            console.log(`✅ 线程状态更新成功: ID=${threadId}, time=${lastMessageTime}`);
+            console.log(`✅ 线程状态更新成功: ID=${threadId}, time=${validTimestamp}`);
 
         } catch (error) {
-            console.error('❌ 更新线程状态失败:', error);
-            // 🔥 关键修复：不要抛出异常，只记录错误
-            // throw error; // ❌ 移除这行
-            
-            // 🔥 改为只记录警告，不影响消息插入
             console.warn(`⚠️ 线程状态更新失败，但不影响消息插入: threadId=${threadId}`);
+            console.warn(`⚠️ 错误详情:`, error);
         }
     }
     /**
@@ -607,77 +586,16 @@ export class MessageStorage {
         }
     }
 
-    /**
-     * 🔥 基于完整上下文插入消息
-     */
-    private static insertMessagesWithContext(
-        threadId: number,
-        allMessages: Message[],
-        startIndex: number,
-        endIndex: number,
-        timestamp: string
-    ): number {
-        const db = this.getDatabase();
-        
-        const insertStmt = db.prepare(`
-            INSERT INTO messages (
-                thread_id, message_id, sender, content_type, 
-                text_content, content_hash, timestamp, is_read
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        let insertCount = 0;
-        
-        for (let i = startIndex; i < endIndex; i++) {
-            const message = allMessages[i];
-            
-            // 🔥 使用完整消息数组和正确索引生成历史指纹
-            const contentHash = this.generateStableHistoryFingerprint(
-                allMessages,  // 完整消息数组
-                i,           // 当前消息在完整数组中的索引
-                threadId
-            );
-            
-            const contentType = message.images ? (message.text ? 'mixed' : 'image') : 'text';
-            
-            try {
-                const result = insertStmt.run(
-                    threadId,
-                    message.message_id || null,
-                    message.sender,
-                    contentType,
-                    message.text || null,
-                    contentHash,
-                    timestamp,
-                    message.is_read ? 1 : 0
-                );
-                
-                insertCount++;
-                console.log(`  ✅ 第${i+1}条: "${(message.text || '').substring(0, 20)}..." hash:${contentHash.substring(0, 8)}...`);
-                
-            } catch (error) {
-                console.warn(`  ⚠️ 插入第${i+1}条消息失败:`, error);
-            }
-        }
-        
-        return insertCount;
-    }
-
-    /**
-     * 🔥 纯插入版本的 addMessagesSync - 不包含边界检测
-     * 用于新线程或已确定需要插入的消息
-     */
     private static addMessagesSync(
         threadId: number, 
         allMessages: Message[], 
         sessionTime?: string,
-        insertRange?: { start: number; end: number }  // 🔥 可选的插入范围
+        insertRange?: { start: number; end: number }
     ): number {
         if (allMessages.length === 0) return 0;
 
         const db = this.getDatabase();
         
-        // 🔥 确定插入范围
         const startIndex = insertRange?.start || 0;
         const endIndex = insertRange?.end || allMessages.length;
         const insertCount = endIndex - startIndex;
@@ -689,7 +607,6 @@ export class MessageStorage {
             return 0;
         }
         
-        // 🔥 统一时间戳：所有消息使用相同的时间戳
         const timestamp = sessionTime ? sessionTime : new Date().toISOString();
         console.log(`📅 使用统一时间戳: ${timestamp}`);
         
@@ -701,22 +618,54 @@ export class MessageStorage {
         `);
 
         let actualInsertCount = 0;
+        const insertedIds: number[] = [];
+        const failedMessages: Array<{index: number, error: string, message: any}> = [];
         
-        // 🔥 插入指定范围的消息
+        console.log(`🔍 开始逐条插入消息，详细调试模式...`);
+        
         for (let i = startIndex; i < endIndex; i++) {
             const message = allMessages[i];
             
-            // 🔥 使用完整消息数组和正确索引生成历史指纹
-            const contentHash = this.generateStableHistoryFingerprint(
-                allMessages,  // 完整消息数组，包含完整上下文
-                i,           // 当前消息在完整数组中的索引
-                threadId
-            );
-            
-            // 确定内容类型
-            const contentType = message.images ? (message.text ? 'mixed' : 'image') : 'text';
-            
             try {
+                // 🔥 生成内容hash
+                const contentHash = this.generateStableHistoryFingerprint(allMessages, i, threadId);
+                const contentType = message.images ? (message.text ? 'mixed' : 'image') : 'text';
+                
+                // 🔥 详细打印即将插入的消息信息
+                console.log(`\n📝 准备插入第${i+1}条消息:`);
+                console.log(`   索引: ${i}`);
+                console.log(`   发送者: ${message.sender}`);
+                console.log(`   内容类型: ${contentType}`);
+                console.log(`   文本内容: "${(message.text || '').substring(0, 100)}${(message.text || '').length > 100 ? '...' : ''}"`);
+                console.log(`   图片数量: ${message.images ? message.images.length : 0}`);
+                console.log(`   消息ID: ${message.message_id || 'null'}`);
+                console.log(`   内容Hash: ${contentHash}`);
+                console.log(`   时间戳: ${timestamp}`);
+                console.log(`   是否已读: ${message.is_read ? 1 : 0}`);
+                
+                // 🔥 检查是否可能有重复hash
+                const existingCheck = db.prepare(`
+                    SELECT id, text_content FROM messages 
+                    WHERE thread_id = ? AND content_hash = ?
+                `).get(threadId, contentHash) as {id: number; text_content: string} | undefined;
+                
+                if (existingCheck) {
+                    console.log(`   ⚠️ 发现重复Hash的消息: ID=${existingCheck.id}, 内容="${existingCheck.text_content}"`);
+                    console.log(`   ⚠️ 当前消息将跳过插入`);
+                    failedMessages.push({
+                        index: i,
+                        error: `重复Hash: ${contentHash}`,
+                        message: {
+                            text: message.text,
+                            sender: message.sender,
+                            hash: contentHash
+                        }
+                    });
+                    continue;
+                }
+                
+                // 🔥 执行插入
+                console.log(`   🚀 执行SQL插入...`);
                 const result = insertStmt.run(
                     threadId,
                     message.message_id || null,
@@ -724,43 +673,84 @@ export class MessageStorage {
                     contentType,
                     message.text || null,
                     contentHash,
-                    timestamp,  // 🔥 统一时间戳
+                    timestamp,
                     message.is_read ? 1 : 0
                 );
                 
+                const insertedId = result.lastInsertRowid as number;
+                insertedIds.push(insertedId);
                 actualInsertCount++;
                 
-                // 只显示前3条和后3条的详细日志
-                if (actualInsertCount <= 3 || actualInsertCount > insertCount - 3) {
-                    console.log(`  ✅ 第${i+1}条: ID=${result.lastInsertRowid}, "${(message.text || '').substring(0, 20)}..." hash:${contentHash.substring(0, 8)}...`);
-                } else if (actualInsertCount === 4) {
-                    console.log(`  ... (省略中间${insertCount - 6}条消息) ...`);
+                console.log(`   ✅ 插入成功! 新ID: ${insertedId}`);
+                
+                // 🔥 验证插入是否真的成功
+                const verifyStmt = db.prepare(`SELECT id, text_content FROM messages WHERE id = ?`);
+                const verified = verifyStmt.get(insertedId) as {id: number; text_content: string} | undefined;
+                if (verified) {
+                    console.log(`   ✅ 验证成功: 数据库中确实存在ID=${verified.id}的记录`);
+                } else {
+                    console.log(`   ❌ 验证失败: 插入后在数据库中找不到记录!`);
                 }
                 
             } catch (error) {
-                console.warn(`  ⚠️ 插入第${i+1}条消息失败:`, error);
-                // 🔥 添加：插入失败时立即返回，避免继续
-                console.error(`❌ 消息插入失败，停止后续插入`);
-                return actualInsertCount;
+                // 🔥 详细记录失败信息
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                console.log(`   ❌ 插入失败: ${errorMsg}`);
+                console.log(`   ❌ 错误详情:`, error);
+                
+                failedMessages.push({
+                    index: i,
+                    error: errorMsg,
+                    message: {
+                        text: message.text,
+                        sender: message.sender,
+                        timestamp: timestamp,
+                        contentType: message.images ? (message.text ? 'mixed' : 'image') : 'text'
+                    }
+                });
+                
+                // 继续处理下一条消息，不要停止
+                continue;
             }
         }
 
-        // 🔥 更新线程状态（只有插入成功时才更新）
+        // 🔥 详细汇总报告
+        console.log(`\n📊 插入汇总报告:`);
+        console.log(`   目标插入数量: ${insertCount}`);
+        console.log(`   实际插入数量: ${actualInsertCount}`);
+        console.log(`   失败数量: ${failedMessages.length}`);
+        console.log(`   成功率: ${((actualInsertCount / insertCount) * 100).toFixed(1)}%`);
+        
+        if (insertedIds.length > 0) {
+            console.log(`   插入的ID列表: [${insertedIds.slice(0, 5).join(', ')}${insertedIds.length > 5 ? '...' : ''}]`);
+        }
+        
+        if (failedMessages.length > 0) {
+            console.log(`\n❌ 失败消息详情:`);
+            failedMessages.forEach((failed, idx) => {
+                console.log(`   失败${idx + 1}: 第${failed.index + 1}条消息`);
+                console.log(`     错误: ${failed.error}`);
+                console.log(`     内容: "${failed.message.text?.substring(0, 50) || 'N/A'}"`);
+                console.log(`     发送者: ${failed.message.sender}`);
+            });
+        }
+        
+        // 🔥 最终数据库验证
+        console.log(`\n🔍 最终数据库验证:`);
+        const finalCount = db.prepare(`SELECT COUNT(*) as count FROM messages WHERE thread_id = ?`).get(threadId) as {count: number};
+        console.log(`   线程${threadId}当前总消息数: ${finalCount.count}`);
+        
+        // 线程状态更新
         if (actualInsertCount > 0) {
             const lastMessage = allMessages[endIndex - 1];
             const isFromUser = lastMessage.sender === 'user';
             
             console.log(`🔄 准备更新线程状态: threadId=${threadId}, timestamp=${timestamp}, isFromUser=${isFromUser}`);
+            this.updateThreadStatus(threadId, timestamp, isFromUser);
             
-            try {
-                this.updateThreadStatus(threadId, timestamp, isFromUser);
-                console.log(`📊 插入完成: ${actualInsertCount}/${insertCount}条消息成功，最后消息时间: ${timestamp}`);
-            } catch (updateError) {
-                console.error(`❌ 线程状态更新失败:`, updateError);
-                console.error(`❌ 这可能导致整个插入操作失效`);
-                // 🔥 抛出异常让上层知道问题
-                throw new Error(`消息插入成功但线程状态更新失败: ${updateError instanceof Error ? updateError.message : 'unknown'}`);
-            }
+            console.log(`📊 插入完成: ${actualInsertCount}/${insertCount}条消息成功，最后消息时间: ${timestamp}`);
+        } else {
+            console.log(`⚠️ 没有消息成功插入，跳过线程状态更新`);
         }
 
         return actualInsertCount;
@@ -1195,9 +1185,6 @@ export class MessageStorage {
     }
 
     // ==================== 数据清理方法 ====================
-
-
-
     static incrementalSync(
         platform: string, 
         accountId: string, 
@@ -1210,29 +1197,32 @@ export class MessageStorage {
             let updatedThreads = 0;
             const errors: string[] = [];
 
-            // 🔥 改为：直接执行，让每个操作使用自己的事务
             for (const threadData of syncData) {
                 try {
-                    // 1. 先检查线程是否存在
+                    // 1. 检查线程是否存在
                     const existingThread = this.getThreadByUser(platform, accountId, threadData.user_id);
                     
                     let threadId: number;
                     let isNewThread = false;
                     
                     if (!existingThread) {
-                        // 新线程
                         isNewThread = true;
+                        
+                        // 🔥 修复：确保新线程有正确的时间戳
+                        const sessionTime = (threadData as any).session_time || threadData.last_message_time || new Date().toISOString();
+                        
                         threadId = this.saveOrUpdateThread({
                             platform,
                             account_id: accountId,
                             user_id: threadData.user_id,
                             user_name: threadData.user_name,
                             avatar: threadData.avatar,
-                            unread_count: threadData.unread_count || 0
+                            unread_count: threadData.unread_count || 0,
+                            last_message_time: sessionTime,  // 🔥 关键修复：确保设置时间戳
+                            last_sync_time: new Date().toISOString()
                         });
-                        console.log(`✅ 新线程已保存: ${threadData.user_name} (ID: ${threadId})`);
+                        console.log(`✅ 新线程已保存: ${threadData.user_name} (ID: ${threadId}) - 时间: ${sessionTime}`);
                     } else {
-                        // 已存在的线程
                         threadId = existingThread.id!;
                         console.log(`✅ 已存在线程: ${threadData.user_name} (ID: ${threadId})`);
                     }
@@ -1241,68 +1231,51 @@ export class MessageStorage {
                     if (threadData.messages && threadData.messages.length > 0) {
                         const sessionTime = (threadData as any).session_time || threadData.last_message_time;
                         
+                        let newCount = 0;
                         if (isNewThread) {
-                            const newCount = this.addMessagesForNewThread(
-                                threadId, 
-                                threadData.messages,
-                                sessionTime
-                            );
-                            totalNewMessages += newCount;
+                            newCount = this.addMessagesForNewThread(threadId, threadData.messages, sessionTime);
                         } else {
-                            const newCount = this.addMessagesIncrementalSync(
-                                threadId, 
-                                threadData.messages,
-                                sessionTime
-                            );
-                            totalNewMessages += newCount;
+                            newCount = this.addMessagesIncrementalSync(threadId, threadData.messages, sessionTime);
                         }
+                        
+                        totalNewMessages += newCount;
+                        console.log(`📥 线程 ${threadData.user_name}: 新增 ${newCount} 条消息`);
                     }
 
-                    // 3. 更新线程状态
+                    // 3. 更新线程信息（确保有最新的时间戳）
                     if (!isNewThread) {
+                        const updateTime = (threadData as any).session_time || threadData.last_message_time || new Date().toISOString();
+                        
                         this.saveOrUpdateThread({
                             platform,
                             account_id: accountId,
                             user_id: threadData.user_id,
                             user_name: threadData.user_name,
                             avatar: threadData.avatar,
-                            unread_count: threadData.unread_count || 0
+                            unread_count: threadData.unread_count || 0,
+                            last_message_time: updateTime,  // 🔥 确保更新时间戳
+                            last_sync_time: new Date().toISOString()
                         });
+                        console.log(`🔄 线程 ${threadData.user_name} 状态已更新 - 时间: ${updateTime}`);
                     }
 
                     updatedThreads++;
 
                 } catch (error) {
-                    // 🔥 重要：单个线程失败不影响其他线程
-                    const errorMsg = `线程 ${threadData.user_name} 同步失败: ${error instanceof Error ? error.message : 'unknown error'}`;
+                    const errorMsg = `线程 ${threadData.user_name} 处理失败: ${error instanceof Error ? error.message : 'unknown'}`;
                     errors.push(errorMsg);
-                    console.error('❌', errorMsg);
-                    // 注意：这里不要 throw error，继续处理下一个线程
+                    console.warn('⚠️', errorMsg);
                 }
             }
 
-            // 更新同步时间（独立操作）
+            // 更新同步时间
             try {
                 this.updateLastSyncTime(platform, accountId, new Date().toISOString());
+                console.log(`✅ 同步时间已更新: ${platform} - ${accountId}`);
             } catch (syncTimeError) {
                 console.warn('⚠️ 更新同步时间失败:', syncTimeError);
             }
 
-            // 🔥 验证数据是否真的插入了
-            console.log(`🔍 验证数据是否真的插入到数据库...`);
-            
-            const db = this.getDatabase();
-            const verifyStmt = db.prepare(`SELECT COUNT(*) as count FROM messages`);
-            const totalMessages = verifyStmt.get() as { count: number };
-            console.log(`📊 数据库中总消息数: ${totalMessages.count}`);
-            
-            const verifyThreadStmt = db.prepare(`
-                SELECT COUNT(*) as count FROM message_threads
-                WHERE platform = ? AND account_id = ?
-            `);
-            const totalThreads = verifyThreadStmt.get(platform, accountId) as { count: number };
-            console.log(`📊 数据库中线程数: ${totalThreads.count}`);
-            
             console.log(`✅ 智能增量同步完成: 新消息 ${totalNewMessages} 条，更新线程 ${updatedThreads} 个`);
 
             return { newMessages: totalNewMessages, updatedThreads, errors };
@@ -1318,28 +1291,7 @@ export class MessageStorage {
             };
         }
     }
-    /**
-     * 🔥 获取线程最后一条消息的时间
-     */
-    private static getLastMessageTime(threadId: number): string | null {
-        try {
-            const db = this.getDatabase();
 
-            const stmt = db.prepare(`
-                SELECT timestamp FROM messages 
-                WHERE thread_id = ? 
-                ORDER BY timestamp DESC 
-                LIMIT 1
-            `);
-            
-            const result = stmt.get(threadId) as { timestamp: string } | undefined;
-            return result ? result.timestamp : null;
-
-        } catch (error) {
-            console.error('❌ 获取最后消息时间失败:', error);
-            return null;
-        }
-    }
 
     /**
      * 🔥 根据ID获取线程信息（用于图片存储）
@@ -1655,32 +1607,6 @@ export class MessageStorage {
         }
     }
 
-    /**
-     * 🔥 批量删除旧线程
-     */
-    static batchDeleteOldThreads(daysToKeep: number = 30): number {
-        try {
-            const db = this.getDatabase();
-
-            const cutoffDate = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000).toISOString();
-
-            const stmt = db.prepare(`
-                DELETE FROM message_threads 
-                WHERE last_message_time < ? OR last_message_time IS NULL
-            `);
-            
-            const result = stmt.run(cutoffDate);
-
-            const deletedCount = result.changes;
-            console.log(`🧹 批量删除完成: 删除了 ${deletedCount} 个超过 ${daysToKeep} 天的对话线程`);
-
-            return deletedCount;
-
-        } catch (error) {
-            console.error('❌ 批量删除线程失败:', error);
-            return 0;
-        }
-    }
 
     // ==================== 调试和维护方法 ====================
 
@@ -1807,29 +1733,4 @@ export class MessageStorage {
         }
     }
 
-    // ==================== 生命周期管理 ====================
-
-    /**
-     * 🔥 关闭数据库连接
-     */
-    static closeDatabase(): void {
-        if (dbInstance) {
-            try {
-                dbInstance.close();
-                dbInstance = null;
-                console.log('✅ 数据库连接已关闭');
-            } catch (error) {
-                console.error('❌ 关闭数据库连接失败:', error);
-            }
-        }
-    }
-
-    /**
-     * 🔥 重置数据库状态（测试用）
-     */
-    static resetDatabase(): void {
-        this.closeDatabase();
-        messageDbInitialized = false;
-        messageDbInitializing = false;
-    }
 }

@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Config } from '../../../config/Config';
-
+import { globalDB } from '../../../config/DatabaseManager';
 // 🔥 发布记录相关类型定义
 export interface PublishRecordData {
     title: string;
@@ -61,24 +61,7 @@ export class PublishRecordStorage {
      * 🔥 获取数据库实例（复用现有连接）
      */
     private static getDatabase(): Database.Database {
-        if (!dbInstance) {
-            // 确保数据库目录存在
-            if (!fs.existsSync(Config.DB_DIR)) {
-                fs.mkdirSync(Config.DB_DIR, { recursive: true });
-            }
-
-            dbInstance = new Database(Config.DB_PATH);
-            
-            // 设置性能优化选项
-            dbInstance.pragma('journal_mode = WAL');
-            dbInstance.pragma('synchronous = NORMAL');
-            dbInstance.pragma('cache_size = 1000');
-            dbInstance.pragma('temp_store = memory');
-            
-            console.log('✅ Better-SQLite3 数据库连接已建立 (PublishRecordStorage)');
-        }
-        
-        return dbInstance;
+        return globalDB.getConnection();
     }
 
     /**

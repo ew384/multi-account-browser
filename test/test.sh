@@ -115,3 +115,17 @@ curl -X POST http://localhost:3409/api/messages/monitoring/start \
     "cookieFile": "wechat_endian_1755596849499.json",
     "headless": false
   }'
+  # 一步到位启动
+
+curl -X POST http://localhost:3409/api/messages/monitoring/batch-start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "accounts": [
+      {
+        "platform": "wechat",
+        "accountId": "endian",
+        "cookieFile": "wechat_endian_1755665171143.json"
+      }
+    ],
+    "withSync": true
+  }'

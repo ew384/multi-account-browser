@@ -13,7 +13,8 @@ print(f"🔍 数据库路径: {DB_PATH}")
 def query_message_threads():
     """查询消息线程表"""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, isolation_level=None)
+        conn.execute("PRAGMA journal_mode=WAL;")
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
