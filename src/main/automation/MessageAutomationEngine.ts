@@ -13,6 +13,7 @@ import {
     UserMessageThread,
     MessageStatistics,
     Message,
+    MessageSyncOptions,
     BatchMessageSyncRequest,
     BatchMessageSyncResult,
     BatchMessageSendRequest,
@@ -38,11 +39,6 @@ export interface MessageMonitoringStatus {
     lastActivity?: string;
 }
 
-export interface MessageSyncOptions {
-    forceSync?: boolean;
-    maxRetries?: number;
-    timeout?: number;
-}
 
 /**
  * 🔥 消息自动化引擎 - MVP简化版本
@@ -426,35 +422,6 @@ export class MessageAutomationEngine {
     }
 
 
-
-    // 🔥 添加自动同步方法
-    private async autoSyncMessages(platform: string, accountId: string): Promise<void> {
-        try {
-            const monitoring = this.activeMonitoring.get(`${platform}_${accountId}`);
-            if (!monitoring || !monitoring.tabId) {
-                console.warn(`⚠️ 账号未在监听: ${platform}_${accountId}`);
-                return;
-            }
-
-            // 执行快速同步（复用现有的同步逻辑）
-            const result = await this.syncPlatformMessages(
-                platform,
-                accountId,
-                '', // 使用监听tab，不需要cookie文件
-                { forceSync: false, timeout: 10000 }
-            );
-
-            if (result.success) {
-                console.log(`✅ 自动同步完成: 新消息 ${result.newMessages} 条`);
-            } else {
-                console.error(`❌ 自动同步失败:`, result.errors);
-            }
-
-        } catch (error) {
-            console.error('❌ 自动消息同步异常:', error);
-        }
-    }
-
     /**
      * 🔥 处理账号状态变化事件
      */
@@ -830,6 +797,95 @@ export class MessageAutomationEngine {
         }
     }
     /**
+     * 🔥 智能同步决策：基于时间比较自动判断
+     */
+    private async shouldSyncUser(
+        platform: string,
+        accountId: string,
+        userId: string,
+        userName: string,
+        sessionTime: string | null
+    ): Promise<{ shouldSync: boolean; reason: string }> {
+        try {
+            // 没有会话时间 = 同步
+            if (!sessionTime) {
+                return { shouldSync: true, reason: '缺少会话时间' };
+            }
+
+            // 数据库中没有这个用户 = 同步
+            const existingThread = MessageStorage.getThreadByUser(platform, accountId, userId);
+            if (!existingThread || !existingThread.last_message_time) {
+                return { shouldSync: true, reason: '新用户或无历史消息' };
+            }
+
+            // 🔥 核心逻辑：时间比较
+            const sessionTimestamp = new Date(sessionTime);
+            const lastDbTimestamp = new Date(existingThread.last_message_time);
+            
+            if (sessionTimestamp > lastDbTimestamp) {
+                const minutesDiff = Math.round((sessionTimestamp.getTime() - lastDbTimestamp.getTime()) / (1000 * 60));
+                return { 
+                    shouldSync: true, 
+                    reason: `有新消息 (${minutesDiff}分钟前)` 
+                };
+            }
+
+            return { 
+                shouldSync: false, 
+                reason: '无新消息' 
+            };
+
+        } catch (error) {
+            console.error(`❌ 同步决策失败: ${userName}:`, error);
+            return { shouldSync: true, reason: '判断异常，默认同步' };
+        }
+    }
+
+    /**
+     * 🔥 批量智能同步决策：预过滤需要同步的用户
+     */
+    private async filterUsersForSync(
+        platform: string,
+        accountId: string, 
+        users: any[]
+    ): Promise<{
+        toSync: any[];
+        skipped: any[];
+        summary: { total: number; toSync: number; skipped: number };
+    }> {
+        console.log(`🔍 智能同步决策: 分析 ${users.length} 个用户...`);
+        
+        const toSync: any[] = [];
+        const skipped: any[] = [];
+
+        for (const user of users) {
+            const decision = await this.shouldSyncUser(
+                platform,
+                accountId,
+                user.user_id,
+                user.name,
+                user.session_time
+            );
+
+            if (decision.shouldSync) {
+                toSync.push(user);
+                console.log(`  ✅ ${user.name}: ${decision.reason}`);
+            } else {
+                skipped.push({ ...user, skipReason: decision.reason });
+                console.log(`  ⏭️ ${user.name}: ${decision.reason}`);
+            }
+        }
+
+        const summary = {
+            total: users.length,
+            toSync: toSync.length,
+            skipped: skipped.length
+        };
+
+        console.log(`📊 智能同步决策完成: 需同步 ${summary.toSync}/${summary.total} 个用户`);
+        return { toSync, skipped, summary };
+    }
+    /**
      * 🔥 手动同步平台消息
      */
     async syncPlatformMessages(
@@ -870,18 +926,55 @@ export class MessageAutomationEngine {
 
             const result = await plugin.syncMessages(syncParams);
 
-            // 保存同步结果到数据库
             if (result.success && result.threads.length > 0) {
-                const syncResult = MessageStorage.incrementalSync(
-                    platform,
-                    accountName,
-                    result.threads
-                );
+                // 🔥 检查是否为智能同步模式
+                const isIntelligentSync = options?.intelligentSync || false;
                 
-                result.newMessages = syncResult.newMessages;
-                result.updatedThreads = syncResult.updatedThreads;
-                if (syncResult.errors.length > 0) {
-                    result.errors = (result.errors || []).concat(syncResult.errors);
+                if (isIntelligentSync) {
+                    // 智能同步：只同步需要的用户
+                    const syncDecision = await this.filterUsersForSync(
+                        platform,
+                        accountName,
+                        result.threads
+                    );
+
+                    if (syncDecision.toSync.length > 0) {
+                        const syncResult = MessageStorage.incrementalSync(
+                            platform,
+                            accountName,
+                            syncDecision.toSync
+                        );
+                        
+                        result.newMessages = syncResult.newMessages;
+                        result.updatedThreads = syncResult.updatedThreads;
+                        
+                        console.log(`📈 智能同步统计:`);
+                        console.log(`  - 总用户: ${syncDecision.summary.total}`);
+                        console.log(`  - 实际同步: ${syncDecision.summary.toSync}`);
+                        console.log(`  - 跳过用户: ${syncDecision.summary.skipped}`);
+                        console.log(`  - 新消息: ${syncResult.newMessages} 条`);
+                        
+                        if (syncResult.errors.length > 0) {
+                            result.errors = (result.errors || []).concat(syncResult.errors);
+                        }
+                    } else {
+                        console.log(`⏭️ 智能同步: 所有用户都无新消息，跳过数据库操作`);
+                        result.newMessages = 0;
+                        result.updatedThreads = 0;
+                    }
+                } else {
+                    // 传统同步：同步所有用户
+                    const syncResult = MessageStorage.incrementalSync(
+                        platform,
+                        accountName,
+                        result.threads
+                    );
+                    
+                    result.newMessages = syncResult.newMessages;
+                    result.updatedThreads = syncResult.updatedThreads;
+                    if (syncResult.errors.length > 0) {
+                        result.errors = (result.errors || []).concat(syncResult.errors);
+                    }
                 }
             }
 

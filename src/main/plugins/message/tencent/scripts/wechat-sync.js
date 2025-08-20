@@ -170,7 +170,36 @@
         }
         return Math.abs(hash).toString();
     }
-    
+    // 🔥 新增：时间提取函数
+    function parseWechatTime(timeText) {
+        const match = timeText.match(/(\d{1,2})月(\d{1,2})日\s+(\d{1,2}):(\d{2})/);
+        if (match) {
+            const [_, month, day, hour, minute] = match;
+            const currentYear = new Date().getFullYear();
+            return new Date(currentYear, parseInt(month) - 1, parseInt(day), parseInt(hour), parseInt(minute));
+        }
+        
+        if (timeText.includes('刚刚')) return new Date();
+        if (timeText.includes('分钟前')) {
+            const minutes = parseInt(timeText.match(/(\d+)分钟前/)?.[1] || '0');
+            return new Date(Date.now() - minutes * 60000);
+        }
+        if (timeText.includes('小时前')) {
+            const hours = parseInt(timeText.match(/(\d+)小时前/)?.[1] || '0');
+            return new Date(Date.now() - hours * 3600000);
+        }
+        
+        return new Date();
+    }
+
+    function extractSessionTime(userElement) {
+        const dateElement = userElement.querySelector('.date');
+        if (dateElement) {
+            const timeText = dateElement.textContent.trim();
+            return parseWechatTime(timeText);
+        }
+        return null;
+    }    
     // 工具函数：判断发送者
     function getSender(messageElement, docContext) {
         // 方法1: 检查当前元素的类名
@@ -295,9 +324,10 @@
                 
                 const userName = nameElement.textContent.trim();
                 const userAvatar = avatarElement.src;
-                
+                // 🔥 新增：提取会话时间
+                const sessionTime = extractSessionTime(userElement);
                 console.log(`  - 用户名: ${userName}`);
-                
+                console.log(`  - 会话时间: ${sessionTime ? sessionTime.toLocaleString('zh-CN') : '未知'}`);
                 // 点击用户
                 userElement.click();
                 await delay(1500); // 等待对话内容加载
@@ -393,11 +423,12 @@
                     user_id: generateUserId(userName, userAvatar),
                     name: userName,
                     avatar: userAvatar,
+                    session_time: sessionTime ? sessionTime.toISOString() : null,
                     messages: messages
                 };
                 
                 result.users.push(userData);
-                console.log(`  ✅ 提取到 ${messages.length} 条消息`);
+                console.log(`  ✅ 提取到 ${messages.length} 条消息，会话时间: ${sessionTime ? sessionTime.toLocaleString('zh-CN') : '未知'}`);
                 
             } catch (error) {
                 console.error(`处理用户 ${i + 1} 时出错:`, error);

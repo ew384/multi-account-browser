@@ -128,12 +128,16 @@ export class MessageAutomationAPI {
         }
     }
 
+
     /**
-     * 🔥 批量启动监听
+     * 🔥 批量启动监听 - 增强版：可选智能同步
      */
     async handleStartBatchMonitoring(req: Request, res: Response): Promise<void> {
         try {
-            const { accounts } = req.body;
+            const { 
+                accounts,
+                withSync = true  // 🔥 新增：默认执行智能同步检查
+            } = req.body;
 
             if (!accounts || !Array.isArray(accounts)) {
                 res.status(400).json({
@@ -143,13 +147,67 @@ export class MessageAutomationAPI {
                 return;
             }
 
-            console.log(`🚀 API: 批量启动监听 - ${accounts.length} 个账号`);
+            console.log(`🚀 API: 批量启动监听 - ${accounts.length} 个账号 (智能同步: ${withSync})`);
 
-            const result = await this.messageEngine.startBatchMonitoring(accounts);
+            let syncResults: any = null;
+
+            // 🔥 智能同步阶段
+            if (withSync) {
+                console.log(`1️⃣ 执行智能同步检查...`);
+                
+                // 按平台分组进行批量同步
+                const platformGroups = accounts.reduce((groups: any, account: any) => {
+                    if (!groups[account.platform]) {
+                        groups[account.platform] = [];
+                    }
+                    groups[account.platform].push(account);
+                    return groups;
+                }, {});
+
+                syncResults = {};
+                let totalSyncedUsers = 0;
+                let totalSkippedUsers = 0;
+                let totalRecoveredMessages = 0;
+
+                for (const [platform, platformAccounts] of Object.entries(platformGroups)) {
+                    const syncResult = await this.messageEngine.batchSyncMessages({
+                        platform: platform,
+                        accounts: platformAccounts as any[],
+                        options: { timeout: 30000, intelligentSync: true } // 🔥 标记为智能同步
+                    });
+
+                    syncResults[platform] = syncResult;
+                    
+                    if (syncResult.success && syncResult.summary) {
+                        totalRecoveredMessages += syncResult.summary.totalNewMessages || 0;
+                        // 这里可以从syncResult中获取更详细的统计信息
+                    }
+                }
+                
+                console.log(`✅ 智能同步完成: 恢复 ${totalRecoveredMessages} 条消息`);
+            } else {
+                console.log(`⚡ 快速模式: 跳过同步检查，直接启动监听`);
+            }
+
+            // 🔥 批量启动监听阶段
+            console.log(`2️⃣ 启动批量监听...`);
+            const monitoringResult = await this.messageEngine.startBatchMonitoring(accounts);
 
             res.json({
-                success: result.success > 0,
-                data: result
+                success: monitoringResult.success > 0,
+                data: {
+                    monitoring: monitoringResult,
+                    sync: syncResults,
+                    workflow: withSync ? 'intelligent_sync_then_monitor' : 'monitor_only',
+                    summary: {
+                        totalAccounts: accounts.length,
+                        monitoringSuccess: monitoringResult.success,
+                        monitoringFailed: monitoringResult.failed,
+                        syncExecuted: withSync,
+                        recoveredMessages: syncResults ? Object.values(syncResults).reduce((total: number, result: any) => 
+                            total + (result.summary?.totalNewMessages || 0), 0) : 0
+                    }
+                }
             });
 
         } catch (error) {
@@ -160,7 +218,6 @@ export class MessageAutomationAPI {
             });
         }
     }
-
     /**
      * 🔥 停止所有监听
      */

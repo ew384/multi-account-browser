@@ -404,6 +404,7 @@ export interface PluginMessage extends BasePlugin {
 
 // ==================== 批量操作接口 ====================
 
+
 /**
  * 批量消息同步请求接口
  */
@@ -414,13 +415,8 @@ export interface BatchMessageSyncRequest {
         cookieFile: string;
         lastSyncTime?: string;
     }>;
-    options?: {                     // 同步选项
-        maxConcurrency?: number;    // 最大并发数（默认5）
-        timeout?: number;           // 超时时间（毫秒）
-        fullSync?: boolean;         // 是否全量同步
-    };
+    options?: MessageSyncOptions;   // 🔥 使用统一的同步选项类型
 }
-
 /**
  * 批量消息同步结果接口
  */
@@ -476,35 +472,20 @@ export interface BatchMessageSendResult {
     sendTime: string;               // 批量发送完成时间
 }
 
-// ==================== 消息调度相关接口 ====================
+// ==================== 消息相关接口 ====================
 
 /**
- * 消息调度配置接口
+ * 消息同步选项接口
  */
-export interface MessageScheduleConfig {
-    platform: string;              // 平台标识
-    accountId: string;              // 账号ID
-    enabled: boolean;               // 是否启用
-    syncInterval: number;           // 同步间隔（分钟，默认5）
-    autoMarkRead?: boolean;         // 是否自动标记已读
-    notifyOnNewMessage?: boolean;   // 新消息时是否通知
-    retryOnError?: boolean;         // 错误时是否重试
+export interface MessageSyncOptions {
+    forceSync?: boolean;            // 是否强制同步
     maxRetries?: number;            // 最大重试次数
+    timeout?: number;               // 超时时间（毫秒）
+    intelligentSync?: boolean;      // 🔥 智能同步开关
+    maxConcurrency?: number;        // 最大并发数
+    fullSync?: boolean;             // 是否全量同步
 }
 
-/**
- * 消息调度状态接口
- */
-export interface MessageScheduleStatus {
-    platform: string;              // 平台标识
-    accountId: string;              // 账号ID
-    isRunning: boolean;             // 是否正在运行
-    lastSyncTime?: string;          // 最后同步时间
-    nextSyncTime?: string;          // 下次同步时间
-    syncCount: number;              // 累计同步次数
-    errorCount: number;             // 累计错误次数
-    lastError?: string;             // 最后错误信息
-}
 
 // ==================== 扩展现有接口 ====================
 
