@@ -644,7 +644,7 @@ export class WeChatChannelsMessage implements PluginMessage {
                     avatar: user.avatar,
                     unread_count: 0, // 新获取的消息暂时标记为未读
                     messages: messages,
-                    last_message_time: messages.length > 0 ? messages[messages.length - 1].timestamp : undefined
+                    last_message_time: user.session_time,  // 🔥 将 session_time 映射到 last_message_time
                 };
 
                 threads.push(thread);

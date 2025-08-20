@@ -443,9 +443,9 @@ export class MessageStorage {
         }
     }
     /**
-     * 🔥 基于当前批次的历史上下文指纹
+     * 🔥 优化的历史指纹生成 - 确保同样的消息序列生成相同指纹
      */
-    private static generateBatchHistoryFingerprint(
+    private static generateStableHistoryFingerprint(
         messages: Message[], 
         currentIndex: number, 
         threadId: number
@@ -453,68 +453,55 @@ export class MessageStorage {
         const crypto = require('crypto');
         const current = messages[currentIndex];
         
-        const normalizedText = current.text ? 
-            current.text.trim().replace(/\s+/g, ' ').toLowerCase() : '';
+        // 🔥 构建稳定的上下文指纹
+        const contextParts = [];
         
-        const isShortText = normalizedText.length <= 15;
-        const hasImages = current.images && current.images.length > 0;
+        // 1. 线程ID
+        contextParts.push(`thread:${threadId}`);
         
-        if (isShortText && !hasImages) {
-            // 🔥 短消息：使用前5条消息作为上下文
-            const contextParts = [];
-            
-            // 收集前5条消息
-            const lookBackCount = 5;
-            const startIndex = Math.max(0, currentIndex - lookBackCount);
-            
-            for (let i = startIndex; i < currentIndex; i++) {
-                const historyMsg = messages[i];
-                const historyText = historyMsg.text ? 
-                    historyMsg.text.substring(0, 30) : 'no_text';
-                contextParts.push(`${i - startIndex}:${historyMsg.sender}:${historyText}`);
-            }
-            
-            // 当前消息
-            contextParts.push(`curr:${current.sender}:${normalizedText}`);
-            
-            // 线程ID
-            contextParts.push(`thread:${threadId}`);
-            
-            const content = contextParts.join('|');
-            return crypto.createHash('md5').update(content, 'utf8').digest('hex');
-        } else {
-            // 🔥 长消息：简单内容指纹
-            const imageFingerprint = hasImages ? 
-                `img:${current.images!.length}:${current.images!.join('').substring(0, 100)}` : '';
-            
-            const content = `${current.sender}:${normalizedText}:${imageFingerprint}`;
-            return crypto.createHash('md5').update(content, 'utf8').digest('hex');
+        // 2. 当前消息内容
+        const currentText = (current.text || '').trim().replace(/\s+/g, ' ');
+        contextParts.push(`current:${current.sender}:${currentText}`);
+        
+        // 3. 向前查找最多5条消息作为上下文
+        const lookBackCount = Math.min(5, currentIndex);
+        for (let i = 0; i < lookBackCount; i++) {
+            const historyIndex = currentIndex - 1 - i;
+            const historyMsg = messages[historyIndex];
+            const historyText = (historyMsg.text || '').trim().replace(/\s+/g, ' ').substring(0, 50);
+            contextParts.push(`h${i}:${historyMsg.sender}:${historyText}`);
         }
+        
+        // 4. 图片指纹（如果有）
+        if (current.images && current.images.length > 0) {
+            contextParts.push(`img:${current.images.join('|')}`);
+        }
+        
+        // 5. 位置信息（增强唯一性）
+        contextParts.push(`pos:${currentIndex}`);
+        
+        const content = contextParts.join('::');
+        return crypto.createHash('md5').update(content, 'utf8').digest('hex');
     }
-    /**
-     * 🔥 从最新消息开始检测，找到数据分界点
-     */
     static findSyncBoundary(threadId: number, messages: Message[]): {
         needSyncCount: number;
-        totalCount: number;
         boundaryFound: boolean;
         boundaryIndex?: number;
     } {
         try {
             const db = this.getDatabase();
             
-            console.log(`🔍 开始增量检测: 分析 ${messages.length} 条消息...`);
+            console.log(`🔍 开始指纹边界检测: 分析 ${messages.length} 条消息...`);
             
-            // 🔥 从最新消息开始往前检查
             let needSyncCount = 0;
             let boundaryIndex: number | undefined = undefined;
             
-            // 倒序遍历（从最新到最旧）
+            // 🔥 从最新消息开始往前检查
             for (let i = messages.length - 1; i >= 0; i--) {
                 const message = messages[i];
                 
-                // 生成消息hash（包含前5条历史上下文）
-                const messageHash = this.generateBatchHistoryFingerprint(
+                // 生成稳定的历史指纹
+                const messageHash = this.generateStableHistoryFingerprint(
                     messages, 
                     i, 
                     threadId
@@ -527,13 +514,11 @@ export class MessageStorage {
                 `).get(threadId, messageHash);
                 
                 if (exists) {
-                    // 🔥 找到边界：这条消息已存在
+                    // 🔥 找到边界
                     boundaryIndex = i;
-                    console.log(`📍 找到同步边界: 第 ${i + 1} 条消息已存在`);
-                    console.log(`  - 消息内容: "${(message.text || '').substring(0, 30)}..."`);
+                    console.log(`📍 找到同步边界: 第 ${i + 1} 条消息已存在 (hash: ${messageHash.substring(0, 8)}...)`);
                     break;
                 } else {
-                    // 这条消息是新的
                     needSyncCount++;
                     console.log(`  ✅ 第 ${i + 1} 条消息需要同步: "${(message.text || '').substring(0, 20)}..."`);
                 }
@@ -541,57 +526,74 @@ export class MessageStorage {
             
             const result = {
                 needSyncCount,
-                totalCount: messages.length,
                 boundaryFound: boundaryIndex !== undefined,
                 boundaryIndex
             };
             
-            if (result.boundaryFound) {
-                console.log(`📊 增量检测完成: 需同步 ${needSyncCount}/${messages.length} 条消息`);
-            } else {
-                console.log(`📊 增量检测完成: 全部 ${messages.length} 条消息都是新的`);
-            }
-            
+            console.log(`📊 指纹检测完成: 需同步 ${needSyncCount}/${messages.length} 条消息`);
             return result;
             
         } catch (error) {
-            console.error('❌ 增量检测失败:', error);
+            console.error('❌ 指纹边界检测失败:', error);
             return {
                 needSyncCount: messages.length,
-                totalCount: messages.length,
                 boundaryFound: false
             };
         }
     }
+
     /**
-     * 🔥 修正：同步版本的增量添加消息
+     * 🔥 新线程插入全部消息（不需要边界检测）
      */
-    static addMessagesIncrementalSync(threadId: number, messages: Message[]): number {
-        if (messages.length === 0) return 0;
+    static addMessagesForNewThread(
+        threadId: number, 
+        allMessages: Message[], 
+        sessionTime?: string
+    ): number {
+        console.log(`📥 新线程插入全部${allMessages.length}条消息`);
+        
+        // 直接插入全部消息，不需要边界检测
+        return this.addMessagesSync(
+            threadId, 
+            allMessages, 
+            sessionTime
+            // 不传插入范围，默认插入全部
+        );
+    }    
+    static addMessagesIncrementalSync(
+        threadId: number, 
+        allMessages: Message[],  
+        sessionTime?: string
+    ): number {
+        if (allMessages.length === 0) return 0;
 
         try {
-            console.log(`🔄 开始增量同步: ${messages.length} 条消息`);
+            console.log(`🔄 开始增量同步: ${allMessages.length} 条消息`);
             
-            // 🔥 Step 1: 找到同步边界
-            const boundary = this.findSyncBoundary(threadId, messages);
+            // 🔥 使用历史指纹方案进行边界检测
+            const boundary = this.findSyncBoundary(threadId, allMessages);
             
             if (boundary.needSyncCount === 0) {
                 console.log(`⏭️ 所有消息都已存在，跳过同步`);
                 return 0;
             }
             
-            // 🔥 Step 2: 只处理需要同步的消息
-            const messagesToSync = boundary.boundaryFound 
-                ? messages.slice(boundary.boundaryIndex! + 1)  // 从边界后开始
-                : messages;  // 全部消息
+            console.log(`📥 需要同步 ${boundary.needSyncCount} 条新消息`);
             
-            console.log(`📥 实际同步 ${messagesToSync.length} 条新消息`);
+            // 🔥 确定插入范围
+            const startIndex = boundary.boundaryFound 
+                ? boundary.boundaryIndex! + 1  // 从边界后开始
+                : allMessages.length - boundary.needSyncCount;  // 从倒数第N条开始
+                
+            const endIndex = allMessages.length;
             
-            // 🔥 Step 3: 同步版本的消息插入
-            const insertedCount = this.addMessagesSync(threadId, messagesToSync);
-            
-            console.log(`✅ 增量同步完成: 新增 ${insertedCount} 条`);
-            return insertedCount;
+            // 🔥 调用纯插入版本的 addMessagesSync
+            return this.addMessagesSync(
+                threadId, 
+                allMessages, 
+                sessionTime,
+                { start: startIndex, end: endIndex }  // 指定插入范围
+            );
             
         } catch (error) {
             console.error('❌ 增量同步失败:', error);
@@ -600,11 +602,15 @@ export class MessageStorage {
     }
 
     /**
-     * 🔥 同步版本的添加消息（简化版，不处理图片）
+     * 🔥 基于完整上下文插入消息
      */
-    private static addMessagesSync(threadId: number, messages: Message[]): number {
-        if (messages.length === 0) return 0;
-
+    private static insertMessagesWithContext(
+        threadId: number,
+        allMessages: Message[],
+        startIndex: number,
+        endIndex: number,
+        timestamp: string
+    ): number {
         const db = this.getDatabase();
         
         const insertStmt = db.prepare(`
@@ -615,15 +621,89 @@ export class MessageStorage {
         `);
 
         let insertCount = 0;
-
-        for (let i = 0; i < messages.length; i++) {
-            const message = messages[i];
+        
+        for (let i = startIndex; i < endIndex; i++) {
+            const message = allMessages[i];
             
-            // 生成hash
-            const allMessages = messages; // 在当前批次中生成hash
-            const messageHash = this.generateBatchHistoryFingerprint(
-                allMessages, 
-                i, 
+            // 🔥 使用完整消息数组和正确索引生成历史指纹
+            const contentHash = this.generateStableHistoryFingerprint(
+                allMessages,  // 完整消息数组
+                i,           // 当前消息在完整数组中的索引
+                threadId
+            );
+            
+            const contentType = message.images ? (message.text ? 'mixed' : 'image') : 'text';
+            
+            try {
+                const result = insertStmt.run(
+                    threadId,
+                    message.message_id || null,
+                    message.sender,
+                    contentType,
+                    message.text || null,
+                    contentHash,
+                    timestamp,
+                    message.is_read ? 1 : 0
+                );
+                
+                insertCount++;
+                console.log(`  ✅ 第${i+1}条: "${(message.text || '').substring(0, 20)}..." hash:${contentHash.substring(0, 8)}...`);
+                
+            } catch (error) {
+                console.warn(`  ⚠️ 插入第${i+1}条消息失败:`, error);
+            }
+        }
+        
+        return insertCount;
+    }
+
+    /**
+     * 🔥 纯插入版本的 addMessagesSync - 不包含边界检测
+     * 用于新线程或已确定需要插入的消息
+     */
+    private static addMessagesSync(
+        threadId: number, 
+        allMessages: Message[], 
+        sessionTime?: string,
+        insertRange?: { start: number; end: number }  // 🔥 可选的插入范围
+    ): number {
+        if (allMessages.length === 0) return 0;
+
+        const db = this.getDatabase();
+        
+        // 🔥 确定插入范围
+        const startIndex = insertRange?.start || 0;
+        const endIndex = insertRange?.end || allMessages.length;
+        const insertCount = endIndex - startIndex;
+        
+        console.log(`🔧 addMessagesSync: 线程${threadId}, 插入第${startIndex+1}-${endIndex}条消息 (共${insertCount}条)`);
+        
+        if (insertCount <= 0) {
+            console.log(`⏭️ 无消息需要插入`);
+            return 0;
+        }
+        
+        // 🔥 统一时间戳：所有消息使用相同的时间戳
+        const timestamp = sessionTime ? sessionTime : new Date().toISOString();
+        console.log(`📅 使用统一时间戳: ${timestamp}`);
+        
+        const insertStmt = db.prepare(`
+            INSERT INTO messages (
+                thread_id, message_id, sender, content_type, 
+                text_content, content_hash, timestamp, is_read
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        let actualInsertCount = 0;
+        
+        // 🔥 插入指定范围的消息
+        for (let i = startIndex; i < endIndex; i++) {
+            const message = allMessages[i];
+            
+            // 🔥 使用完整消息数组和正确索引生成历史指纹
+            const contentHash = this.generateStableHistoryFingerprint(
+                allMessages,  // 完整消息数组，包含完整上下文
+                i,           // 当前消息在完整数组中的索引
                 threadId
             );
             
@@ -631,30 +711,41 @@ export class MessageStorage {
             const contentType = message.images ? (message.text ? 'mixed' : 'image') : 'text';
             
             try {
-                insertStmt.run(
+                const result = insertStmt.run(
                     threadId,
                     message.message_id || null,
                     message.sender,
                     contentType,
                     message.text || null,
-                    messageHash,
-                    message.timestamp,
+                    contentHash,
+                    timestamp,  // 🔥 统一时间戳
                     message.is_read ? 1 : 0
                 );
-                insertCount++;
+                
+                actualInsertCount++;
+                
+                // 只显示前3条和后3条的详细日志
+                if (actualInsertCount <= 3 || actualInsertCount > insertCount - 3) {
+                    console.log(`  ✅ 第${i+1}条: ID=${result.lastInsertRowid}, "${(message.text || '').substring(0, 20)}..." hash:${contentHash.substring(0, 8)}...`);
+                } else if (actualInsertCount === 4) {
+                    console.log(`  ... (省略中间${insertCount - 6}条消息) ...`);
+                }
+                
             } catch (error) {
-                console.warn(`⚠️ 插入消息失败，可能重复: ${message.text?.substring(0, 20)}...`);
+                console.warn(`  ⚠️ 插入第${i+1}条消息失败:`, error);
             }
         }
 
-        // 更新线程状态
-        if (insertCount > 0) {
-            const lastMessage = messages[messages.length - 1];
+        // 🔥 更新线程状态（只有插入成功时才更新）
+        if (actualInsertCount > 0) {
+            const lastMessage = allMessages[endIndex - 1];
             const isFromUser = lastMessage.sender === 'user';
-            this.updateThreadStatus(threadId, lastMessage.timestamp, isFromUser);
+            this.updateThreadStatus(threadId, timestamp, isFromUser);
+            
+            console.log(`📊 插入完成: ${actualInsertCount}/${insertCount}条消息成功，最后消息时间: ${timestamp}`);
         }
 
-        return insertCount;
+        return actualInsertCount;
     }
     // ==================== 消息管理方法 ====================
 
@@ -1120,9 +1211,6 @@ export class MessageStorage {
     }
 
 
-    /**
-     * 🔥 修正的增量同步逻辑
-     */
     static incrementalSync(
         platform: string, 
         accountId: string, 
@@ -1137,23 +1225,66 @@ export class MessageStorage {
 
             const db = this.getDatabase();
 
+            // 🔥 将整个同步过程放在一个大事务中
             const transaction = db.transaction(() => {
                 for (const threadData of syncData) {
                     try {
-                        // 保存或更新线程
-                        const threadId = this.saveOrUpdateThread({
-                            platform,
-                            account_id: accountId,
-                            user_id: threadData.user_id,
-                            user_name: threadData.user_name,
-                            avatar: threadData.avatar,
-                            unread_count: threadData.unread_count || 0
-                        });
+                        // 1. 先检查线程是否存在（在同一事务内）
+                        const existingThread = this.getThreadByUser(platform, accountId, threadData.user_id);
+                        
+                        let threadId: number;
+                        let isNewThread = false;
+                        
+                        if (!existingThread) {
+                            // 新线程
+                            isNewThread = true;
+                            threadId = this.saveOrUpdateThread({
+                                platform,
+                                account_id: accountId,
+                                user_id: threadData.user_id,
+                                user_name: threadData.user_name,
+                                avatar: threadData.avatar,
+                                unread_count: threadData.unread_count || 0
+                            });
+                            console.log(`✅ 新线程已保存: ${threadData.user_name} (ID: ${threadId})`);
+                        } else {
+                            // 已存在的线程
+                            threadId = existingThread.id!;
+                            console.log(`✅ 已存在线程: ${threadData.user_name} (ID: ${threadId})`);
+                        }
 
-                        // 🔥 使用同步版本的增量添加
+                        // 2. 处理消息同步
                         if (threadData.messages && threadData.messages.length > 0) {
-                            const newCount = this.addMessagesIncrementalSync(threadId, threadData.messages);
-                            totalNewMessages += newCount;
+                            // 🔥 从 threadData 中提取 session_time，无论字段名是什么
+                            const sessionTime = (threadData as any).session_time || threadData.last_message_time;
+                            
+                            if (isNewThread) {
+                                const newCount = this.addMessagesForNewThread(
+                                    threadId, 
+                                    threadData.messages,
+                                    sessionTime  // 🔥 使用提取的时间戳
+                                );
+                                totalNewMessages += newCount;
+                            } else {
+                                const newCount = this.addMessagesIncrementalSync(
+                                    threadId, 
+                                    threadData.messages,
+                                    sessionTime  // 🔥 使用提取的时间戳
+                                );
+                                totalNewMessages += newCount;
+                            }
+                        }
+
+                        // 3. 更新线程状态（在同一事务内）
+                        if (!isNewThread) {
+                            this.saveOrUpdateThread({
+                                platform,
+                                account_id: accountId,
+                                user_id: threadData.user_id,
+                                user_name: threadData.user_name,
+                                avatar: threadData.avatar,
+                                unread_count: threadData.unread_count || 0
+                            });
                         }
 
                         updatedThreads++;
@@ -1169,6 +1300,7 @@ export class MessageStorage {
                 this.updateLastSyncTime(platform, accountId, new Date().toISOString());
             });
 
+            // 🔥 执行整个事务
             transaction();
 
             console.log(`✅ 智能增量同步完成: 新消息 ${totalNewMessages} 条，更新线程 ${updatedThreads} 个`);
@@ -1186,7 +1318,6 @@ export class MessageStorage {
             };
         }
     }
-
     /**
      * 🔥 获取线程最后一条消息的时间
      */
