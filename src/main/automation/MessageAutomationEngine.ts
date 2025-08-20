@@ -1,5 +1,7 @@
 // src/main/automation/MessageAutomationEngine.ts - MVP简化版本
-
+import { AccountStorage } from '../plugins/login/base/AccountStorage';
+import { Config } from '../config/Config';
+import * as path from 'path';
 import { TabManager } from '../TabManager';
 import { PluginManager } from '../PluginManager';
 import { MessageStorage } from '../plugins/message/base/MessageStorage';
@@ -57,7 +59,7 @@ export class MessageAutomationEngine {
     private isSystemRunning: boolean = false;
     private lastSyncTime: Map<string, number> = new Map();
     private readonly DEBOUNCE_INTERVAL = 3000; // 3秒防抖
-
+    private websocketServer?: any;
     constructor(tabManager: TabManager) {
         this.tabManager = tabManager;
         this.pluginManager = new PluginManager(tabManager);
@@ -66,7 +68,297 @@ export class MessageAutomationEngine {
         this.initializePlugins();
         console.log('✅ MessageAutomationEngine MVP 已初始化');
     }
+    // 🔥 新增：设置WebSocket服务器
+    setWebSocketServer(io: any): void {
+        this.websocketServer = io;
+        console.log('🔌 MessageEngine已连接WebSocket服务器');
+    }
 
+    // 🔥 新增：基础初始化方法
+    async initialize(): Promise<void> {
+        try {
+            await Promise.all([
+                this.refreshUnreadCounts(),
+                this.refreshMonitoringStatus()
+            ]);
+            
+            this.isSystemRunning = true;
+            console.log('✅ MessageAutomationEngine 基础初始化完成');
+        } catch (error) {
+            console.error('❌ MessageAutomationEngine 基础初始化失败:', error);
+            throw error;
+        }
+    }
+
+    // 🔥 新增：刷新未读统计（基础版本）
+    private async refreshUnreadCounts(): Promise<void> {
+        try {
+            // 这里可以添加刷新未读统计的逻辑
+            // 暂时是空实现，避免初始化报错
+            console.log('🔄 刷新未读统计...');
+        } catch (error) {
+            console.warn('⚠️ 刷新未读统计失败:', error);
+        }
+    }
+
+    // 🔥 新增：刷新监听状态（基础版本）
+    private async refreshMonitoringStatus(): Promise<void> {
+        try {
+            // 这里可以添加刷新监听状态的逻辑
+            // 暂时是空实现，避免初始化报错
+            console.log('🔄 刷新监听状态...');
+        } catch (error) {
+            console.warn('⚠️ 刷新监听状态失败:', error);
+        }
+    }
+
+    // 🔥 新增：推送实时消息到前端
+    private notifyFrontend(eventType: string, data: any): void {
+        if (this.websocketServer) {
+            this.websocketServer.emit(eventType, data);
+            console.log(`📡 WebSocket推送: ${eventType}`, data);
+        } else {
+            console.warn('⚠️ WebSocket服务器未设置，无法推送消息');
+        }
+    }
+
+    // 🔥 修改：在handleNewMessageDetected中添加前端通知
+    private async handleNewMessageDetected(platform: string, accountId: string, eventData: any): Promise<void> {
+        try {
+            console.log(`🚀 开始处理新消息: ${platform} - ${accountId}`);
+            
+            // 获取对应的监听状态
+            const accountKey = `${platform}_${accountId}`;
+            const monitoring = this.activeMonitoring.get(accountKey);
+            
+            if (!monitoring || !monitoring.tabId) {
+                console.warn(`⚠️ 未找到监听状态: ${accountKey}`);
+                return;
+            }
+            
+            // 🔥 立即通知前端有新消息正在处理
+            this.notifyFrontend('message-processing', {
+                platform,
+                accountId,
+                status: 'started',
+                timestamp: new Date().toISOString()
+            });
+            
+            // 🔥 调用插件立即同步消息
+            await this.syncNewMessages(platform, accountId, monitoring.tabId, eventData);
+            
+            // 🔥 同步完成后通知前端刷新
+            this.notifyFrontend('message-updated', {
+                platform,
+                accountId,
+                status: 'completed',
+                timestamp: new Date().toISOString()
+            });
+            
+        } catch (error) {
+            console.error(`❌ 处理新消息失败: ${platform} - ${accountId}:`, error);
+            
+            // 🔥 错误时也要通知前端
+            this.notifyFrontend('message-error', {
+                platform,
+                accountId,
+                error: error instanceof Error ? error.message : 'unknown error',
+                timestamp: new Date().toISOString()
+            });
+        }
+    }
+    // 🔥 新增：获取可用于监听的账号信息
+    async getAvailableAccountsForMonitoring(): Promise<{
+        accounts: any[];
+        summary: {
+            total: number;
+            canMonitor: number;
+            supportedPlatforms: string[];
+        };
+    }> {
+        try {
+            console.log('📋 获取可监听账号信息...');
+
+            // 1. 确保数据库已初始化
+            const { AccountStorage } = await import('../plugins/login/base/AccountStorage');
+            AccountStorage.ensureDatabaseInitialized();
+
+            // 2. 获取所有账号信息
+            const accounts = AccountStorage.getAccountsWithGroupsForFrontend(false);
+
+            // 3. 获取支持的平台
+            const supportedPlatforms = this.getSupportedPlatforms();
+            
+            // 4. 平台名称映射
+            const platformMapping: Record<string, string> = {
+                '视频号': 'wechat',
+                '微信视频号': 'wechat',
+                '抖音': 'douyin',
+                '快手': 'kuaishou',
+                '小红书': 'xiaohongshu'
+            };
+
+            // 5. 处理账号信息
+            const processedAccounts = accounts.map(account => {
+                const platformKey = platformMapping[account.platform] || account.platform.toLowerCase();
+                const supportsMessage = supportedPlatforms.includes(platformKey);
+                const canMonitor = account.status === '正常' && supportsMessage;
+
+                return {
+                    ...account,
+                    platformKey: platformKey,
+                    supportsMessage: supportsMessage,
+                    canMonitor: canMonitor,
+                    cookieFile: path.join(Config.COOKIE_DIR, account.filePath)
+                };
+            });
+
+            const summary = {
+                total: accounts.length,
+                canMonitor: processedAccounts.filter(acc => acc.canMonitor).length,
+                supportedPlatforms: supportedPlatforms
+            };
+
+            console.log(`📊 账号统计: 总计 ${summary.total}, 可监听 ${summary.canMonitor}`);
+
+            return {
+                accounts: processedAccounts,
+                summary: summary
+            };
+
+        } catch (error) {
+            console.error('❌ 获取可监听账号信息失败:', error);
+            return {
+                accounts: [],
+                summary: {
+                    total: 0,
+                    canMonitor: 0,
+                    supportedPlatforms: []
+                }
+            };
+        }
+    }
+
+    // 🔥 新增：系统启动时自动启动所有有效账号的消息监听
+    async autoStartMonitoringForValidAccounts(): Promise<{
+        total: number;
+        started: number;
+        failed: number;
+        skipped: number;
+        results: any[];
+    }> {
+        try {
+            console.log('🚀 开始自动启动消息监听服务...');
+
+            // 1. 获取可监听的账号信息
+            const accountInfo = await this.getAvailableAccountsForMonitoring();
+            const { accounts, summary } = accountInfo;
+
+            console.log(`📋 筛选结果: ${summary.canMonitor} 个有效账号支持消息监听`);
+            
+            // 2. 筛选可监听的账号
+            const monitorableAccounts = accounts.filter(acc => acc.canMonitor);
+            
+            if (monitorableAccounts.length === 0) {
+                console.log('⏭️ 没有可监听的账号');
+                return {
+                    total: summary.total,
+                    started: 0,
+                    failed: 0,
+                    skipped: summary.total,
+                    results: []
+                };
+            }
+
+            // 3. 显示要启动的账号
+            monitorableAccounts.forEach(acc => {
+                console.log(`  - ${acc.platform}: ${acc.userName} (${acc.status})`);
+            });
+
+            // 4. 构建监听参数
+            const monitoringParams = monitorableAccounts.map(account => ({
+                platform: account.platformKey,
+                accountId: account.userName,
+                cookieFile: account.cookieFile,
+                headless: true
+            }));
+
+            // 5. 批量启动监听
+            const results = await this.startBatchMonitoring(monitoringParams);
+
+            console.log(`✅ 自动启动监听完成: 成功 ${results.success}, 失败 ${results.failed}`);
+
+            return {
+                total: summary.total,
+                started: results.success,
+                failed: results.failed,
+                skipped: summary.total - monitorableAccounts.length,
+                results: results.results
+            };
+
+        } catch (error) {
+            console.error('❌ 自动启动消息监听失败:', error);
+            return {
+                total: 0,
+                started: 0,
+                failed: 0,
+                skipped: 0,
+                results: []
+            };
+        }
+    }
+
+    // 🔥 新增：系统启动时的初始化方法（包含自动监听）
+    async initializeWithAutoStart(): Promise<void> {
+        try {
+            console.log('🔄 MessageAutomationEngine 开始完整初始化...');
+
+            // 1. 基础初始化
+            await this.initialize();
+
+            // 2. 自动启动监听（可配置开关）
+            const AUTO_START_MONITORING = process.env.AUTO_START_MONITORING !== 'false';
+            
+            if (AUTO_START_MONITORING) {
+                console.log('🚀 准备自动启动消息监听...');
+                
+                // 延迟启动，确保系统完全就绪
+                setTimeout(async () => {
+                    try {
+                        const result = await this.autoStartMonitoringForValidAccounts();
+                        
+                        // 通过WebSocket通知前端
+                        if (this.websocketServer) {
+                            this.websocketServer.emit('auto-start-result', {
+                                type: 'monitoring-auto-start',
+                                result: result,
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+                    } catch (error) {
+                        console.error('❌ 自动启动监听过程中出错:', error);
+                    }
+                }, 5000); // 5秒后启动
+            } else {
+                console.log('⏭️ 自动启动监听已禁用 (AUTO_START_MONITORING=false)');
+            }
+
+        } catch (error) {
+            console.error('❌ MessageAutomationEngine 完整初始化失败:', error);
+            throw error;
+        }
+    }
+
+    // 🔥 新增：获取WebSocket服务器状态
+    getWebSocketStatus(): { connected: boolean; clientCount?: number } {
+        if (this.websocketServer) {
+            return {
+                connected: true,
+                clientCount: this.websocketServer.engine?.clientsCount || 0
+            };
+        }
+        return { connected: false };
+    }
     // ==================== 🔧 插件管理器访问 ====================
 
     /**
@@ -396,28 +688,6 @@ export class MessageAutomationEngine {
             
         } catch (error) {
             console.error('❌ 处理新消息事件失败:', error);
-        }
-    }
-
-    // 🔥 新增：处理检测到的新消息
-    private async handleNewMessageDetected(platform: string, accountId: string, eventData: any): Promise<void> {
-        try {
-            console.log(`🚀 开始处理新消息: ${platform} - ${accountId}`);
-            
-            // 获取对应的监听状态
-            const accountKey = `${platform}_${accountId}`;
-            const monitoring = this.activeMonitoring.get(accountKey);
-            
-            if (!monitoring || !monitoring.tabId) {
-                console.warn(`⚠️ 未找到监听状态: ${accountKey}`);
-                return;
-            }
-            
-            // 🔥 调用插件立即同步消息
-            await this.syncNewMessages(platform, accountId, monitoring.tabId, eventData);
-            
-        } catch (error) {
-            console.error(`❌ 处理新消息失败: ${platform} - ${accountId}:`, error);
         }
     }
 

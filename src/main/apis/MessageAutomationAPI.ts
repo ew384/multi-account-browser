@@ -15,7 +15,15 @@ export class MessageAutomationAPI {
         this.setupRoutes();
         console.log('✅ MessageAutomationAPI MVP 已初始化');
     }
+    // 🔥 新增：获取MessageEngine实例的方法
+    getMessageEngine(): MessageAutomationEngine {
+        return this.messageEngine;
+    }
 
+    // 🔥 新增：设置WebSocket服务器（从APIServer调用）
+    setWebSocketServer(io: any): void {
+        this.messageEngine.setWebSocketServer(io);
+    }
     /**
      * 🔥 MVP路由设置 - 只包含核心功能
      */
@@ -26,7 +34,9 @@ export class MessageAutomationAPI {
         this.router.post('/monitoring/batch-start', this.handleStartBatchMonitoring.bind(this));
         this.router.post('/monitoring/stop-all', this.handleStopAllMonitoring.bind(this));
         this.router.get('/monitoring/status', this.handleGetMonitoringStatus.bind(this));
-
+        // 🔥 新增：自动启动和账号查询接口
+        this.router.post('/monitoring/auto-start', this.handleAutoStartMonitoring.bind(this));
+        this.router.get('/accounts', this.handleGetAccounts.bind(this));
         // 🔥 手动消息同步（原有功能保留）
         this.router.post('/sync', this.handleSyncMessages.bind(this));
         this.router.post('/sync/batch', this.handleBatchSyncMessages.bind(this));
@@ -51,7 +61,52 @@ export class MessageAutomationAPI {
     }
 
     // ==================== 事件驱动监听API ====================
+    /**
+     * 🔥 新增：手动触发自动启动监听
+     */
+    async handleAutoStartMonitoring(req: Request, res: Response): Promise<void> {
+        try {
+            console.log('📡 API: 手动触发自动启动监听');
 
+            const result = await this.messageEngine.autoStartMonitoringForValidAccounts();
+
+            res.json({
+                success: true,
+                data: result
+            });
+
+        } catch (error) {
+            console.error('❌ 手动启动监听API失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error'
+            });
+        }
+    }
+
+    /**
+     * 🔥 新增：获取可监听账号信息
+     */
+    async handleGetAccounts(req: Request, res: Response): Promise<void> {
+        try {
+            console.log('📡 API: 获取可监听账号信息');
+
+            // 🔥 通过messageEngine获取账号信息
+            const result = await this.messageEngine.getAvailableAccountsForMonitoring();
+
+            res.json({
+                success: true,
+                data: result
+            });
+
+        } catch (error) {
+            console.error('❌ 获取账号信息API失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error'
+            });
+        }
+    }
     /**
      * 🔥 启动消息监听
      */

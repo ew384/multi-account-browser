@@ -5,7 +5,8 @@ import { CreateAccountRequest, ExecuteScriptRequest, NavigateRequest, APIRespons
 import * as path from 'path';
 import { AutomationEngine } from './automation/AutomationEngine';
 import { HeadlessManager } from './HeadlessManager';
-
+import { createServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
 
 import { SocialAutomationAPI } from './apis/SocialAutomationAPI';
 import { MessageAutomationAPI } from './apis/MessageAutomationAPI';
@@ -13,6 +14,8 @@ import { MessageAutomationAPI } from './apis/MessageAutomationAPI';
 export class APIServer {
     private app: express.Application;
     private server: any;
+    private httpServer: any; // 🔥 新增
+    private io: SocketIOServer; // 🔥 新增
     private automationEngine: AutomationEngine;
     private tabManager: TabManager;  // 🔥 保留 tabManager 用于底层操作
     private headlessManager: HeadlessManager;
@@ -29,8 +32,46 @@ export class APIServer {
         // 🔥 设置全局进度通知器
         global.uploadProgressNotifier = this.notifyUploadProgress.bind(this);
         this.app = express();
+        this.httpServer = createServer(this.app);
+        // 🔥 新增：初始化Socket.IO
+        this.io = new SocketIOServer(this.httpServer, {
+            cors: {
+                origin: ["http://localhost:5173", "http://localhost:3000", "http://localhost:8080"],
+                methods: ["GET", "POST"],
+                credentials: true
+            }
+        });
+
+        // 🔥 新增：设置WebSocket事件
+        this.setupWebSocket();
+        
+        // 🔥 关键：将WebSocket实例传给MessageEngine
+        this.messageAPI.setWebSocketServer(this.io);
+
         this.setupMiddleware();
         this.setupRoutes();
+    }
+    // 🔥 新增：设置WebSocket事件处理
+    private setupWebSocket(): void {
+        this.io.on('connection', (socket) => {
+            console.log('🔌 前端WebSocket已连接:', socket.id);
+
+            // 发送当前监听状态给新连接的客户端
+            try {
+                const messageEngine = this.messageAPI.getMessageEngine();
+                const status = messageEngine.getActiveMonitoringStatus();
+                socket.emit('monitoring-status', status);
+            } catch (error) {
+                console.warn('⚠️ 发送初始监听状态失败:', error);
+            }
+
+            // 客户端断开处理
+            socket.on('disconnect', () => {
+                console.log('🔌 前端WebSocket已断开:', socket.id);
+            });
+        });
+
+        console.log('✅ WebSocket事件监听器已设置');
     }
 
     private setupMiddleware(): void {
@@ -1696,10 +1737,23 @@ export class APIServer {
     start(port: number): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
-                this.server = this.app.listen(port, () => {
+                // 使用httpServer而不是app
+                this.server = this.httpServer.listen(port, async () => {
                     const mode = this.headlessManager.getMode();
                     console.log(`🚀 API Server running on http://localhost:${port}`);
+                    console.log(`🔌 WebSocket Server running on ws://localhost:${port}`);
                     console.log(`📱 Current mode: ${mode}`);
+
+                    // 🔥 新增：启动后自动初始化消息监听
+                    try {
+                        console.log('🔄 开始初始化消息自动化服务...');
+                        await this.messageAPI.getMessageEngine().initializeWithAutoStart();
+                        console.log('✅ 消息自动化服务初始化完成');
+                    } catch (initError) {
+                        console.error('❌ 消息自动化服务初始化失败:', initError);
+                        // 不要因为消息服务初始化失败就中断整个服务器启动
+                    }
+
                     resolve();
                 });
 
@@ -1717,10 +1771,22 @@ export class APIServer {
         });
     }
 
+    // 🔥 新增：获取WebSocket实例的方法
+    getWebSocketServer(): SocketIOServer {
+        return this.io;
+    }
+
+    // 🔥 修改stop方法
     async stop(): Promise<void> {
         return new Promise(async (resolve) => {
             try {
                 console.log('🛑 正在停止API服务器...');
+                
+                // 关闭WebSocket连接
+                if (this.io) {
+                    this.io.close();
+                    console.log('🔌 WebSocket服务器已关闭');
+                }
                 
                 // 🔥 新增：关闭所有SSE连接
                 console.log('🔌 关闭SSE连接...');
