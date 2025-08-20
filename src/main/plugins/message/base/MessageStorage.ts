@@ -766,9 +766,8 @@ export class MessageStorage {
         return actualInsertCount;
     }
     // ==================== 消息管理方法 ====================
-
     /**
-     * 🔥 批量添加消息 - 加强去重 + 保留图片处理
+     * 🔥 批量添加消息 - 移除事务包装版本
      */
     static async addMessages(threadId: number, messages: Message[]): Promise<void> {
         if (messages.length === 0) return;
@@ -817,48 +816,48 @@ export class MessageStorage {
                 });
             }
 
-            // 使用事务确保数据一致性
-            const transaction = db.transaction(() => {
-                // 🔥 强化去重：基于时间戳 + 发送者 + 内容前50字符
-                const checkStmt = db.prepare(`
-                    SELECT id FROM messages 
-                    WHERE thread_id = ? 
-                    AND timestamp = ? 
-                    AND sender = ? 
-                    AND substr(COALESCE(text_content, ''), 1, 50) = substr(COALESCE(?, ''), 1, 50)
-                `);
+            // 🔥 移除事务包装，直接执行SQL语句
+            // 🔥 强化去重：基于时间戳 + 发送者 + 内容前50字符
+            const checkStmt = db.prepare(`
+                SELECT id FROM messages 
+                WHERE thread_id = ? 
+                AND timestamp = ? 
+                AND sender = ? 
+                AND substr(COALESCE(text_content, ''), 1, 50) = substr(COALESCE(?, ''), 1, 50)
+            `);
 
-                const insertStmt = db.prepare(`
-                    INSERT INTO messages (
-                        thread_id, message_id, sender, content_type, 
-                        text_content, image_paths, timestamp, is_read
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `);
+            const insertStmt = db.prepare(`
+                INSERT INTO messages (
+                    thread_id, message_id, sender, content_type, 
+                    text_content, image_paths, timestamp, is_read
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `);
 
-                let skipCount = 0;
-                let insertCount = 0;
+            let skipCount = 0;
+            let insertCount = 0;
 
-                for (const message of processedMessages) {
-                    // 🔥 快速去重检查
-                    const existing = checkStmt.get(
-                        threadId, 
-                        message.timestamp, 
-                        message.sender,
-                        message.text || ''
-                    );
+            for (const message of processedMessages) {
+                // 🔥 快速去重检查
+                const existing = checkStmt.get(
+                    threadId, 
+                    message.timestamp, 
+                    message.sender,
+                    message.text || ''
+                );
 
-                    if (existing) {
-                        skipCount++;
-                        console.log(`⚠️ 消息已存在，跳过: ${message.timestamp} - ${(message.text || '').substring(0, 20)}...`);
-                        continue;
-                    }
+                if (existing) {
+                    skipCount++;
+                    console.log(`⚠️ 消息已存在，跳过: ${message.timestamp} - ${(message.text || '').substring(0, 20)}...`);
+                    continue;
+                }
 
-                    // 确定内容类型
-                    let contentType: 'text' | 'image' | 'mixed' = 'text';
-                    if (message.processedImagePaths) {
-                        contentType = message.text ? 'mixed' : 'image';
-                    }
+                // 确定内容类型
+                let contentType: 'text' | 'image' | 'mixed' = 'text';
+                if (message.processedImagePaths) {
+                    contentType = message.text ? 'mixed' : 'image';
+                }
 
+                try {
                     insertStmt.run(
                         threadId,
                         message.message_id || null,
@@ -871,24 +870,31 @@ export class MessageStorage {
                     );
                     
                     insertCount++;
+                } catch (insertError) {
+                    console.error(`❌ 插入消息失败:`, insertError);
+                    // 继续处理下一条消息
+                    continue;
                 }
+            }
 
-                // 🔥 统计日志
-                if (skipCount > 0) {
-                    console.log(`📊 跳过重复消息 ${skipCount} 条，新增 ${insertCount} 条`);
-                } else if (insertCount > 0) {
-                    console.log(`✅ 新增消息 ${insertCount} 条`);
-                }
+            // 🔥 统计日志
+            if (skipCount > 0) {
+                console.log(`📊 跳过重复消息 ${skipCount} 条，新增 ${insertCount} 条`);
+            } else if (insertCount > 0) {
+                console.log(`✅ 新增消息 ${insertCount} 条`);
+            }
 
-                // 🔥 更新线程的最后消息时间
-                if (insertCount > 0) {
+            // 🔥 更新线程的最后消息时间（独立执行，不在事务中）
+            if (insertCount > 0) {
+                try {
                     const lastMessage = messages[messages.length - 1];
                     const isFromUser = lastMessage.sender === 'user';
                     this.updateThreadStatus(threadId, lastMessage.timestamp, isFromUser);
+                    console.log(`✅ 线程状态更新成功`);
+                } catch (updateError) {
+                    console.warn(`⚠️ 线程状态更新失败，但消息插入成功:`, updateError);
                 }
-            });
-
-            transaction();
+            }
             
             if (processedMessages.some(m => m.processedImagePaths)) {
                 const imageCount = processedMessages.filter(m => m.processedImagePaths).length;
@@ -1190,43 +1196,6 @@ export class MessageStorage {
 
     // ==================== 数据清理方法 ====================
 
-    /**
-     * 🔥 清理旧消息（保留最近30天）
-     */
-    static cleanupOldMessages(daysToKeep: number = 30): number {
-        try {
-            const db = this.getDatabase();
-
-            const cutoffDate = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000).toISOString();
-
-            const transaction = db.transaction(() => {
-                // 删除旧消息
-                const deleteMessagesStmt = db.prepare(`
-                    DELETE FROM messages 
-                    WHERE timestamp < ?
-                `);
-                const result = deleteMessagesStmt.run(cutoffDate);
-
-                // 清理没有消息的线程
-                const deleteThreadsStmt = db.prepare(`
-                    DELETE FROM message_threads 
-                    WHERE id NOT IN (SELECT DISTINCT thread_id FROM messages)
-                `);
-                deleteThreadsStmt.run();
-
-                return result.changes;
-            });
-
-            const deletedCount = transaction();
-            console.log(`🧹 清理完成: 删除了 ${deletedCount} 条 ${daysToKeep} 天前的消息`);
-
-            return deletedCount;
-
-        } catch (error) {
-            console.error('❌ 清理旧消息失败:', error);
-            return 0;
-        }
-    }
 
 
     static incrementalSync(
@@ -1240,12 +1209,6 @@ export class MessageStorage {
             let totalNewMessages = 0;
             let updatedThreads = 0;
             const errors: string[] = [];
-
-            // 🔥 关键修复：完全移除这个大事务包装
-            // const transaction = db.transaction(() => {
-            //     // ... 所有同步逻辑
-            // });
-            // transaction();
 
             // 🔥 改为：直接执行，让每个操作使用自己的事务
             for (const threadData of syncData) {
@@ -1722,75 +1685,6 @@ export class MessageStorage {
     // ==================== 调试和维护方法 ====================
 
     /**
-     * 🔥 修复数据一致性
-     */
-    static repairDataConsistency(): {
-        repairedThreads: number;
-        orphanedMessages: number;
-    } {
-        try {
-            const db = this.getDatabase();
-
-            const transaction = db.transaction(() => {
-                // 修复线程的最后消息时间
-                const updateThreadsStmt = db.prepare(`
-                    UPDATE message_threads 
-                    SET last_message_time = (
-                        SELECT MAX(timestamp) 
-                        FROM messages 
-                        WHERE thread_id = message_threads.id
-                    )
-                    WHERE id IN (
-                        SELECT DISTINCT thread_id FROM messages
-                    )
-                `);
-                updateThreadsStmt.run();
-
-                // 修复线程的未读消息数（假设所有 sender='user' 且 is_read=0 的消息为未读）
-                const updateUnreadStmt = db.prepare(`
-                    UPDATE message_threads 
-                    SET unread_count = (
-                        SELECT COUNT(*) 
-                        FROM messages 
-                        WHERE thread_id = message_threads.id 
-                        AND sender = 'user' 
-                        AND is_read = 0
-                    )
-                `);
-                updateUnreadStmt.run();
-
-                // 删除孤儿消息（没有对应线程的消息）
-                const deleteOrphanedStmt = db.prepare(`
-                    DELETE FROM messages 
-                    WHERE thread_id NOT IN (SELECT id FROM message_threads)
-                `);
-                const orphanedResult = deleteOrphanedStmt.run();
-
-                // 获取修复的线程数
-                const repairedThreadsStmt = db.prepare(`
-                    SELECT COUNT(*) as count FROM message_threads
-                `);
-                const repairedThreads = repairedThreadsStmt.get() as { count: number };
-
-                return {
-                    repairedThreads: repairedThreads.count,
-                    orphanedMessages: orphanedResult.changes
-                };
-            });
-
-            const result = transaction();
-
-            console.log(`🔧 数据一致性修复完成: 修复线程 ${result.repairedThreads} 个，删除孤儿消息 ${result.orphanedMessages} 条`);
-
-            return result;
-
-        } catch (error) {
-            console.error('❌ 修复数据一致性失败:', error);
-            return { repairedThreads: 0, orphanedMessages: 0 };
-        }
-    }
-
-    /**
      * 🔥 获取数据库健康状态
      */
     static getDatabaseHealth(): {
@@ -1877,44 +1771,6 @@ export class MessageStorage {
     }
 
     // ==================== 批量操作方法 ====================
-
-    /**
-     * 🔥 批量更新账号状态
-     */
-    static batchUpdateAccountStatus(updates: Array<{
-        platform: string;
-        accountId: string;
-        status: number;
-        lastSyncTime: string;
-    }>): number {
-        try {
-            const db = this.getDatabase();
-            let updatedCount = 0;
-
-            const transaction = db.transaction(() => {
-                const stmt = db.prepare(`
-                    UPDATE platform_sync_status 
-                    SET last_sync_time = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE platform = ? AND account_id = ?
-                `);
-
-                for (const update of updates) {
-                    const result = stmt.run(update.lastSyncTime, update.platform, update.accountId);
-                    if (result.changes > 0) {
-                        updatedCount++;
-                    }
-                }
-            });
-
-            transaction();
-            console.log(`✅ 批量更新完成: ${updatedCount}/${updates.length} 个账号状态已更新`);
-            return updatedCount;
-
-        } catch (error) {
-            console.error('❌ 批量更新账号状态失败:', error);
-            return 0;
-        }
-    }
 
     /**
      * 🔥 获取需要同步的账号列表
