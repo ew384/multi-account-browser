@@ -39,7 +39,7 @@ export class DatabaseManager {
         }
         
         this.connectionCount++;
-        console.log(`📊 数据库连接引用计数: ${this.connectionCount}`);
+        //console.log(`📊 数据库连接引用计数: ${this.connectionCount}`);
         
         return this.db!;
     }
@@ -110,7 +110,7 @@ export class DatabaseManager {
      */
     releaseConnection(): void {
         this.connectionCount = Math.max(0, this.connectionCount - 1);
-        console.log(`📊 数据库连接引用计数: ${this.connectionCount}`);
+        //console.log(`📊 数据库连接引用计数: ${this.connectionCount}`);
     }
 
     /**
