@@ -76,7 +76,7 @@ export class MessageStorage {
             dbInstance.pragma('synchronous = NORMAL');
             dbInstance.pragma('cache_size = 1000');
             dbInstance.pragma('temp_store = memory');
-            
+            dbInstance.pragma('wal_autocheckpoint = 1000');
             console.log('✅ Better-SQLite3 数据库连接已建立');
         }
         
@@ -439,7 +439,7 @@ export class MessageStorage {
 
         } catch (error) {
             console.error('❌ 更新线程状态失败:', error);
-            throw error;
+            console.warn('⚠️ 线程状态更新失败，但不影响消息插入');
         }
     }
     /**
@@ -733,6 +733,9 @@ export class MessageStorage {
                 
             } catch (error) {
                 console.warn(`  ⚠️ 插入第${i+1}条消息失败:`, error);
+                // 🔥 添加：插入失败时立即返回，避免继续
+                console.error(`❌ 消息插入失败，停止后续插入`);
+                return actualInsertCount;
             }
         }
 
@@ -740,9 +743,18 @@ export class MessageStorage {
         if (actualInsertCount > 0) {
             const lastMessage = allMessages[endIndex - 1];
             const isFromUser = lastMessage.sender === 'user';
-            this.updateThreadStatus(threadId, timestamp, isFromUser);
             
-            console.log(`📊 插入完成: ${actualInsertCount}/${insertCount}条消息成功，最后消息时间: ${timestamp}`);
+            console.log(`🔄 准备更新线程状态: threadId=${threadId}, timestamp=${timestamp}, isFromUser=${isFromUser}`);
+            
+            try {
+                this.updateThreadStatus(threadId, timestamp, isFromUser);
+                console.log(`📊 插入完成: ${actualInsertCount}/${insertCount}条消息成功，最后消息时间: ${timestamp}`);
+            } catch (updateError) {
+                console.error(`❌ 线程状态更新失败:`, updateError);
+                console.error(`❌ 这可能导致整个插入操作失效`);
+                // 🔥 抛出异常让上层知道问题
+                throw new Error(`消息插入成功但线程状态更新失败: ${updateError instanceof Error ? updateError.message : 'unknown'}`);
+            }
         }
 
         return actualInsertCount;
@@ -1302,6 +1314,31 @@ export class MessageStorage {
 
             // 🔥 执行整个事务
             transaction();
+            // 🔥 强制WAL检查点，确保数据写入主数据库文件
+            console.log(`🔄 执行WAL检查点...`);
+            const checkpointResult = db.pragma('wal_checkpoint(FULL)');
+            console.log(`✅ WAL检查点完成:`, checkpointResult);
+            // 🔥 立即验证数据是否真的插入了
+            console.log(`🔍 验证数据是否真的插入到数据库...`);
+            
+            const verifyStmt = db.prepare(`
+                SELECT COUNT(*) as count FROM messages
+            `);
+            const totalMessages = verifyStmt.get() as { count: number };
+            console.log(`📊 数据库中总消息数: ${totalMessages.count}`);
+            
+            const verifyThreadStmt = db.prepare(`
+                SELECT COUNT(*) as count FROM message_threads
+                WHERE platform = ? AND account_id = ?
+            `);
+            const totalThreads = verifyThreadStmt.get(platform, accountId) as { count: number };
+            console.log(`📊 数据库中线程数: ${totalThreads.count}`);
+            
+            // 🔥 如果插入了消息但查询不到，说明事务有问题
+            if (totalNewMessages > 0 && totalMessages.count === 0) {
+                console.error(`❌ 严重错误: 插入了 ${totalNewMessages} 条消息但数据库中查询不到任何消息!`);
+                console.error(`❌ 这说明事务没有正确提交或数据库连接有问题`);
+            }
 
             console.log(`✅ 智能增量同步完成: 新消息 ${totalNewMessages} 条，更新线程 ${updatedThreads} 个`);
 
