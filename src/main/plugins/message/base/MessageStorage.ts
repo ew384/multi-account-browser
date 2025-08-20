@@ -622,98 +622,100 @@ export class MessageStorage {
         const failedMessages: Array<{index: number, error: string, message: any}> = [];
         
         console.log(`🔍 开始逐条插入消息，详细调试模式...`);
-        
-        for (let i = startIndex; i < endIndex; i++) {
-            const message = allMessages[i];
-            
-            try {
-                // 🔥 生成内容hash
-                const contentHash = this.generateStableHistoryFingerprint(allMessages, i, threadId);
-                const contentType = message.images ? (message.text ? 'mixed' : 'image') : 'text';
+        const transaction = db.transaction(() => {
+            for (let i = startIndex; i < endIndex; i++) {
+                const message = allMessages[i];
                 
-                // 🔥 详细打印即将插入的消息信息
-                console.log(`\n📝 准备插入第${i+1}条消息:`);
-                console.log(`   索引: ${i}`);
-                console.log(`   发送者: ${message.sender}`);
-                console.log(`   内容类型: ${contentType}`);
-                console.log(`   文本内容: "${(message.text || '').substring(0, 100)}${(message.text || '').length > 100 ? '...' : ''}"`);
-                console.log(`   图片数量: ${message.images ? message.images.length : 0}`);
-                console.log(`   消息ID: ${message.message_id || 'null'}`);
-                console.log(`   内容Hash: ${contentHash}`);
-                console.log(`   时间戳: ${timestamp}`);
-                console.log(`   是否已读: ${message.is_read ? 1 : 0}`);
-                
-                // 🔥 检查是否可能有重复hash
-                const existingCheck = db.prepare(`
-                    SELECT id, text_content FROM messages 
-                    WHERE thread_id = ? AND content_hash = ?
-                `).get(threadId, contentHash) as {id: number; text_content: string} | undefined;
-                
-                if (existingCheck) {
-                    console.log(`   ⚠️ 发现重复Hash的消息: ID=${existingCheck.id}, 内容="${existingCheck.text_content}"`);
-                    console.log(`   ⚠️ 当前消息将跳过插入`);
+                try {
+                    // 🔥 生成内容hash
+                    const contentHash = this.generateStableHistoryFingerprint(allMessages, i, threadId);
+                    const contentType = message.images ? (message.text ? 'mixed' : 'image') : 'text';
+                    
+                    // 🔥 详细打印即将插入的消息信息
+                    console.log(`\n📝 准备插入第${i+1}条消息:`);
+                    console.log(`   索引: ${i}`);
+                    console.log(`   发送者: ${message.sender}`);
+                    console.log(`   内容类型: ${contentType}`);
+                    console.log(`   文本内容: "${(message.text || '').substring(0, 100)}${(message.text || '').length > 100 ? '...' : ''}"`);
+                    console.log(`   图片数量: ${message.images ? message.images.length : 0}`);
+                    console.log(`   消息ID: ${message.message_id || 'null'}`);
+                    console.log(`   内容Hash: ${contentHash}`);
+                    console.log(`   时间戳: ${timestamp}`);
+                    console.log(`   是否已读: ${message.is_read ? 1 : 0}`);
+                    
+                    // 🔥 检查是否可能有重复hash
+                    const existingCheck = db.prepare(`
+                        SELECT id, text_content FROM messages 
+                        WHERE thread_id = ? AND content_hash = ?
+                    `).get(threadId, contentHash) as {id: number; text_content: string} | undefined;
+                    
+                    if (existingCheck) {
+                        console.log(`   ⚠️ 发现重复Hash的消息: ID=${existingCheck.id}, 内容="${existingCheck.text_content}"`);
+                        console.log(`   ⚠️ 当前消息将跳过插入`);
+                        failedMessages.push({
+                            index: i,
+                            error: `重复Hash: ${contentHash}`,
+                            message: {
+                                text: message.text,
+                                sender: message.sender,
+                                hash: contentHash
+                            }
+                        });
+                        continue;
+                    }
+                    
+                    // 🔥 执行插入
+                    console.log(`   🚀 执行SQL插入...`);
+                    const result = insertStmt.run(
+                        threadId,
+                        message.message_id || null,
+                        message.sender,
+                        contentType,
+                        message.text || null,
+                        contentHash,
+                        timestamp,
+                        message.is_read ? 1 : 0
+                    );
+                    
+                    const insertedId = result.lastInsertRowid as number;
+                    insertedIds.push(insertedId);
+                    actualInsertCount++;
+                    
+                    console.log(`   ✅ 插入成功! 新ID: ${insertedId}`);
+                    
+                    // 🔥 验证插入是否真的成功
+                    const verifyStmt = db.prepare(`SELECT id, text_content FROM messages WHERE id = ?`);
+                    const verified = verifyStmt.get(insertedId) as {id: number; text_content: string} | undefined;
+                    if (verified) {
+                        console.log(`   ✅ 验证成功: 数据库中确实存在ID=${verified.id}的记录`);
+                    } else {
+                        console.log(`   ❌ 验证失败: 插入后在数据库中找不到记录!`);
+                    }
+                    
+                } catch (error) {
+                    // 🔥 详细记录失败信息
+                    const errorMsg = error instanceof Error ? error.message : String(error);
+                    console.log(`   ❌ 插入失败: ${errorMsg}`);
+                    console.log(`   ❌ 错误详情:`, error);
+                    
                     failedMessages.push({
                         index: i,
-                        error: `重复Hash: ${contentHash}`,
+                        error: errorMsg,
                         message: {
                             text: message.text,
                             sender: message.sender,
-                            hash: contentHash
+                            timestamp: timestamp,
+                            contentType: message.images ? (message.text ? 'mixed' : 'image') : 'text'
                         }
                     });
+                    
+                    // 继续处理下一条消息，不要停止
                     continue;
                 }
-                
-                // 🔥 执行插入
-                console.log(`   🚀 执行SQL插入...`);
-                const result = insertStmt.run(
-                    threadId,
-                    message.message_id || null,
-                    message.sender,
-                    contentType,
-                    message.text || null,
-                    contentHash,
-                    timestamp,
-                    message.is_read ? 1 : 0
-                );
-                
-                const insertedId = result.lastInsertRowid as number;
-                insertedIds.push(insertedId);
-                actualInsertCount++;
-                
-                console.log(`   ✅ 插入成功! 新ID: ${insertedId}`);
-                
-                // 🔥 验证插入是否真的成功
-                const verifyStmt = db.prepare(`SELECT id, text_content FROM messages WHERE id = ?`);
-                const verified = verifyStmt.get(insertedId) as {id: number; text_content: string} | undefined;
-                if (verified) {
-                    console.log(`   ✅ 验证成功: 数据库中确实存在ID=${verified.id}的记录`);
-                } else {
-                    console.log(`   ❌ 验证失败: 插入后在数据库中找不到记录!`);
-                }
-                
-            } catch (error) {
-                // 🔥 详细记录失败信息
-                const errorMsg = error instanceof Error ? error.message : String(error);
-                console.log(`   ❌ 插入失败: ${errorMsg}`);
-                console.log(`   ❌ 错误详情:`, error);
-                
-                failedMessages.push({
-                    index: i,
-                    error: errorMsg,
-                    message: {
-                        text: message.text,
-                        sender: message.sender,
-                        timestamp: timestamp,
-                        contentType: message.images ? (message.text ? 'mixed' : 'image') : 'text'
-                    }
-                });
-                
-                // 继续处理下一条消息，不要停止
-                continue;
             }
-        }
+        });
 
+        transaction(); // 执行事务
         // 🔥 详细汇总报告
         console.log(`\n📊 插入汇总报告:`);
         console.log(`   目标插入数量: ${insertCount}`);
