@@ -70,7 +70,7 @@ export class APIServer {
     }
     private setupMessageRoutes(): void {
         console.log('🔌 设置消息自动化API路由...');
-        this.app.use('/api/messages', this.messageAPI.getRouter());
+        this.app.use('/api/message-automation', this.messageAPI.getRouter());
         console.log('✅ 消息自动化API路由设置完成');
     }
     private setupSpecialRoutes(): void {
