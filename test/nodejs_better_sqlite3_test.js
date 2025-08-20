@@ -1,35 +1,27 @@
 #!/usr/bin/env node
 
-// Node.js Better-SQLite3 事务冲突测试脚本
-// 用于验证嵌套事务导致数据插入失败的问题
+// 高级Better-SQLite3事务异常测试
+// 模拟可能导致你系统问题的各种异常情况
 
 const Database = require('better-sqlite3');
 const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 
-// 测试数据库路径
-const testDbPath = './test_transaction_conflict.db';
+const testDbPath = './test_advanced_transaction.db';
 
-// 清理之前的测试数据库
 if (fs.existsSync(testDbPath)) {
     fs.unlinkSync(testDbPath);
 }
 
-console.log('🚀 开始 Better-SQLite3 事务冲突测试...');
+console.log('🚀 开始高级事务异常测试...');
 
-// 创建数据库连接，模拟你的配置
 const db = new Database(testDbPath);
-
-// 设置与你系统相同的pragma
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 db.pragma('cache_size = 1000');
 db.pragma('temp_store = memory');
 
-console.log('✅ 数据库创建完成，WAL模式已启用');
-
-// 创建测试表
+// 创建表
 db.exec(`
     CREATE TABLE IF NOT EXISTS message_threads (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +44,7 @@ db.exec(`
         sender TEXT NOT NULL CHECK(sender IN ('me', 'user')),
         content_type TEXT NOT NULL CHECK(content_type IN ('text', 'image', 'mixed')),
         text_content TEXT,
-        content_hash TEXT,
+        content_hash TEXT UNIQUE,  -- 🔥 添加UNIQUE约束，可能导致冲突
         timestamp TEXT NOT NULL,
         is_read INTEGER DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -60,9 +52,8 @@ db.exec(`
     )
 `);
 
-console.log('✅ 测试表创建完成');
+console.log('✅ 测试表创建完成（含UNIQUE约束）');
 
-// 生成内容hash的函数（模拟你的逻辑）
 function generateContentHash(messages, currentIndex, threadId) {
     const current = messages[currentIndex];
     const contextParts = [];
@@ -86,7 +77,6 @@ function generateContentHash(messages, currentIndex, threadId) {
     return crypto.createHash('md5').update(content, 'utf8').digest('hex');
 }
 
-// 模拟你的 saveOrUpdateThread 方法
 function saveOrUpdateThread(threadData) {
     const stmt = db.prepare(`
         INSERT OR REPLACE INTO message_threads (
@@ -102,53 +92,44 @@ function saveOrUpdateThread(threadData) {
     `);
 
     const result = stmt.run(
-        threadData.platform, threadData.account_id, threadData.user_id,  // SELECT id
+        threadData.platform, threadData.account_id, threadData.user_id,
         threadData.platform, threadData.account_id, threadData.user_id, 
         threadData.user_name, threadData.unread_count, threadData.last_message_time,
-        threadData.platform, threadData.account_id, threadData.user_id   // SELECT created_at
+        threadData.platform, threadData.account_id, threadData.user_id
     );
 
     return result.lastInsertRowid;
 }
 
-// 模拟你的 updateThreadStatus 方法
-function updateThreadStatus(threadId, lastMessageTime, incrementUnread = false) {
+// 🔥 模拟可能失败的updateThreadStatus
+function updateThreadStatusMayFail(threadId, lastMessageTime, shouldFail = false) {
     try {
-        let stmt;
-        if (incrementUnread) {
-            stmt = db.prepare(`
-                UPDATE message_threads 
-                SET last_message_time = ?, 
-                    unread_count = unread_count + 1,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            `);
-        } else {
-            stmt = db.prepare(`
-                UPDATE message_threads 
-                SET last_message_time = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            `);
+        if (shouldFail) {
+            // 🔥 故意制造失败
+            throw new Error('模拟线程状态更新失败');
         }
+        
+        const stmt = db.prepare(`
+            UPDATE message_threads 
+            SET last_message_time = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `);
         
         stmt.run(lastMessageTime, threadId);
         console.log(`  ✅ 线程状态更新成功: ID=${threadId}`);
     } catch (error) {
-        console.error(`  ❌ 线程状态更新失败:`, error);
-        throw error; // 这里抛出异常可能导致问题
+        console.error(`  ❌ 线程状态更新失败:`, error.message);
+        throw error; // 🔥 抛出异常，可能导致事务回滚
     }
 }
 
-// 模拟你的 addMessagesSync 方法（有内部事务的版本）
-function addMessagesSyncWithTransaction(threadId, allMessages, sessionTime) {
-    console.log(`  📝 addMessagesSyncWithTransaction: 线程${threadId}, ${allMessages.length}条消息`);
-    
-    if (allMessages.length === 0) return 0;
+// 🔥 模拟会产生约束冲突的消息插入
+function addMessagesWithConflicts(threadId, allMessages, sessionTime, createConflict = false) {
+    console.log(`  📝 addMessagesWithConflicts: 线程${threadId}, ${allMessages.length}条消息, 冲突=${createConflict}`);
     
     const timestamp = sessionTime || new Date().toISOString();
     
-    // 🔥 这里模拟内部事务（可能导致问题）
     const messageTransaction = db.transaction(() => {
         const insertStmt = db.prepare(`
             INSERT INTO messages (
@@ -161,7 +142,13 @@ function addMessagesSyncWithTransaction(threadId, allMessages, sessionTime) {
         
         for (let i = 0; i < allMessages.length; i++) {
             const message = allMessages[i];
-            const contentHash = generateContentHash(allMessages, i, threadId);
+            let contentHash = generateContentHash(allMessages, i, threadId);
+            
+            // 🔥 故意制造hash冲突
+            if (createConflict && i === 3) {
+                contentHash = generateContentHash(allMessages, 0, threadId); // 重复第一条的hash
+                console.log(`    🔥 故意制造hash冲突: 第${i+1}条使用第1条的hash`);
+            }
             
             try {
                 const result = insertStmt.run(
@@ -175,19 +162,21 @@ function addMessagesSyncWithTransaction(threadId, allMessages, sessionTime) {
                 );
                 
                 actualInsertCount++;
-                console.log(`    ✅ 第${i+1}条: ID=${result.lastInsertRowid}, "${message.text.substring(0, 20)}..."`);
+                console.log(`    ✅ 第${i+1}条: ID=${result.lastInsertRowid}, hash=${contentHash.substring(0, 8)}...`);
                 
             } catch (error) {
-                console.error(`    ❌ 插入第${i+1}条消息失败:`, error);
-                throw error;
+                console.error(`    ❌ 插入第${i+1}条消息失败:`, error.message);
+                if (error.message.includes('UNIQUE constraint failed')) {
+                    console.error(`    🔥 发现UNIQUE约束冲突！`);
+                }
+                throw error; // 🔥 抛出异常，导致事务回滚
             }
         }
 
-        // 🔥 在内部事务中调用 updateThreadStatus
+        // 🔥 在事务末尾可能失败的操作
         if (actualInsertCount > 0) {
-            const lastMessage = allMessages[allMessages.length - 1];
-            const isFromUser = lastMessage.sender === 'user';
-            updateThreadStatus(threadId, timestamp, isFromUser);
+            const shouldUpdateFail = createConflict; // 如果有冲突，也让更新失败
+            updateThreadStatusMayFail(threadId, timestamp, shouldUpdateFail);
         }
 
         return actualInsertCount;
@@ -196,187 +185,144 @@ function addMessagesSyncWithTransaction(threadId, allMessages, sessionTime) {
     return messageTransaction();
 }
 
-// 模拟你的 addMessagesSync 方法（无事务版本）
-function addMessagesSyncNoTransaction(threadId, allMessages, sessionTime) {
-    console.log(`  📝 addMessagesSyncNoTransaction: 线程${threadId}, ${allMessages.length}条消息`);
+// 🔥 完全模拟你的incrementalSync结构
+function simulateIncrementalSync(syncData, createProblems = false) {
+    console.log(`🔄 模拟incrementalSync: ${syncData.length}个线程, 制造问题=${createProblems}`);
     
-    if (allMessages.length === 0) return 0;
-    
-    const timestamp = sessionTime || new Date().toISOString();
-    
-    // 🔥 直接执行，不包装在事务中
-    const insertStmt = db.prepare(`
-        INSERT INTO messages (
-            thread_id, sender, content_type, 
-            text_content, content_hash, timestamp, is_read
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
+    let totalNewMessages = 0;
+    let updatedThreads = 0;
+    const errors = [];
 
-    let actualInsertCount = 0;
-    
-    for (let i = 0; i < allMessages.length; i++) {
-        const message = allMessages[i];
-        const contentHash = generateContentHash(allMessages, i, threadId);
+    // 🔥 这里是你的大事务
+    const syncTransaction = db.transaction(() => {
+        for (let i = 0; i < syncData.length; i++) {
+            const threadData = syncData[i];
+            
+            try {
+                console.log(`  处理线程 ${i+1}/${syncData.length}: ${threadData.user_name}`);
+                
+                // 保存线程
+                const threadId = saveOrUpdateThread(threadData);
+                console.log(`    ✅ 线程已保存: ID=${threadId}`);
+                
+                // 🔥 插入消息（可能失败）
+                const shouldFail = createProblems && i === 1; // 第2个线程制造问题
+                const newCount = addMessagesWithConflicts(
+                    threadId, 
+                    threadData.messages, 
+                    threadData.last_message_time,
+                    shouldFail
+                );
+                
+                totalNewMessages += newCount;
+                updatedThreads++;
+                
+            } catch (error) {
+                const errorMsg = `线程 ${threadData.user_name} 处理失败: ${error.message}`;
+                errors.push(errorMsg);
+                console.error(`    ❌ ${errorMsg}`);
+                // 🔥 关键：这里抛出异常会导致整个大事务回滚
+                throw error;
+            }
+        }
         
-        try {
-            const result = insertStmt.run(
-                threadId,
-                message.sender,
-                'text',
-                message.text,
-                contentHash,
-                timestamp,
-                0
-            );
-            
-            actualInsertCount++;
-            console.log(`    ✅ 第${i+1}条: ID=${result.lastInsertRowid}, "${message.text.substring(0, 20)}..."`);
-            
-        } catch (error) {
-            console.error(`    ❌ 插入第${i+1}条消息失败:`, error);
-            return actualInsertCount;
-        }
-    }
+        return { totalNewMessages, updatedThreads, errors };
+    });
 
-    // 🔥 在事务外调用 updateThreadStatus
-    if (actualInsertCount > 0) {
-        const lastMessage = allMessages[allMessages.length - 1];
-        const isFromUser = lastMessage.sender === 'user';
-        try {
-            updateThreadStatus(threadId, timestamp, isFromUser);
-        } catch (error) {
-            console.warn(`    ⚠️ 线程状态更新失败，但消息插入成功:`, error);
-        }
+    try {
+        return syncTransaction();
+    } catch (error) {
+        console.error(`❌ 整个同步事务失败:`, error.message);
+        return { totalNewMessages: 0, updatedThreads: 0, errors: [error.message] };
     }
-
-    return actualInsertCount;
 }
 
 // 测试数据
-const testThreadData = {
-    platform: 'wechat',
-    account_id: 'test_account',
-    user_id: 'test_user_123',
-    user_name: 'Node.js测试用户',
-    unread_count: 0,
-    last_message_time: '2025-08-20T07:03:00.000Z'
-};
-
-const testMessages = [
-    { sender: 'user', text: '你的电话' },
-    { sender: 'user', text: '[呲牙]' },
-    { sender: 'me', text: '好' },
-    { sender: 'user', text: '好' },
-    { sender: 'me', text: '测试' },
-    { sender: 'user', text: '我今天生病还要测试' }
+const testSyncData = [
+    {
+        platform: 'wechat',
+        account_id: 'test_account',
+        user_id: 'user_1',
+        user_name: '用户1',
+        unread_count: 0,
+        last_message_time: '2025-08-20T07:03:00.000Z',
+        messages: [
+            { sender: 'user', text: '你好' },
+            { sender: 'me', text: '你好' },
+            { sender: 'user', text: '测试消息' }
+        ]
+    },
+    {
+        platform: 'wechat',
+        account_id: 'test_account',
+        user_id: 'user_2',
+        user_name: '用户2',
+        unread_count: 0,
+        last_message_time: '2025-08-20T07:04:00.000Z',
+        messages: [
+            { sender: 'user', text: '第二个用户' },
+            { sender: 'me', text: '回复' },
+            { sender: 'user', text: '再次回复' },
+            { sender: 'me', text: '最后回复' }
+        ]
+    },
+    {
+        platform: 'wechat',
+        account_id: 'test_account',
+        user_id: 'user_3',
+        user_name: '用户3',
+        unread_count: 0,
+        last_message_time: '2025-08-20T07:05:00.000Z',
+        messages: [
+            { sender: 'user', text: '第三个用户的消息' },
+            { sender: 'me', text: '好的' }
+        ]
+    }
 ];
 
-// 🔥 测试1: 模拟你当前的代码（外层事务 + 内层事务）
-console.log('\n🧪 测试1: 嵌套事务版本（模拟当前问题）');
+// 🔥 测试4: 正常情况
+console.log('\n🧪 测试4: 正常同步（无问题）');
+const result4 = simulateIncrementalSync(testSyncData, false);
+console.log(`📊 结果4:`, result4);
 
-const problematicSync = db.transaction(() => {
-    console.log('  🔄 开始外层事务...');
-    
-    // 保存线程
-    const threadId = saveOrUpdateThread(testThreadData);
-    console.log(`  ✅ 线程已保存: ID=${threadId}`);
-    
-    // 🔥 这里调用带内部事务的消息插入
-    const insertedCount = addMessagesSyncWithTransaction(threadId, testMessages, testThreadData.last_message_time);
-    console.log(`  📊 插入消息数: ${insertedCount}`);
-    
-    return { threadId, insertedCount };
-});
+const check4 = db.prepare('SELECT COUNT(*) as count FROM messages').get();
+console.log(`📊 测试4后消息数: ${check4.count}`);
 
-try {
-    const result1 = problematicSync();
-    console.log(`✅ 外层事务执行完成:`, result1);
-} catch (error) {
-    console.error(`❌ 外层事务执行失败:`, error);
-}
-
-// 检查结果
-const checkMessages1 = db.prepare('SELECT COUNT(*) as count FROM messages').get();
-console.log(`📊 测试1结果 - 数据库中消息数: ${checkMessages1.count}`);
-
-// 清理数据准备测试2
+// 清理
 db.exec('DELETE FROM messages');
 db.exec('DELETE FROM message_threads');
 
-// 🔥 测试2: 修复版本（移除外层事务）
-console.log('\n🧪 测试2: 无外层事务版本（修复方案）');
+// 🔥 测试5: 异常情况（在事务中间发生错误）
+console.log('\n🧪 测试5: 异常同步（第2个线程故意失败）');
+const result5 = simulateIncrementalSync(testSyncData, true);
+console.log(`📊 结果5:`, result5);
 
-try {
-    console.log('  🔄 开始无事务同步...');
-    
-    // 保存线程（独立操作）
-    const threadId = saveOrUpdateThread(testThreadData);
-    console.log(`  ✅ 线程已保存: ID=${threadId}`);
-    
-    // 🔥 这里调用带内部事务的消息插入（但外层没有事务）
-    const insertedCount = addMessagesSyncWithTransaction(threadId, testMessages, testThreadData.last_message_time);
-    console.log(`  📊 插入消息数: ${insertedCount}`);
-    
-    console.log(`✅ 无外层事务执行完成: threadId=${threadId}, insertedCount=${insertedCount}`);
-} catch (error) {
-    console.error(`❌ 无外层事务执行失败:`, error);
-}
+const check5 = db.prepare('SELECT COUNT(*) as count FROM messages').get();
+const threadCheck5 = db.prepare('SELECT COUNT(*) as count FROM message_threads').get();
+console.log(`📊 测试5后消息数: ${check5.count}`);
+console.log(`📊 测试5后线程数: ${threadCheck5.count}`);
 
-// 检查结果
-const checkMessages2 = db.prepare('SELECT COUNT(*) as count FROM messages').get();
-console.log(`📊 测试2结果 - 数据库中消息数: ${checkMessages2.count}`);
-
-// 清理数据准备测试3
-db.exec('DELETE FROM messages');
-db.exec('DELETE FROM message_threads');
-
-// 🔥 测试3: 更好的修复版本（完全移除内层事务）
-console.log('\n🧪 测试3: 完全无事务版本（最佳修复方案）');
-
-try {
-    console.log('  🔄 开始完全无事务同步...');
-    
-    // 保存线程（独立操作）
-    const threadId = saveOrUpdateThread(testThreadData);
-    console.log(`  ✅ 线程已保存: ID=${threadId}`);
-    
-    // 🔥 这里调用无事务的消息插入
-    const insertedCount = addMessagesSyncNoTransaction(threadId, testMessages, testThreadData.last_message_time);
-    console.log(`  📊 插入消息数: ${insertedCount}`);
-    
-    console.log(`✅ 完全无事务执行完成: threadId=${threadId}, insertedCount=${insertedCount}`);
-} catch (error) {
-    console.error(`❌ 完全无事务执行失败:`, error);
-}
-
-// 检查结果
-const checkMessages3 = db.prepare('SELECT COUNT(*) as count FROM messages').get();
-console.log(`📊 测试3结果 - 数据库中消息数: ${checkMessages3.count}`);
-
-// 🔥 执行WAL检查点
+// 🔥 WAL检查点
 console.log('\n🔄 执行WAL检查点...');
-const checkpointResult = db.pragma('wal_checkpoint(FULL)');
-console.log(`✅ WAL检查点完成:`, checkpointResult);
+const checkpoint = db.pragma('wal_checkpoint(FULL)');
+console.log(`✅ WAL检查点完成:`, checkpoint);
 
-// 最终验证
 const finalCheck = db.prepare('SELECT COUNT(*) as count FROM messages').get();
-console.log(`📊 WAL检查点后最终消息数: ${finalCheck.count}`);
+console.log(`📊 WAL后最终消息数: ${finalCheck.count}`);
 
-// 显示测试总结
-console.log('\n📊 测试总结:');
-console.log(`测试1 (嵌套事务): ${checkMessages1.count} 条消息`);
-console.log(`测试2 (无外层事务): ${checkMessages2.count} 条消息`);
-console.log(`测试3 (完全无事务): ${checkMessages3.count} 条消息`);
+// 分析结果
+console.log('\n📊 高级测试总结:');
+console.log(`正常同步: ${check4.count} 条消息`);
+console.log(`异常同步: ${check5.count} 条消息`);
 
-if (checkMessages1.count === 0 && checkMessages2.count > 0) {
-    console.log('✅ 确认了嵌套事务问题！移除外层事务可以解决问题');
-} else if (checkMessages1.count === checkMessages2.count && checkMessages2.count > 0) {
-    console.log('❓ 未复现嵌套事务问题，可能是其他原因');
+if (check4.count > 0 && check5.count === 0) {
+    console.log('✅ 确认：事务中的异常会导致整个事务回滚！');
+    console.log('🔧 解决方案：避免在大事务中处理可能失败的操作');
+} else if (check5.count > 0 && check5.count < check4.count) {
+    console.log('⚠️ 部分回滚：某些操作成功了，某些失败了');
 } else {
-    console.log('❓ 测试结果异常，需要进一步分析');
+    console.log('❓ 异常测试未产生预期结果');
 }
 
-// 关闭数据库
 db.close();
-
-console.log('\n🎉 测试完成！');
+console.log('\n🎉 高级测试完成！');

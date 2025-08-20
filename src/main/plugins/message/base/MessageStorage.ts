@@ -437,9 +437,15 @@ export class MessageStorage {
                 stmt.run(lastMessageTime, threadId);
             }
 
+            console.log(`✅ 线程状态更新成功: ID=${threadId}, time=${lastMessageTime}`);
+
         } catch (error) {
             console.error('❌ 更新线程状态失败:', error);
-            console.warn('⚠️ 线程状态更新失败，但不影响消息插入');
+            // 🔥 关键修复：不要抛出异常，只记录错误
+            // throw error; // ❌ 移除这行
+            
+            // 🔥 改为只记录警告，不影响消息插入
+            console.warn(`⚠️ 线程状态更新失败，但不影响消息插入: threadId=${threadId}`);
         }
     }
     /**
@@ -1235,95 +1241,95 @@ export class MessageStorage {
             let updatedThreads = 0;
             const errors: string[] = [];
 
-            const db = this.getDatabase();
+            // 🔥 关键修复：完全移除这个大事务包装
+            // const transaction = db.transaction(() => {
+            //     // ... 所有同步逻辑
+            // });
+            // transaction();
 
-            // 🔥 将整个同步过程放在一个大事务中
-            const transaction = db.transaction(() => {
-                for (const threadData of syncData) {
-                    try {
-                        // 1. 先检查线程是否存在（在同一事务内）
-                        const existingThread = this.getThreadByUser(platform, accountId, threadData.user_id);
-                        
-                        let threadId: number;
-                        let isNewThread = false;
-                        
-                        if (!existingThread) {
-                            // 新线程
-                            isNewThread = true;
-                            threadId = this.saveOrUpdateThread({
-                                platform,
-                                account_id: accountId,
-                                user_id: threadData.user_id,
-                                user_name: threadData.user_name,
-                                avatar: threadData.avatar,
-                                unread_count: threadData.unread_count || 0
-                            });
-                            console.log(`✅ 新线程已保存: ${threadData.user_name} (ID: ${threadId})`);
-                        } else {
-                            // 已存在的线程
-                            threadId = existingThread.id!;
-                            console.log(`✅ 已存在线程: ${threadData.user_name} (ID: ${threadId})`);
-                        }
-
-                        // 2. 处理消息同步
-                        if (threadData.messages && threadData.messages.length > 0) {
-                            // 🔥 从 threadData 中提取 session_time，无论字段名是什么
-                            const sessionTime = (threadData as any).session_time || threadData.last_message_time;
-                            
-                            if (isNewThread) {
-                                const newCount = this.addMessagesForNewThread(
-                                    threadId, 
-                                    threadData.messages,
-                                    sessionTime  // 🔥 使用提取的时间戳
-                                );
-                                totalNewMessages += newCount;
-                            } else {
-                                const newCount = this.addMessagesIncrementalSync(
-                                    threadId, 
-                                    threadData.messages,
-                                    sessionTime  // 🔥 使用提取的时间戳
-                                );
-                                totalNewMessages += newCount;
-                            }
-                        }
-
-                        // 3. 更新线程状态（在同一事务内）
-                        if (!isNewThread) {
-                            this.saveOrUpdateThread({
-                                platform,
-                                account_id: accountId,
-                                user_id: threadData.user_id,
-                                user_name: threadData.user_name,
-                                avatar: threadData.avatar,
-                                unread_count: threadData.unread_count || 0
-                            });
-                        }
-
-                        updatedThreads++;
-
-                    } catch (error) {
-                        const errorMsg = `线程 ${threadData.user_name} 同步失败: ${error instanceof Error ? error.message : 'unknown error'}`;
-                        errors.push(errorMsg);
-                        console.error('❌', errorMsg);
+            // 🔥 改为：直接执行，让每个操作使用自己的事务
+            for (const threadData of syncData) {
+                try {
+                    // 1. 先检查线程是否存在
+                    const existingThread = this.getThreadByUser(platform, accountId, threadData.user_id);
+                    
+                    let threadId: number;
+                    let isNewThread = false;
+                    
+                    if (!existingThread) {
+                        // 新线程
+                        isNewThread = true;
+                        threadId = this.saveOrUpdateThread({
+                            platform,
+                            account_id: accountId,
+                            user_id: threadData.user_id,
+                            user_name: threadData.user_name,
+                            avatar: threadData.avatar,
+                            unread_count: threadData.unread_count || 0
+                        });
+                        console.log(`✅ 新线程已保存: ${threadData.user_name} (ID: ${threadId})`);
+                    } else {
+                        // 已存在的线程
+                        threadId = existingThread.id!;
+                        console.log(`✅ 已存在线程: ${threadData.user_name} (ID: ${threadId})`);
                     }
+
+                    // 2. 处理消息同步
+                    if (threadData.messages && threadData.messages.length > 0) {
+                        const sessionTime = (threadData as any).session_time || threadData.last_message_time;
+                        
+                        if (isNewThread) {
+                            const newCount = this.addMessagesForNewThread(
+                                threadId, 
+                                threadData.messages,
+                                sessionTime
+                            );
+                            totalNewMessages += newCount;
+                        } else {
+                            const newCount = this.addMessagesIncrementalSync(
+                                threadId, 
+                                threadData.messages,
+                                sessionTime
+                            );
+                            totalNewMessages += newCount;
+                        }
+                    }
+
+                    // 3. 更新线程状态
+                    if (!isNewThread) {
+                        this.saveOrUpdateThread({
+                            platform,
+                            account_id: accountId,
+                            user_id: threadData.user_id,
+                            user_name: threadData.user_name,
+                            avatar: threadData.avatar,
+                            unread_count: threadData.unread_count || 0
+                        });
+                    }
+
+                    updatedThreads++;
+
+                } catch (error) {
+                    // 🔥 重要：单个线程失败不影响其他线程
+                    const errorMsg = `线程 ${threadData.user_name} 同步失败: ${error instanceof Error ? error.message : 'unknown error'}`;
+                    errors.push(errorMsg);
+                    console.error('❌', errorMsg);
+                    // 注意：这里不要 throw error，继续处理下一个线程
                 }
+            }
 
-                // 更新同步时间
+            // 更新同步时间（独立操作）
+            try {
                 this.updateLastSyncTime(platform, accountId, new Date().toISOString());
-            });
+            } catch (syncTimeError) {
+                console.warn('⚠️ 更新同步时间失败:', syncTimeError);
+            }
 
-            // 🔥 执行整个事务
-            transaction();
-            // 🔥 强制WAL检查点，确保数据写入主数据库文件
-            console.log(`🔄 执行WAL检查点...`);
-            const checkpointResult = db.pragma('wal_checkpoint(FULL)');
-            console.log(`✅ WAL检查点完成:`, checkpointResult);
-            // 🔥 立即验证数据是否真的插入了
+            // 🔥 验证数据是否真的插入了
             console.log(`🔍 验证数据是否真的插入到数据库...`);
             
-            const verifyStmt = db.prepare(`
-                SELECT COUNT(*) as count FROM messages
-            `);
+            const db = this.getDatabase();
+            const verifyStmt = db.prepare(`SELECT COUNT(*) as count FROM messages`);
             const totalMessages = verifyStmt.get() as { count: number };
             console.log(`📊 数据库中总消息数: ${totalMessages.count}`);
             
@@ -1334,12 +1340,6 @@ export class MessageStorage {
             const totalThreads = verifyThreadStmt.get(platform, accountId) as { count: number };
             console.log(`📊 数据库中线程数: ${totalThreads.count}`);
             
-            // 🔥 如果插入了消息但查询不到，说明事务有问题
-            if (totalNewMessages > 0 && totalMessages.count === 0) {
-                console.error(`❌ 严重错误: 插入了 ${totalNewMessages} 条消息但数据库中查询不到任何消息!`);
-                console.error(`❌ 这说明事务没有正确提交或数据库连接有问题`);
-            }
-
             console.log(`✅ 智能增量同步完成: 新消息 ${totalNewMessages} 条，更新线程 ${updatedThreads} 个`);
 
             return { newMessages: totalNewMessages, updatedThreads, errors };
