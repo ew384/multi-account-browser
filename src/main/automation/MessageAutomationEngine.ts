@@ -991,15 +991,15 @@ export class MessageAutomationEngine {
                 errors: [error instanceof Error ? error.message : 'unknown error'],
                 syncTime: new Date().toISOString()
             };
-        }// finally {
-        //    if (tabId) {
-        //        try {
-        //            await this.tabManager.closeTab(tabId);
-        //        } catch (error) {
-        //            console.error(`❌ 关闭临时同步Tab失败: ${tabId}:`, error);
-        //        }
-        //    }
-        //}
+        } finally {
+            if (tabId) {
+                try {
+                    await this.tabManager.closeTab(tabId);
+                } catch (error) {
+                    console.error(`❌ 关闭临时同步Tab失败: ${tabId}:`, error);
+                }
+            }
+        }
     }
 
     /**

@@ -124,7 +124,7 @@ curl -X POST http://localhost:3409/api/messages/monitoring/batch-start \
       {
         "platform": "wechat",
         "accountId": "endian",
-        "cookieFile": "wechat_endian_1755665171143.json"
+        "cookieFile": "wechat_endian_1755683789469.json"
       }
     ],
     "withSync": true
