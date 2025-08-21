@@ -720,8 +720,6 @@ export class MessageAutomationEngine {
         const accountKey = `${params.platform}_${params.accountId}`;
         
         try {
-            console.log(`🚀 启动消息监听: ${accountKey}`);
-
             // 1. 检查是否已在监听
             if (this.activeMonitoring.has(accountKey)) {
                 return {
@@ -729,7 +727,7 @@ export class MessageAutomationEngine {
                     error: `账号 ${accountKey} 已在监听中`
                 };
             }
-
+            console.log(`🚀 启动消息监听: ${accountKey}`);
             // 2. 通过 PluginManager 获取插件
             const plugin = this.pluginManager.getPlugin<PluginMessage>(PluginType.MESSAGE, params.platform);
             
