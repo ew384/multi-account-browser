@@ -1744,16 +1744,12 @@ export class APIServer {
                     console.log(`🔌 WebSocket Server running on ws://localhost:${port}`);
                     console.log(`📱 Current mode: ${mode}`);
 
-                    // 🔥 新增：启动后自动初始化消息监听
                     try {
-                        console.log('🔄 开始初始化消息自动化服务...');
-                        await this.messageAPI.getMessageEngine().initializeWithAutoStart();
-                        console.log('✅ 消息自动化服务初始化完成');
+                        await this.messageAPI.getMessageEngine().initialize();
+                        console.log('✅ 消息引擎基础初始化完成');
                     } catch (initError) {
-                        console.error('❌ 消息自动化服务初始化失败:', initError);
-                        // 不要因为消息服务初始化失败就中断整个服务器启动
+                        console.error('❌ 消息引擎初始化失败:', initError);
                     }
-
                     resolve();
                 });
 

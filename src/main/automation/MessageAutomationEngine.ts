@@ -240,115 +240,6 @@ export class MessageAutomationEngine {
         }
     }
 
-    // 🔥 新增：系统启动时自动启动所有有效账号的消息监听
-    async autoStartMonitoringForValidAccounts(): Promise<{
-        total: number;
-        started: number;
-        failed: number;
-        skipped: number;
-        results: any[];
-    }> {
-        try {
-            console.log('🚀 开始自动启动消息监听服务...');
-
-            // 1. 获取可监听的账号信息
-            const accountInfo = await this.getAvailableAccountsForMonitoring();
-            const { accounts, summary } = accountInfo;
-
-            console.log(`📋 筛选结果: ${summary.canMonitor} 个有效账号支持消息监听`);
-            
-            // 2. 筛选可监听的账号
-            const monitorableAccounts = accounts.filter(acc => acc.canMonitor);
-            
-            if (monitorableAccounts.length === 0) {
-                console.log('⏭️ 没有可监听的账号');
-                return {
-                    total: summary.total,
-                    started: 0,
-                    failed: 0,
-                    skipped: summary.total,
-                    results: []
-                };
-            }
-
-            // 3. 显示要启动的账号
-            monitorableAccounts.forEach(acc => {
-                console.log(`  - ${acc.platform}: ${acc.userName} (${acc.status})`);
-            });
-
-            // 4. 构建监听参数
-            const monitoringParams = monitorableAccounts.map(account => ({
-                platform: account.platformKey,
-                accountId: account.userName,
-                cookieFile: account.cookieFile,
-                headless: true
-            }));
-
-            // 5. 批量启动监听
-            const results = await this.startBatchMonitoring(monitoringParams);
-
-            console.log(`✅ 自动启动监听完成: 成功 ${results.success}, 失败 ${results.failed}`);
-
-            return {
-                total: summary.total,
-                started: results.success,
-                failed: results.failed,
-                skipped: summary.total - monitorableAccounts.length,
-                results: results.results
-            };
-
-        } catch (error) {
-            console.error('❌ 自动启动消息监听失败:', error);
-            return {
-                total: 0,
-                started: 0,
-                failed: 0,
-                skipped: 0,
-                results: []
-            };
-        }
-    }
-
-    // 🔥 新增：系统启动时的初始化方法（包含自动监听）
-    async initializeWithAutoStart(): Promise<void> {
-        try {
-            console.log('🔄 MessageAutomationEngine 开始完整初始化...');
-
-            // 1. 基础初始化
-            await this.initialize();
-
-            // 2. 自动启动监听（可配置开关）
-            const AUTO_START_MONITORING = process.env.AUTO_START_MONITORING !== 'false';
-            
-            if (AUTO_START_MONITORING) {
-                console.log('🚀 准备自动启动消息监听...');
-                
-                // 延迟启动，确保系统完全就绪
-                setTimeout(async () => {
-                    try {
-                        const result = await this.autoStartMonitoringForValidAccounts();
-                        
-                        // 通过WebSocket通知前端
-                        if (this.websocketServer) {
-                            this.websocketServer.emit('auto-start-result', {
-                                type: 'monitoring-auto-start',
-                                result: result,
-                                timestamp: new Date().toISOString()
-                            });
-                        }
-                    } catch (error) {
-                        console.error('❌ 自动启动监听过程中出错:', error);
-                    }
-                }, 5000); // 5秒后启动
-            } else {
-                console.log('⏭️ 自动启动监听已禁用 (AUTO_START_MONITORING=false)');
-            }
-
-        } catch (error) {
-            console.error('❌ MessageAutomationEngine 完整初始化失败:', error);
-            throw error;
-        }
-    }
 
     // 🔥 新增：获取WebSocket服务器状态
     getWebSocketStatus(): { connected: boolean; clientCount?: number } {
@@ -709,36 +600,29 @@ export class MessageAutomationEngine {
 
     // ==================== 🔥 核心公共接口 ====================
 
-    /**
-     * 🔥 启动单个账号消息监听
-     */
     async startMessageMonitoring(params: MessageMonitoringParams): Promise<{
         success: boolean;
         tabId?: string;
         error?: string;
+        reason?: 'validation_failed' | 'already_monitoring' | 'script_injection_failed' | 'general_error';
+        validationResult?: boolean;
     }> {
         const accountKey = `${params.platform}_${params.accountId}`;
         
         try {
-            // 1. 检查是否已在监听
+            console.log(`🚀 启动监听 (带验证): ${accountKey}`);
+
+            // 🔥 步骤1: 检查是否已在监听
             if (this.activeMonitoring.has(accountKey)) {
                 return {
                     success: false,
+                    reason: 'already_monitoring',
                     error: `账号 ${accountKey} 已在监听中`
                 };
             }
-            console.log(`🚀 启动消息监听: ${accountKey}`);
-            // 2. 通过 PluginManager 获取插件
-            const plugin = this.pluginManager.getPlugin<PluginMessage>(PluginType.MESSAGE, params.platform);
-            
-            if (!plugin) {
-                return {
-                    success: false,
-                    error: `平台 ${params.platform} 不支持消息功能`
-                };
-            }
 
-            // 3. 创建专用Tab
+            // 🔥 步骤2: 创建Tab并加载页面
+            console.log(`📱 创建Tab: ${accountKey}`);
             const tabId = await this.tabManager.createAccountTab(
                 params.cookieFile,
                 params.platform,
@@ -746,140 +630,98 @@ export class MessageAutomationEngine {
                 params.headless ?? true
             );
 
-            // 4. 等待页面加载
-            console.log(`⏳ 等待页面加载完成...`);
+            // 🔥 步骤3: 等待页面加载
+            console.log(`⏳ 等待页面加载: ${accountKey}`);
             await new Promise(resolve => setTimeout(resolve, 4000));
-            // 🔥 新增：步骤4.5 - 账号验证逻辑
-            console.log(`🔍 验证账号Cookie有效性: ${params.platform} - ${params.accountId}`);
+
+            // 🔥 步骤4: 验证账号有效性
+            console.log(`🔍 验证账号有效性: ${accountKey}`);
             const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, params.platform);
+            let isValid = true;
+            
             if (validator) {
-                const isValid = await validator.validateTab(tabId);
-                
-                if (!isValid) {
-                    console.warn(`❌ 账号验证失败，Cookie已失效: ${params.platform} - ${params.accountId}`);
-                    
-                    // 🔥 立即关闭失效的Tab
-                    try {
-                        await this.tabManager.closeTab(tabId);
-                        console.log(`🗑️ 已关闭失效账号的Tab: ${tabId}`);
-                    } catch (closeError) {
-                        console.warn(`⚠️ 关闭失效Tab失败:`, closeError);
-                    }
-                    
-                    // 🔥 更新数据库状态为无效
-                    const currentTime = new Date().toISOString();
-                    const { AccountStorage } = await import('../plugins/login/base/AccountStorage');
-                    await AccountStorage.updateValidationStatus(params.cookieFile, false, currentTime);
-                    
-                    return {
-                        success: false,
-                        error: '账号已失效，请重新登录'
-                    };
-                }
-                
-                console.log(`✅ 账号验证通过: ${params.platform} - ${params.accountId}`);
+                isValid = await validator.validateTab(tabId);
+                console.log(`🔍 验证结果: ${accountKey} - ${isValid ? '有效' : '无效'}`);
             } else {
                 console.warn(`⚠️ 未找到 ${params.platform} 平台的验证器，跳过验证`);
             }
 
-            // 🔥 步骤5：账号正常，继续监听流程
-            console.log(`✅ 账号验证通过，开始注入监听脚本`);            
-            if (params.platform === 'wechat') {
-                console.log(`🖱️ 点击私信导航以确保监听环境准备...`);
-                const navSuccess = await (plugin as any).clickPrivateMessage(tabId);
-                if (!navSuccess) {
-                        console.warn('⚠️ 私信导航失败，尝试继续...');
-                }
-                await new Promise(resolve => setTimeout(resolve, 3000));
-            }
-
-            // 5. 注入监听脚本
-            const listenerScript = `
-                (function() {
-                    console.log('🎧 微信消息监听脚本已注入: ${params.platform}');
-                    if (window.__messageListenerInjected) return;
-                    window.__messageListenerInjected = true;
-                    
-                    // 🔥 修复：正确劫持微信的console.log格式
-                    const originalLog = console.log;
-                    console.log = function(...args) {
-                        try {
-                            // 🔥 修复：检查微信的实际输出格式
-                            if (args.length >= 2 && 
-                                args[0] === 'received data' && 
-                                args[1] && 
-                                typeof args[1] === 'object' && 
-                                args[1].name === 'NewMsgNotify') {
-                                
-                                console.log('🔔 检测到微信新消息事件:', args[1]);
-                                
-                                if (window.electronAPI && window.electronAPI.notifyNewMessage) {
-                                    window.electronAPI.notifyNewMessage({
-                                        event: 'NewMsgNotify',
-                                        eventData: {
-                                            name: args[1].name,
-                                            data: args[1].data || args[1],
-                                            fullArgs: args,
-                                            timestamp: Date.now()
-                                        },
-                                        timestamp: Date.now(),
-                                        platform: '${params.platform}',
-                                        accountId: '${params.accountId}',
-                                        source: 'console_hijack'
-                                    });
-                                    console.log('✅ 已通知主进程 - 微信新消息');
-                                }
-                            }
-                        } catch (error) {
-                            console.error('❌ 处理新消息事件失败:', error);
-                        }
-                        
-                        originalLog.apply(console, args);
-                    };
-                    
-                    // ... 其他监听逻辑保持不变
-                })()
-            `;
-            console.log(`🎧 开始注入监听脚本...`);
-            let scriptInjected = false;
-            const maxScriptRetries = 30; // 30次重试，每次1秒
-
-            for (let attempt = 1; attempt <= maxScriptRetries; attempt++) {
+            // 🔥 步骤5: 处理验证结果
+            if (!isValid) {
+                console.warn(`❌ 账号验证失败: ${accountKey} - Cookie已失效`);
+                
+                // 关闭失效账号的Tab
                 try {
-                    await this.tabManager.executeScript(tabId, listenerScript);
-                    
-                    // 验证脚本是否成功注入
-                    const verifyScript = `window.__messageListenerInjected === true`;
-                    const isInjected = await this.tabManager.executeScript(tabId, verifyScript);
-                    
-                    if (isInjected) {
-                        scriptInjected = true;
-                        console.log(`✅ 监听脚本注入成功 (第${attempt}次尝试)`);
-                        break;
-                    } else {
-                        throw new Error('脚本注入验证失败');
-                    }
-                } catch (error) {
-                    console.log(`⚠️ 监听脚本注入失败 (第${attempt}次): ${error instanceof Error ? error.message : 'unknown'}`);
-                    
-                    if (attempt < maxScriptRetries) {
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                        continue;
-                    }
+                    await this.tabManager.closeTab(tabId);
+                    console.log(`🗑️ 已关闭失效账号的Tab: ${tabId}`);
+                } catch (closeError) {
+                    console.warn(`⚠️ 关闭失效Tab失败:`, closeError);
                 }
-            }
-
-            if (!scriptInjected) {
+                
+                // 更新数据库状态为无效
+                try {
+                    const currentTime = new Date().toISOString();
+                    const { AccountStorage } = await import('../plugins/login/base/AccountStorage');
+                    await AccountStorage.updateValidationStatus(params.cookieFile, false, currentTime);
+                    console.log(`📝 已更新账号状态为失效: ${accountKey}`);
+                } catch (dbError) {
+                    console.warn(`⚠️ 更新账号状态失败:`, dbError);
+                }
+                
                 return {
                     success: false,
-                    error: `监听脚本注入失败，重试${maxScriptRetries}次后放弃`
+                    reason: 'validation_failed',
+                    error: '账号已失效，请重新登录',
+                    validationResult: false
                 };
             }
 
-            // 6. 锁定Tab
-            //this.tabManager.lockTab(tabId, 'message', '消息监听专用');
+            // 🔥 步骤6: 验证通过，继续监听流程
+            console.log(`✅ 账号验证通过，继续监听流程: ${accountKey}`);
+            
+            // 更新数据库状态为有效
+            try {
+                const currentTime = new Date().toISOString();
+                const { AccountStorage } = await import('../plugins/login/base/AccountStorage');
+                await AccountStorage.updateValidationStatus(params.cookieFile, true, currentTime);
+            } catch (dbError) {
+                console.warn(`⚠️ 更新有效状态失败:`, dbError);
+            }
 
-            // 7. 记录监听状态
+            // 🔥 步骤7: 平台特定的准备工作
+            if (params.platform === 'wechat') {
+                console.log(`🖱️ 点击私信导航: ${accountKey}`);
+                const plugin = this.pluginManager.getPlugin<PluginMessage>(PluginType.MESSAGE, params.platform);
+                if (plugin && typeof (plugin as any).clickPrivateMessage === 'function') {
+                    const navSuccess = await (plugin as any).clickPrivateMessage(tabId);
+                    if (!navSuccess) {
+                        console.warn('⚠️ 私信导航失败，尝试继续...');
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                }
+            }
+
+            // 🔥 步骤8: 注入监听脚本
+            console.log(`🎧 注入监听脚本: ${accountKey}`);
+            const scriptSuccess = await this.injectListeningScript(tabId, params.platform, params.accountId);
+            
+            if (!scriptSuccess) {
+                // 脚本注入失败，关闭Tab
+                try {
+                    await this.tabManager.closeTab(tabId);
+                } catch (closeError) {
+                    console.warn(`⚠️ 关闭Tab失败:`, closeError);
+                }
+                
+                return {
+                    success: false,
+                    reason: 'script_injection_failed',
+                    error: '监听脚本注入失败',
+                    validationResult: true
+                };
+            }
+
+            // 🔥 步骤9: 记录监听状态
             this.activeMonitoring.set(accountKey, {
                 accountKey,
                 platform: params.platform,
@@ -889,18 +731,106 @@ export class MessageAutomationEngine {
                 lastActivity: new Date().toISOString()
             });
 
-            console.log(`✅ 消息监听启动成功: ${accountKey} -> ${tabId}`);
-            return { success: true, tabId };
+            console.log(`✅ 监听启动成功: ${accountKey} -> ${tabId}`);
+            return { 
+                success: true, 
+                tabId, 
+                validationResult: true 
+            };
 
         } catch (error) {
-            console.error(`❌ 启动消息监听失败: ${accountKey}:`, error);
+            console.error(`❌ 启动监听失败: ${accountKey}:`, error);
             return {
                 success: false,
+                reason: 'general_error',
                 error: error instanceof Error ? error.message : 'unknown error'
             };
         }
     }
 
+    /**
+     * 🔥 注入监听脚本的独立方法
+     */
+    private async injectListeningScript(tabId: string, platform: string, accountId: string): Promise<boolean> {
+        const listenerScript = `
+            (function() {
+                console.log('🎧 消息监听脚本已注入: ${platform}');
+                if (window.__messageListenerInjected) return;
+                window.__messageListenerInjected = true;
+                
+                // 🔥 修复：正确劫持微信的console.log格式
+                const originalLog = console.log;
+                console.log = function(...args) {
+                    try {
+                        // 🔥 检查微信的实际输出格式
+                        if (args.length >= 2 && 
+                            args[0] === 'received data' && 
+                            args[1] && 
+                            typeof args[1] === 'object' && 
+                            args[1].name === 'NewMsgNotify') {
+                            
+                            console.log('🔔 检测到微信新消息事件:', args[1]);
+                            
+                            if (window.electronAPI && window.electronAPI.notifyNewMessage) {
+                                window.electronAPI.notifyNewMessage({
+                                    event: 'NewMsgNotify',
+                                    eventData: {
+                                        name: args[1].name,
+                                        data: args[1].data || args[1],
+                                        fullArgs: args,
+                                        timestamp: Date.now()
+                                    },
+                                    timestamp: Date.now(),
+                                    platform: '${platform}',
+                                    accountId: '${accountId}',
+                                    source: 'console_hijack'
+                                });
+                                console.log('✅ 已通知主进程 - 微信新消息');
+                            }
+                        }
+                    } catch (error) {
+                        console.error('❌ 处理新消息事件失败:', error);
+                    }
+                    
+                    originalLog.apply(console, args);
+                };
+                
+                console.log('✅ 监听脚本注入完成');
+                return true;
+            })()
+        `;
+
+        const maxRetries = 30; // 30次重试
+        const retryDelay = 1000; // 1秒间隔
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                await this.tabManager.executeScript(tabId, listenerScript);
+                
+                // 验证脚本是否成功注入
+                const verifyScript = `window.__messageListenerInjected === true`;
+                const isInjected = await this.tabManager.executeScript(tabId, verifyScript);
+                
+                if (isInjected) {
+                    console.log(`✅ 监听脚本注入成功: ${platform}_${accountId} (第${attempt}次尝试)`);
+                    return true;
+                }
+                
+                throw new Error('脚本注入验证失败');
+                
+            } catch (error) {
+                console.log(`⚠️ 脚本注入失败 (第${attempt}/${maxRetries}次): ${error instanceof Error ? error.message : 'unknown'}`);
+                
+                if (attempt < maxRetries) {
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    continue;
+                }
+            }
+        }
+
+        console.error(`❌ 监听脚本注入最终失败: ${platform}_${accountId}`);
+        return false;
+    }    
     /**
      * 🔥 停止单个账号消息监听
      */
@@ -1214,7 +1144,7 @@ export class MessageAutomationEngine {
                 cookieFile,
                 platform,
                 this.getMessageUrl(platform),
-                false
+                true
             );
             
             // 等待页面就绪

@@ -31,13 +31,12 @@ export class MessageAutomationAPI {
         // 🔥 事件驱动监听管理
         this.router.post('/monitoring/start', this.handleStartMonitoring.bind(this));
         this.router.post('/monitoring/stop', this.handleStopMonitoring.bind(this));
-        this.router.post('/monitoring/batch-start', this.handleStartBatchMonitoring.bind(this));
         this.router.post('/monitoring/stop-all', this.handleStopAllMonitoring.bind(this));
         this.router.get('/monitoring/status', this.handleGetMonitoringStatus.bind(this));
-        // 🔥 新增：自动启动和账号查询接口
-        this.router.post('/monitoring/auto-start', this.handleAutoStartMonitoring.bind(this));
+        this.router.post('/monitoring/batch-start', this.handleStartBatchMonitoring.bind(this));
+
         this.router.get('/accounts', this.handleGetAccounts.bind(this));
-        // 🔥 手动消息同步（原有功能保留）
+
         this.router.post('/sync', this.handleSyncMessages.bind(this));
         this.router.post('/sync/batch', this.handleBatchSyncMessages.bind(this));
 
@@ -61,28 +60,6 @@ export class MessageAutomationAPI {
     }
 
     // ==================== 事件驱动监听API ====================
-    /**
-     * 🔥 新增：手动触发自动启动监听
-     */
-    async handleAutoStartMonitoring(req: Request, res: Response): Promise<void> {
-        try {
-            console.log('📡 API: 手动触发自动启动监听');
-
-            const result = await this.messageEngine.autoStartMonitoringForValidAccounts();
-
-            res.json({
-                success: true,
-                data: result
-            });
-
-        } catch (error) {
-            console.error('❌ 手动启动监听API失败:', error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : 'unknown error'
-            });
-        }
-    }
 
     /**
      * 🔥 新增：获取可监听账号信息
@@ -107,45 +84,7 @@ export class MessageAutomationAPI {
             });
         }
     }
-    /**
-     * 🔥 启动消息监听
-     */
-    async handleStartMonitoring(req: Request, res: Response): Promise<void> {
-        try {
-            const { platform, accountId, cookieFile, headless = true } = req.body;
 
-            if (!platform || !accountId || !cookieFile) {
-                res.status(400).json({
-                    success: false,
-                    error: '缺少必需参数: platform, accountId, cookieFile'
-                });
-                return;
-            }
-
-            console.log(`🚀 API: 启动消息监听 - ${platform}_${accountId}`);
-
-            const result = await this.messageEngine.startMessageMonitoring({
-                platform, accountId, cookieFile, headless
-            });
-
-            res.json({
-                success: result.success,
-                data: {
-                    accountKey: `${platform}_${accountId}`,
-                    tabId: result.tabId,
-                    startedAt: new Date().toISOString(),
-                    ...(result.error && { error: result.error })
-                }
-            });
-
-        } catch (error) {
-            console.error('❌ 启动监听API失败:', error);
-            res.status(500).json({
-                success: false,
-                error: error instanceof Error ? error.message : 'unknown error'
-            });
-        }
-    }
 
     /**
      * 🔥 停止消息监听
@@ -184,94 +123,285 @@ export class MessageAutomationAPI {
     }
 
 
-    /**
-     * 🔥 批量启动监听 - 增强版：可选智能同步
-     */
     async handleStartBatchMonitoring(req: Request, res: Response): Promise<void> {
         try {
-            const { 
+            let { 
                 accounts,
-                withSync = true  // 🔥 新增：默认执行智能同步检查
+                withSync = true,
+                syncOptions = {}
             } = req.body;
 
-            if (!accounts || !Array.isArray(accounts)) {
-                res.status(400).json({
-                    success: false,
-                    error: '缺少必需参数: accounts (array)'
-                });
-                return;
-            }
-
-            console.log(`🚀 API: 批量启动监听 - ${accounts.length} 个账号 (智能同步: ${withSync})`);
-
-            let syncResults: any = null;
-
-            // 🔥 智能同步阶段
-            if (withSync) {
-                console.log(`1️⃣ 执行智能同步检查...`);
+            // 🔥 步骤1: 处理自动发现模式
+            let mode = 'manual';
+            if (!accounts || !Array.isArray(accounts) || accounts.length === 0) {
+                mode = 'auto-discovery';
+                console.log('🔍 自动发现模式：获取所有可监听账号');
                 
-                // 按平台分组进行批量同步
-                const platformGroups = accounts.reduce((groups: any, account: any) => {
-                    if (!groups[account.platform]) {
-                        groups[account.platform] = [];
-                    }
-                    groups[account.platform].push(account);
-                    return groups;
-                }, {});
-
-                syncResults = {};
-                let totalSyncedUsers = 0;
-                let totalSkippedUsers = 0;
-                let totalRecoveredMessages = 0;
-
-                for (const [platform, platformAccounts] of Object.entries(platformGroups)) {
-                    const syncResult = await this.messageEngine.batchSyncMessages({
-                        platform: platform,
-                        accounts: platformAccounts as any[],
-                        options: { timeout: 30000, intelligentSync: true } // 🔥 标记为智能同步
+                const accountsInfo = await this.messageEngine.getAvailableAccountsForMonitoring();
+                const candidateAccounts = accountsInfo.accounts.filter(acc => acc.canMonitor);
+                
+                if (candidateAccounts.length === 0) {
+                    res.json({
+                        success: true,
+                        data: {
+                            mode: 'auto-discovery',
+                            message: '没有发现可监听的账号',
+                            discovery: accountsInfo.summary,
+                            monitoring: { success: 0, failed: 0, results: [] }
+                        }
                     });
-
-                    syncResults[platform] = syncResult;
-                    
-                    if (syncResult.success && syncResult.summary) {
-                        totalRecoveredMessages += syncResult.summary.totalNewMessages || 0;
-                        // 这里可以从syncResult中获取更详细的统计信息
-                    }
+                    return;
                 }
                 
-                console.log(`✅ 智能同步完成: 恢复 ${totalRecoveredMessages} 条消息`);
-            } else {
-                console.log(`⚡ 快速模式: 跳过同步检查，直接启动监听`);
+                accounts = candidateAccounts.map(account => ({
+                    platform: account.platformKey,
+                    accountId: account.userName,
+                    cookieFile: account.cookieFile,
+                    headless: true
+                }));
             }
 
-            // 🔥 批量启动监听阶段
-            console.log(`2️⃣ 启动批量监听...`);
-            const monitoringResult = await this.messageEngine.startBatchMonitoring(accounts);
+            console.log(`🚀 开始批量启动监听: ${accounts.length} 个账号`);
 
-            res.json({
-                success: monitoringResult.success > 0,
+            // 🔥 步骤2: 可选的同步阶段
+            let syncResults: any = null;
+            if (withSync) {
+                console.log(`1️⃣ 执行同步阶段...`);
+                syncResults = await this.executeSyncPhase(accounts, {
+                    intelligentSync: true,
+                    forceSync: false,
+                    timeout: 30000,
+                    ...syncOptions
+                });
+            }
+
+            // 🔥 步骤3: 批量监听阶段 - 复用单个监听逻辑
+            console.log(`2️⃣ 开始批量监听...`);
+            const monitoringResults = await this.executeBatchMonitoring(accounts);
+
+            // 🔥 步骤4: 构建响应
+            const response = {
+                success: monitoringResults.summary.successCount > 0,
                 data: {
-                    monitoring: monitoringResult,
+                    mode: mode,
+                    workflow: withSync ? 'sync_then_monitor' : 'monitor_only',
+                    monitoring: monitoringResults,
                     sync: syncResults,
-                    workflow: withSync ? 'intelligent_sync_then_monitor' : 'monitor_only',
                     summary: {
                         totalAccounts: accounts.length,
-                        monitoringSuccess: monitoringResult.success,
-                        monitoringFailed: monitoringResult.failed,
+                        monitoringSuccess: monitoringResults.summary.successCount,
+                        monitoringFailed: monitoringResults.summary.failedCount,
+                        validationFailed: monitoringResults.summary.validationFailedCount,
                         syncExecuted: withSync,
-                        recoveredMessages: syncResults ? Object.values(syncResults).reduce((total: number, result: any) => 
-                            total + (result.summary?.totalNewMessages || 0), 0) : 0
+                        recoveredMessages: syncResults?.totalRecoveredMessages || 0
                     }
                 }
-            });
+            };
+
+            res.json(response);
 
         } catch (error) {
-            console.error('❌ 批量启动监听API失败:', error);
+            console.error('❌ 批量启动监听失败:', error);
             res.status(500).json({
                 success: false,
                 error: error instanceof Error ? error.message : 'unknown error'
             });
         }
+    }
+
+    /**
+     * 🔥 纯粹的批量监听执行器 - 复用单个监听逻辑
+     */
+    private async executeBatchMonitoring(accounts: any[]) {
+        const results = [];
+        let successCount = 0;
+        let failedCount = 0;
+        let validationFailedCount = 0;
+
+        for (const account of accounts) {
+            try {
+                console.log(`🔄 处理账号: ${account.platform}_${account.accountId}`);
+                
+                // 🔥 关键：复用 handleStartMonitoring 的核心逻辑
+                const monitoringResult = await this.startSingleMonitoring({
+                    platform: account.platform,
+                    accountId: account.accountId,
+                    cookieFile: account.cookieFile,
+                    headless: account.headless ?? true
+                });
+
+                // 统计结果
+                if (monitoringResult.success) {
+                    successCount++;
+                } else if (monitoringResult.reason === 'validation_failed') {
+                    validationFailedCount++;
+                } else {
+                    failedCount++;
+                }
+
+                results.push(monitoringResult);
+
+                // 避免并发过高
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+            } catch (error) {
+                failedCount++;
+                const accountKey = `${account.platform}_${account.accountId}`;
+                console.error(`❌ ${accountKey}: 启动监听异常 -`, error);
+                
+                results.push({
+                    accountKey,
+                    success: false,
+                    error: error instanceof Error ? error.message : 'unknown error',
+                    reason: 'general_error'
+                });
+            }
+        }
+
+        return {
+            results,
+            summary: {
+                successCount,
+                failedCount,
+                validationFailedCount,
+                total: accounts.length
+            }
+        };
+    }
+
+    /**
+     * 🔥 提取的单个监听启动逻辑 - 被单个和批量API共用
+     */
+    private async startSingleMonitoring(params: {
+        platform: string;
+        accountId: string;
+        cookieFile: string;
+        headless: boolean;
+    }) {
+        const accountKey = `${params.platform}_${params.accountId}`;
+        
+        // 🔥 调用核心监听方法
+        const result = await this.messageEngine.startMessageMonitoring({
+            platform: params.platform,
+            accountId: params.accountId,
+            cookieFile: params.cookieFile,
+            headless: params.headless
+        });
+
+        // 🔥 统一的结果格式化
+        let errorMessage = result.error;
+        if (result.reason === 'validation_failed') {
+            errorMessage = '账号已失效，请重新登录';
+        } else if (result.reason === 'already_monitoring') {
+            errorMessage = '账号已在监听中';
+        } else if (result.reason === 'script_injection_failed') {
+            errorMessage = '监听脚本启动失败，请重试';
+        }
+
+        return {
+            accountKey,
+            success: result.success,
+            tabId: result.tabId,
+            error: errorMessage,
+            reason: result.reason,
+            validationResult: result.validationResult,
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    /**
+     * 🔥 简化的单个账号启动监听
+     */
+    async handleStartMonitoring(req: Request, res: Response): Promise<void> {
+        try {
+            const { platform, accountId, cookieFile, headless = true } = req.body;
+
+            if (!platform || !accountId || !cookieFile) {
+                res.status(400).json({
+                    success: false,
+                    error: '缺少必需参数: platform, accountId, cookieFile'
+                });
+                return;
+            }
+
+            console.log(`🚀 API: 启动单个账号监听 - ${platform}_${accountId}`);
+
+            // 🔥 复用提取的逻辑
+            const result = await this.startSingleMonitoring({
+                platform, accountId, cookieFile, headless
+            });
+
+            res.json({
+                success: result.success,
+                data: result
+            });
+
+        } catch (error) {
+            console.error('❌ 启动单个监听API失败:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'unknown error'
+            });
+        }
+    }
+
+    /**
+     * 🔥 同步阶段 - 为监听做准备
+     */
+    private async executeSyncPhase(accounts: any[], syncOptions: any) {
+        console.log(`🔄 执行同步阶段...`);
+        
+        // 按平台分组
+        const platformGroups = accounts.reduce((groups: any, account: any) => {
+            if (!groups[account.platform]) {
+                groups[account.platform] = [];
+            }
+            groups[account.platform].push({
+                accountId: account.accountId,
+                cookieFile: account.cookieFile
+            });
+            return groups;
+        }, {});
+
+        const syncResults: any = {};
+        let totalRecoveredMessages = 0;
+
+        for (const [platform, platformAccounts] of Object.entries(platformGroups)) {
+            try {
+                console.log(`🔄 同步 ${platform} 平台: ${(platformAccounts as any[]).length} 个账号`);
+                
+                const syncResult = await this.messageEngine.batchSyncMessages({
+                    platform: platform,
+                    accounts: platformAccounts as any[],
+                    options: {
+                        timeout: syncOptions.timeout,
+                        intelligentSync: syncOptions.intelligentSync,
+                        forceSync: syncOptions.forceSync
+                    }
+                });
+
+                syncResults[platform] = syncResult;
+                
+                if (syncResult.success && syncResult.summary) {
+                    totalRecoveredMessages += syncResult.summary.totalNewMessages || 0;
+                }
+                
+            } catch (error) {
+                console.error(`❌ ${platform} 同步失败:`, error);
+                syncResults[platform] = { 
+                    success: false, 
+                    error: error instanceof Error ? error.message : 'unknown' 
+                };
+            }
+        }
+
+        console.log(`✅ 同步阶段完成: 恢复 ${totalRecoveredMessages} 条消息`);
+
+        return {
+            executed: true,
+            totalRecoveredMessages,
+            platformResults: syncResults
+        };
     }
     /**
      * 🔥 停止所有监听
