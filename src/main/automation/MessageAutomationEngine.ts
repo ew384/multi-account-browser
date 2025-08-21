@@ -307,7 +307,15 @@ export class MessageAutomationEngine {
         });
 
         ipcMain.handle('message-start-batch-monitoring', async (event, accounts) => {
-            return await this.startBatchMonitoring(accounts);
+            const defaultOptions = {
+                withSync: false,
+                syncOptions: {
+                    intelligentSync: true,
+                    forceSync: false,
+                    timeout: 30000
+                }
+            };
+            return await this.startBatchMonitoring(accounts, defaultOptions);
         });
 
         ipcMain.handle('message-stop-all-monitoring', async (event) => {
@@ -600,17 +608,21 @@ export class MessageAutomationEngine {
 
     // ==================== 🔥 核心公共接口 ====================
 
-    async startMessageMonitoring(params: MessageMonitoringParams): Promise<{
+    async startMessageMonitoring(params: MessageMonitoringParams & {
+        withSync?: boolean;
+        syncOptions?: any;
+    }): Promise<{
         success: boolean;
         tabId?: string;
         error?: string;
         reason?: 'validation_failed' | 'already_monitoring' | 'script_injection_failed' | 'general_error';
         validationResult?: boolean;
+        syncResult?: any;
     }> {
         const accountKey = `${params.platform}_${params.accountId}`;
         
         try {
-            console.log(`🚀 启动监听 (带验证): ${accountKey}`);
+            console.log(`🚀 启动监听 (${params.withSync ? '含同步' : '仅监听'}): ${accountKey}`);
 
             // 🔥 步骤1: 检查是否已在监听
             if (this.activeMonitoring.has(accountKey)) {
@@ -720,8 +732,34 @@ export class MessageAutomationEngine {
                     validationResult: true
                 };
             }
+            // 🔥 步骤9: 可选执行启动同步 (新增)
+            let syncResult: any = null;
+            if (params.withSync) {
+                console.log(`🔄 开始启动同步: ${accountKey}`);
+                try {
+                    syncResult = await this.syncPlatformMessages(
+                        params.platform,
+                        params.accountId,
+                        params.cookieFile,
+                        params.syncOptions,
+                        tabId  // 🔥 传入现有Tab
+                    );
+                    
+                    if (syncResult.success) {
+                        console.log(`✅ 启动同步完成: ${accountKey}, 新消息 ${syncResult.newMessages} 条`);
+                    } else {
+                        console.warn(`⚠️ 启动同步失败但继续监听: ${accountKey}:`, syncResult.errors);
+                    }
+                } catch (syncError) {
+                    console.warn(`⚠️ 启动同步异常但继续监听: ${accountKey}:`, syncError);
+                    syncResult = {
+                        success: false,
+                        error: syncError instanceof Error ? syncError.message : 'unknown error'
+                    };
+                }
+            }
 
-            // 🔥 步骤9: 记录监听状态
+            // 🔥 步骤10: 记录监听状态
             this.activeMonitoring.set(accountKey, {
                 accountKey,
                 platform: params.platform,
@@ -735,8 +773,10 @@ export class MessageAutomationEngine {
             return { 
                 success: true, 
                 tabId, 
-                validationResult: true 
+                validationResult: true,
+                syncResult
             };
+
 
         } catch (error) {
             console.error(`❌ 启动监听失败: ${accountKey}:`, error);
@@ -862,46 +902,76 @@ export class MessageAutomationEngine {
     /**
      * 🔥 批量启动监听
      */
-    async startBatchMonitoring(accounts: MessageMonitoringParams[]): Promise<{
-        success: number;
-        failed: number;
+    async startBatchMonitoring(accounts: any[], options: {
+        withSync: boolean;
+        syncOptions: any;
+    }): Promise<{
         results: any[];
+        summary: {
+            successCount: number;
+            failedCount: number;
+            validationFailedCount: number;
+            total: number;
+        };
     }> {
-        console.log(`🚀 批量启动监听: ${accounts.length} 个账号`);
-
         const results = [];
         let successCount = 0;
         let failedCount = 0;
+        let validationFailedCount = 0;
 
         for (const account of accounts) {
             try {
-                const result = await this.startMessageMonitoring(account);
+                console.log(`🔄 处理账号: ${account.platform}_${account.accountId}`);
                 
-                if (result.success) {
+                const monitoringResult = await this.startMessageMonitoring({
+                    platform: account.platform,
+                    accountId: account.accountId,
+                    cookieFile: account.cookieFile,
+                    headless: account.headless ?? true,
+                    withSync: options.withSync,
+                    syncOptions: options.syncOptions
+                });
+
+                // 统计结果
+                if (monitoringResult.success) {
                     successCount++;
+                } else if (monitoringResult.reason === 'validation_failed') {
+                    validationFailedCount++;
                 } else {
                     failedCount++;
                 }
 
                 results.push({
                     accountKey: `${account.platform}_${account.accountId}`,
-                    ...result
+                    ...monitoringResult
                 });
 
+                // 避免并发过高
                 await new Promise(resolve => setTimeout(resolve, 1000));
 
             } catch (error) {
                 failedCount++;
+                const accountKey = `${account.platform}_${account.accountId}`;
+                console.error(`❌ ${accountKey}: 启动监听异常 -`, error);
+                
                 results.push({
-                    accountKey: `${account.platform}_${account.accountId}`,
+                    accountKey,
                     success: false,
-                    error: error instanceof Error ? error.message : 'unknown error'
+                    error: error instanceof Error ? error.message : 'unknown error',
+                    reason: 'general_error'
                 });
             }
         }
 
-        console.log(`📊 批量启动完成: 成功 ${successCount}, 失败 ${failedCount}`);
-        return { success: successCount, failed: failedCount, results };
+        return {
+            results,
+            summary: {
+                successCount,
+                failedCount,
+                validationFailedCount,
+                total: accounts.length
+            }
+        };
     }
 
     /**
@@ -1120,16 +1190,17 @@ export class MessageAutomationEngine {
         return { toSync, skipped, summary };
     }
     /**
-     * 🔥 手动同步平台消息
+     * 🔥 同步平台消息
      */
     async syncPlatformMessages(
         platform: string,
         accountName: string,
         cookieFile: string,
-        options?: MessageSyncOptions
+        options?: MessageSyncOptions,
+        existingTabId?: string
     ): Promise<MessageSyncResult> {
-        let tabId: string | null = null;
-        
+        let tabId: string | null = existingTabId || null;
+        const shouldCloseTab = !existingTabId; // 只有新创建的Tab才需要关闭
         try {
             console.log(`🔄 手动同步消息: ${platform} - ${accountName}`);
 
@@ -1140,15 +1211,18 @@ export class MessageAutomationEngine {
             }
 
             // 创建临时Tab进行同步
-            tabId = await this.tabManager.createAccountTab(
-                cookieFile,
-                platform,
-                this.getMessageUrl(platform),
-                true
-            );
-            
-            // 等待页面就绪
-            await new Promise(resolve => setTimeout(resolve, 5000));
+            // 只有没有现有Tab时才创建新Tab
+            if (!tabId) {
+                tabId = await this.tabManager.createAccountTab(
+                    cookieFile,
+                    platform,
+                    this.getMessageUrl(platform),
+                    true
+                );
+                
+                // 等待页面就绪
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
 
             // 执行同步
             const syncParams: MessageSyncParams = {
@@ -1226,7 +1300,7 @@ export class MessageAutomationEngine {
                 syncTime: new Date().toISOString()
             };
         } finally {
-            if (tabId) {
+            if (tabId && shouldCloseTab) {
                 try {
                     await this.tabManager.closeTab(tabId);
                 } catch (error) {
