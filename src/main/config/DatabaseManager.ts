@@ -67,14 +67,20 @@ export class DatabaseManager {
             this.db.pragma('cache_size = 1000');
             this.db.pragma('temp_store = memory');
             // 🔥 禁用自动检查点，避免多连接冲突
-            this.db.pragma('wal_autocheckpoint = 0');
+            this.db.pragma('wal_autocheckpoint = 1000');
             
             // 🔥 设置忙等待超时，避免锁定冲突
             this.db.pragma('busy_timeout = 30000'); // 30秒超时
             
             this.isInitialized = true;
             console.log('✅ 全局数据库连接已初始化 (WAL模式，手动检查点)');
-            
+            // 🔥 启动时立即执行一次检查点，确保之前的WAL数据合并
+            try {
+                const checkpointResult = this.db.pragma('wal_checkpoint(RESTART)');
+                console.log('✅ 启动检查点完成:', checkpointResult);
+            } catch (checkpointError) {
+                console.warn('⚠️ 启动检查点失败:', checkpointError);
+            }
         } catch (error) {
             console.error('❌ 数据库连接初始化失败:', error);
             throw error;
@@ -92,7 +98,8 @@ export class DatabaseManager {
 
         try {
             console.log('🔄 执行全局WAL检查点...');
-            const result = this.db.pragma('wal_checkpoint(FULL)');
+            //const result = this.db.pragma('wal_checkpoint(FULL)');
+            const result = this.db.pragma('wal_checkpoint(RESTART)');
             console.log('✅ WAL检查点完成:', result);
             
             // 验证数据持久化

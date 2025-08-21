@@ -357,17 +357,49 @@ export class MessageStorage {
         try {
             const db = this.getDatabase();
 
+            // 🔥 修复方案：先获取线程信息，再单独关联最后一条消息
             const stmt = db.prepare(`
-                SELECT t.*, 
-                       m.text_content as last_message_text,
-                       m.content_type as last_message_type
+                SELECT 
+                    t.id,
+                    t.platform,
+                    t.account_id,
+                    t.user_id,
+                    t.user_name,
+                    t.user_avatar,
+                    t.unread_count,
+                    t.last_message_time,
+                    t.last_sync_time,
+                    -- 🔥 使用子查询获取最后一条消息的内容
+                    (SELECT text_content 
+                    FROM messages m 
+                    WHERE m.thread_id = t.id 
+                    AND m.timestamp = t.last_message_time 
+                    LIMIT 1) as last_message_text,
+                    (SELECT content_type 
+                    FROM messages m 
+                    WHERE m.thread_id = t.id 
+                    AND m.timestamp = t.last_message_time 
+                    LIMIT 1) as last_message_type
                 FROM message_threads t
-                LEFT JOIN messages m ON t.id = m.thread_id AND m.timestamp = t.last_message_time
                 WHERE t.platform = ? AND t.account_id = ?
                 ORDER BY t.last_message_time DESC NULLS LAST
             `);
             
             const threads = stmt.all(platform, accountId) as any[];
+
+            console.log(`📋 getAllThreads修复版执行结果:`);
+            console.log(`  - 平台: ${platform}, 账号: ${accountId}`);
+            console.log(`  - 返回线程数: ${threads.length}`);
+            
+            // 🔥 验证数据唯一性
+            const userNames = threads.map(t => t.user_name);
+            const uniqueUserNames = [...new Set(userNames)];
+            
+            if (userNames.length === uniqueUserNames.length) {
+                console.log(`✅ 线程数据正常，每个用户一条记录`);
+            } else {
+                console.error(`❌ 仍存在重复用户: ${userNames.length} -> ${uniqueUserNames.length}`);
+            }
 
             return threads.map(thread => ({
                 id: thread.id,
