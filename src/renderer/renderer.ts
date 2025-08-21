@@ -703,7 +703,7 @@ function setupEventDrivenUpdates(): void {
     if (window.electronAPI) {
         window.electronAPI.onTabCreated?.(({ tabId, tab }) => {
             addTabToUI(tab);
-            if (!activeTabId) {
+            if (!activeTabId && !(tab as any).isHeadless) {
                 //console.log('📋 设置为活动标签页:', tabId);
                 activeTabId = tabId;
                 updateCurrentTabInfo();
@@ -928,7 +928,14 @@ async function closeTab(tabId: string): Promise<void> {
 function updateCurrentTabInfo(): void {
     const currentTab = currentTabs.find(tab => tab.id === activeTabId);
     const urlInput = document.getElementById('url-input') as HTMLInputElement;
-
+    // 🔥 如果活动标签页是 headless，清空 activeTabId 和地址栏
+    if (currentTab && (currentTab as any).isHeadless) {
+        activeTabId = null;
+        if (urlInput && document.activeElement !== urlInput) {
+            urlInput.value = '';
+        }
+        return;
+    }
     // 只有在URL真正变化时才更新输入框，避免清空用户正在输入的内容
     if (urlInput && currentTab) {
         // 检查输入框是否有焦点，如果有焦点说明用户正在输入，不要覆盖
