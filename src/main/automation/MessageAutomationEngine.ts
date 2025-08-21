@@ -8,6 +8,7 @@ import { MessageStorage } from '../plugins/message/base/MessageStorage';
 import { 
     PluginMessage, 
     PluginType,
+    PluginValidator,
     MessageSyncParams,
     MessageSyncResult,
     MessageSendParams,
@@ -750,6 +751,41 @@ export class MessageAutomationEngine {
             // 4. 等待页面加载
             console.log(`⏳ 等待页面加载完成...`);
             await new Promise(resolve => setTimeout(resolve, 4000));
+            // 🔥 新增：步骤4.5 - 账号验证逻辑
+            console.log(`🔍 验证账号Cookie有效性: ${params.platform} - ${params.accountId}`);
+            const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, params.platform);
+            if (validator) {
+                const isValid = await validator.validateTab(tabId);
+                
+                if (!isValid) {
+                    console.warn(`❌ 账号验证失败，Cookie已失效: ${params.platform} - ${params.accountId}`);
+                    
+                    // 🔥 立即关闭失效的Tab
+                    try {
+                        await this.tabManager.closeTab(tabId);
+                        console.log(`🗑️ 已关闭失效账号的Tab: ${tabId}`);
+                    } catch (closeError) {
+                        console.warn(`⚠️ 关闭失效Tab失败:`, closeError);
+                    }
+                    
+                    // 🔥 更新数据库状态为无效
+                    const currentTime = new Date().toISOString();
+                    const { AccountStorage } = await import('../plugins/login/base/AccountStorage');
+                    await AccountStorage.updateValidationStatus(params.cookieFile, false, currentTime);
+                    
+                    return {
+                        success: false,
+                        error: '账号已失效，请重新登录'
+                    };
+                }
+                
+                console.log(`✅ 账号验证通过: ${params.platform} - ${params.accountId}`);
+            } else {
+                console.warn(`⚠️ 未找到 ${params.platform} 平台的验证器，跳过验证`);
+            }
+
+            // 🔥 步骤5：账号正常，继续监听流程
+            console.log(`✅ 账号验证通过，开始注入监听脚本`);            
             if (params.platform === 'wechat') {
                 console.log(`🖱️ 点击私信导航以确保监听环境准备...`);
                 const navSuccess = await (plugin as any).clickPrivateMessage(tabId);
