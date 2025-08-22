@@ -161,29 +161,112 @@ export class MessageAutomationAPI {
                 }));
             }
 
-            console.log(`🚀 开始批量启动监听: ${accounts.length} 个账号`);
+            console.log(`📊 账号统计: 总计 ${accounts.length}, 可监听 ${accounts.length}`);
 
-            // 🔥 步骤2: 调用Engine的批量监听方法
-            const monitoringResults = await this.messageEngine.startBatchMonitoring(accounts, {
-                withSync,
-                syncOptions: {
-                    intelligentSync: true,
-                    forceSync: false,
-                    timeout: 30000,
-                    ...syncOptions
-                }
-            });
+            // 🔥 步骤2: 前置过滤已在监听的账号
+            const { toStart, alreadyMonitoring } = this.filterAccountsForMonitoring(accounts);
+            
+            console.log(`📋 监听状态过滤结果:`);
+            console.log(`   需要启动: ${toStart.length} 个`);
+            console.log(`   已在监听: ${alreadyMonitoring.length} 个`);
+            
+            // 🔥 如果全部已在监听，直接返回成功
+            if (toStart.length === 0 && alreadyMonitoring.length > 0) {
+                console.log(`✅ 所有账号已在监听中，无需重复启动`);
+                
+                const response = {
+                    success: true,
+                    data: {
+                        mode: mode,
+                        workflow: withSync ? 'validate_sync_monitor' : 'validate_monitor',
+                        monitoring: {
+                            results: alreadyMonitoring.map(account => ({
+                                accountKey: `${account.platform}_${account.accountId}`,
+                                success: true,
+                                reason: 'already_monitoring',
+                                message: `账号 ${account.platform}_${account.accountId} 已在监听中`,
+                                tabId: this.messageEngine.getMonitoringTabId(`${account.platform}_${account.accountId}`)
+                            })),
+                            summary: {
+                                successCount: alreadyMonitoring.length,
+                                failedCount: 0,
+                                validationFailedCount: 0,
+                                total: accounts.length
+                            }
+                        },
+                        summary: {
+                            totalAccounts: accounts.length,
+                            monitoringSuccess: alreadyMonitoring.length,
+                            monitoringFailed: 0,
+                            validationFailed: 0,
+                            syncExecuted: withSync
+                        }
+                    }
+                };
+                
+                res.json(response);
+                return;
+            }
 
-            // 🔥 步骤3: 构建响应
+            // 🔥 步骤3: 只对需要启动的账号进行监听
+            let monitoringResults;
+            if (toStart.length > 0) {
+                console.log(`🚀 开始批量启动监听: ${toStart.length} 个账号`);
+                
+                monitoringResults = await this.messageEngine.startBatchMonitoring(toStart, {
+                    withSync,
+                    syncOptions: {
+                        intelligentSync: true,
+                        forceSync: false,
+                        timeout: 30000,
+                        ...syncOptions
+                    }
+                });
+            } else {
+                // 没有需要启动的账号
+                monitoringResults = {
+                    results: [],
+                    summary: {
+                        successCount: 0,
+                        failedCount: 0,
+                        validationFailedCount: 0,
+                        total: 0
+                    }
+                };
+            }
+
+            // 🔥 步骤4: 合并已监听账号的结果
+            const allResults = [
+                ...monitoringResults.results,
+                ...alreadyMonitoring.map(account => ({
+                    accountKey: `${account.platform}_${account.accountId}`,
+                    success: true,
+                    reason: 'already_monitoring',
+                    message: `账号 ${account.platform}_${account.accountId} 已在监听中`,
+                    tabId: this.messageEngine.getMonitoringTabId(`${account.platform}_${account.accountId}`)
+                }))
+            ];
+
+            const totalSuccess = monitoringResults.summary.successCount + alreadyMonitoring.length;
+
+            // 🔥 步骤5: 构建最终响应
             const response = {
-                success: monitoringResults.summary.successCount > 0,
+                success: totalSuccess > 0,
                 data: {
                     mode: mode,
                     workflow: withSync ? 'validate_sync_monitor' : 'validate_monitor',
-                    monitoring: monitoringResults,
+                    monitoring: {
+                        results: allResults,
+                        summary: {
+                            successCount: totalSuccess,
+                            failedCount: monitoringResults.summary.failedCount,
+                            validationFailedCount: monitoringResults.summary.validationFailedCount,
+                            total: accounts.length
+                        }
+                    },
                     summary: {
                         totalAccounts: accounts.length,
-                        monitoringSuccess: monitoringResults.summary.successCount,
+                        monitoringSuccess: totalSuccess,
                         monitoringFailed: monitoringResults.summary.failedCount,
                         validationFailed: monitoringResults.summary.validationFailedCount,
                         syncExecuted: withSync
@@ -201,6 +284,32 @@ export class MessageAutomationAPI {
             });
         }
     }
+
+    /**
+     * 🔥 新增：过滤账号监听状态
+     */
+    private filterAccountsForMonitoring(accounts: any[]): {
+        toStart: any[];
+        alreadyMonitoring: any[];
+    } {
+        const toStart: any[] = [];
+        const alreadyMonitoring: any[] = [];
+
+        for (const account of accounts) {
+            const accountKey = `${account.platform}_${account.accountId}`;
+            
+            if (this.messageEngine.isAccountMonitoring(accountKey)) {
+                console.log(`✅ 账号已在监听: ${accountKey}`);
+                alreadyMonitoring.push(account);
+            } else {
+                console.log(`📝 账号需要启动: ${accountKey}`);
+                toStart.push(account);
+            }
+        }
+
+        return { toStart, alreadyMonitoring };
+    }
+
     /**
      * 🔥 简化的单个账号启动监听
      */

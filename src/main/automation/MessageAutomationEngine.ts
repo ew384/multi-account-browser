@@ -625,11 +625,13 @@ export class MessageAutomationEngine {
             console.log(`🚀 启动监听 (${params.withSync ? '含同步' : '仅监听'}): ${accountKey}`);
 
             // 🔥 步骤1: 检查是否已在监听
-            if (this.activeMonitoring.has(accountKey)) {
+            const existingMonitoring = this.activeMonitoring.get(accountKey);
+            if (existingMonitoring) {
+                console.warn(`⚠️ 意外情况：账号 ${accountKey} 已在监听中，但API层未过滤`);
                 return {
-                    success: false,
+                    success: true, // 🔥 改为返回成功
                     reason: 'already_monitoring',
-                    error: `账号 ${accountKey} 已在监听中`
+                    tabId: existingMonitoring.tabId
                 };
             }
 
@@ -1587,6 +1589,20 @@ export class MessageAutomationEngine {
         }
     }
 
+    /**
+     * 🔥 检查账号是否正在监听
+     */
+    isAccountMonitoring(accountKey: string): boolean {
+        return this.activeMonitoring.has(accountKey);
+    }
+
+    /**
+     * 🔥 获取监听账号的TabId
+     */
+    getMonitoringTabId(accountKey: string): string | undefined {
+        const monitoring = this.activeMonitoring.get(accountKey);
+        return monitoring?.tabId;
+    }
     /**
      * 🔥 获取引擎状态
      */
