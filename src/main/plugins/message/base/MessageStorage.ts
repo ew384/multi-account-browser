@@ -396,16 +396,15 @@ export class MessageStorage {
                     t.unread_count,
                     t.last_message_time,
                     t.last_sync_time,
-                    -- 🔥 使用子查询获取最后一条消息的内容
                     (SELECT text_content 
                     FROM messages m 
                     WHERE m.thread_id = t.id 
-                    AND m.timestamp = t.last_message_time 
+                    ORDER BY m.id DESC  -- 按ID降序
                     LIMIT 1) as last_message_text,
                     (SELECT content_type 
                     FROM messages m 
                     WHERE m.thread_id = t.id 
-                    AND m.timestamp = t.last_message_time 
+                    ORDER BY m.id DESC  -- 按ID降序
                     LIMIT 1) as last_message_type
                 FROM message_threads t
                 WHERE t.platform = ? AND t.account_id = ?
@@ -967,7 +966,7 @@ export class MessageStorage {
             const stmt = db.prepare(`
                 SELECT * FROM messages 
                 WHERE thread_id = ? 
-                ORDER BY timestamp DESC 
+                ORDER BY id ASC  -- 🔥 改为按ID升序，确保消息按插入顺序显示
                 LIMIT ? OFFSET ?
             `);
             
