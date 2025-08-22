@@ -160,44 +160,67 @@ export class WeChatVideoUploader implements PluginUploader {
 
     // 🔥 新增：等待文件输入框准备好
     private async waitForFileInput(tabId: string): Promise<boolean> {
-        const waitScript = `
-            new Promise((resolve) => {
-                const timeout = 10000; // 10秒超时
-                const startTime = Date.now();
+        const maxRetries = 20;  // 最多重试5次
+        const retryDelay = 3000;  // 每次重试间隔3秒
+        
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                console.log(`⏳ 等待文件输入框准备... (第${attempt}/${maxRetries}次尝试)`);
                 
-                const checkInput = () => {
-                    if (Date.now() - startTime > timeout) {
-                        console.log('❌ 文件输入框等待超时');
-                        resolve(false);
-                        return;
-                    }
-                    
-                    const wujieIframe = document.querySelector('.wujie_iframe');
-                    if (wujieIframe && wujieIframe.shadowRoot) {
-                        const shadowDoc = wujieIframe.shadowRoot;
-                        const fileInput = shadowDoc.querySelector('input[type="file"]');
+                const waitScript = `
+                    new Promise((resolve) => {
+                        const timeout = 10000; // 每次尝试10秒超时
+                        const startTime = Date.now();
                         
-                        if (fileInput) {
-                            console.log('✅ 文件输入框已找到');
-                            resolve(true);
-                            return;
-                        }
-                    }
-                    
-                    setTimeout(checkInput, 200);
-                };
-                
-                checkInput();
-            })
-        `;
+                        const checkInput = () => {
+                            if (Date.now() - startTime > timeout) {
+                                console.log('❌ 文件输入框等待超时');
+                                resolve(false);
+                                return;
+                            }
+                            
+                            const wujieIframe = document.querySelector('.wujie_iframe');
+                            if (wujieIframe && wujieIframe.shadowRoot) {
+                                const shadowDoc = wujieIframe.shadowRoot;
+                                const fileInput = shadowDoc.querySelector('input[type="file"]');
+                                
+                                if (fileInput) {
+                                    console.log('✅ 文件输入框已找到');
+                                    resolve(true);
+                                    return;
+                                }
+                            }
+                            
+                            setTimeout(checkInput, 200);
+                        };
+                        
+                        checkInput();
+                    })
+                `;
 
-        try {
-            const result = await this.tabManager.executeScript(tabId, waitScript);
-            return Boolean(result);
-        } catch (error) {
-            console.error('❌ 等待文件输入框失败:', error);
-            return false;
+                const result = await this.tabManager.executeScript(tabId, waitScript);
+                if (Boolean(result)) {
+                    console.log(`✅ 文件输入框已准备好 (第${attempt}次尝试成功)`);
+                    return true;
+                }
+                
+                if (attempt < maxRetries) {
+                    console.log(`⏳ 第${attempt}次尝试失败，${retryDelay/1000}秒后重试...`);
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    continue;
+                }
+                
+            } catch (error) {
+                console.error(`❌ 第${attempt}次尝试出错:`, error);
+                if (attempt < maxRetries) {
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    continue;
+                }
+            }
         }
+        
+        console.error('❌ 所有重试都失败了');
+        return false;
     }
     private async setLocation(tabId: string, location?: string): Promise<void> {
         if (!location || location.trim() === '') {

@@ -11,7 +11,7 @@ curl -X GET http://localhost:3409/getValidAccounts
 
 # 获取当前模式
 curl -X GET http://localhost:3409/api/info
-
+curl -X GET http://localhost:3409/api/tabs/headless
 # 获取账号信息
 curl -X POST http://localhost:3409/api/automation/get-account-info \
   -H "Content-Type: application/json" \
