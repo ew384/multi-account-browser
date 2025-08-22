@@ -264,9 +264,8 @@ export class MessageStorage {
     }
 
     // ==================== 对话线程管理方法 ====================
-
     /**
-     * 🔥 保存或更新对话线程
+     * 🔥 修复后的保存或更新对话线程 - 避免级联删除消息
      */
     static saveOrUpdateThread(threadData: UserMessageThread): number {
         try {
@@ -283,29 +282,58 @@ export class MessageStorage {
                 last_sync_time
             } = threadData;
 
-            // 使用 INSERT OR REPLACE 来处理新增或更新
-            const stmt = db.prepare(`
-                INSERT OR REPLACE INTO message_threads (
-                    id, platform, account_id, user_id, user_name, user_avatar, 
-                    unread_count, last_message_time, last_sync_time, 
-                    created_at, updated_at
-                ) VALUES (
-                    (SELECT id FROM message_threads WHERE platform = ? AND account_id = ? AND user_id = ?),
-                    ?, ?, ?, ?, ?, ?, ?, ?, 
-                    COALESCE((SELECT created_at FROM message_threads WHERE platform = ? AND account_id = ? AND user_id = ?), CURRENT_TIMESTAMP),
-                    CURRENT_TIMESTAMP
-                )
-            `);
+            // 🔥 先检查线程是否存在
+            const existingThread = db.prepare(`
+                SELECT id FROM message_threads 
+                WHERE platform = ? AND account_id = ? AND user_id = ?
+            `).get(platform, account_id, user_id) as { id: number } | undefined;
 
-            const result = stmt.run(
-                platform, account_id, user_id,  // SELECT id
-                platform, account_id, user_id, user_name, avatar, 
-                unread_count, last_message_time, last_sync_time,
-                platform, account_id, user_id   // SELECT created_at
-            );
+            let threadId: number;
 
-            const threadId = result.lastInsertRowid as number;
-            console.log(`✅ 对话线程已保存: ${user_name} (ID: ${threadId})`);
+            if (existingThread) {
+                // 🔥 存在则更新（不删除记录，避免级联删除消息）
+                threadId = existingThread.id;
+                
+                const updateStmt = db.prepare(`
+                    UPDATE message_threads 
+                    SET user_name = ?, 
+                        user_avatar = ?, 
+                        unread_count = ?, 
+                        last_message_time = ?, 
+                        last_sync_time = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                `);
+
+                updateStmt.run(
+                    user_name,
+                    avatar,
+                    unread_count,
+                    last_message_time,
+                    last_sync_time,
+                    threadId
+                );
+
+                console.log(`🔄 线程已更新: ${user_name} (ID: ${threadId})`);
+            } else {
+                // 🔥 不存在则新建
+                const insertStmt = db.prepare(`
+                    INSERT INTO message_threads (
+                        platform, account_id, user_id, user_name, user_avatar, 
+                        unread_count, last_message_time, last_sync_time, 
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                `);
+
+                const result = insertStmt.run(
+                    platform, account_id, user_id, user_name, avatar,
+                    unread_count, last_message_time, last_sync_time
+                );
+
+                threadId = result.lastInsertRowid as number;
+                console.log(`✅ 新线程已创建: ${user_name} (ID: ${threadId})`);
+            }
+
             return threadId;
 
         } catch (error) {
@@ -313,7 +341,6 @@ export class MessageStorage {
             throw error;
         }
     }
-
     /**
      * 🔥 根据用户获取对话线程
      */
