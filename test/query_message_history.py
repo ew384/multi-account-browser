@@ -64,19 +64,25 @@ def query_messages(thread_id=None, limit=50):
         if thread_id:
             cursor.execute("""
                 SELECT m.*, t.user_name, t.platform, t.account_id
-                FROM messages m
+                FROM (
+                    SELECT * FROM messages 
+                    WHERE thread_id = ? 
+                    ORDER BY id DESC 
+                    LIMIT ?
+                ) m
                 JOIN message_threads t ON m.thread_id = t.id
-                WHERE m.thread_id = ?
-                ORDER BY m.timestamp DESC
-                LIMIT ?
+                ORDER BY m.id ASC
             """, (thread_id, limit))
         else:
             cursor.execute("""
                 SELECT m.*, t.user_name, t.platform, t.account_id
-                FROM messages m
+                FROM (
+                    SELECT * FROM messages 
+                    ORDER BY id DESC 
+                    LIMIT ?
+                ) m
                 JOIN message_threads t ON m.thread_id = t.id
-                ORDER BY m.timestamp DESC
-                LIMIT ?
+                ORDER BY m.id ASC
             """, (limit,))
         
         messages = cursor.fetchall()

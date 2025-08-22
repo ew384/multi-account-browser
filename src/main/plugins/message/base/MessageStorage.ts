@@ -964,11 +964,14 @@ export class MessageStorage {
         try {
             const db = this.getDatabase();
 
+            // 🔥 修正：直接使用降序+offset的方式，然后反转结果
             const stmt = db.prepare(`
-                SELECT * FROM messages 
-                WHERE thread_id = ? 
-                ORDER BY id ASC  -- 🔥 改为按ID升序，确保消息按插入顺序显示
-                LIMIT ? OFFSET ?
+                SELECT * FROM (
+                    SELECT * FROM messages 
+                    WHERE thread_id = ? 
+                    ORDER BY id DESC
+                    LIMIT ? OFFSET ?
+                ) ORDER BY id ASC
             `);
             
             const messages = stmt.all(threadId, limit, offset) as MessageRecord[];
