@@ -229,18 +229,9 @@ export class WeChatChannelsMessage implements PluginMessage {
 
     // 🔥 新增/更新：生成微信消息同步脚本
     private generateWechatSyncScript(eventData?: any): string {
-        if (eventData) {
-            // 🔥 实时同步：可能可以优化脚本，针对性获取最新消息
-            console.log('📜 生成实时同步脚本...');
-            // 当前先使用相同的脚本，将来可以优化
-            const scriptPath = path.join(__dirname, './scripts/wechat-sync.js');
-            return fs.readFileSync(scriptPath, 'utf-8');
-        } else {
-            // 🔥 常规同步：使用完整的同步脚本
-            console.log('📜 生成常规同步脚本...');
-            const scriptPath = path.join(__dirname, './scripts/wechat-sync.js');
-            return fs.readFileSync(scriptPath, 'utf-8');
-        }
+        console.log(`📜 生成${eventData ? '实时' : '常规'}同步脚本...`);
+        const scriptPath = path.join(__dirname, './scripts/wechat-sync.js');
+        return fs.readFileSync(scriptPath, 'utf-8');
     }
     /**
      * 🔥 发送消息功能 - 执行消息发送脚本
@@ -248,17 +239,6 @@ export class WeChatChannelsMessage implements PluginMessage {
     async sendMessage(params: MessageSendParams): Promise<MessageSendResult> {
         try {
             console.log(`📤 发送微信消息: ${params.userName} (${params.type})`);
-
-            // 验证标签页上下文
-            const isValidContext = await this.validateTabContext(params.tabId);
-            if (!isValidContext) {
-                return {
-                    success: false,
-                    error: '标签页不在微信视频号助手页面',
-                    user: params.userName,
-                    type: params.type
-                };
-            }
 
             // 🔥 生成消息发送脚本 - 使用你已验证的脚本
             const sendScript = this.generateWechatSendScript(
@@ -428,103 +408,16 @@ export class WeChatChannelsMessage implements PluginMessage {
      * 🔥 生成微信消息发送脚本
      */
     private generateWechatSendScript(userName: string, content: string, type: 'text' | 'image'): string {
-        // 🔥 这里是你已经验证成功的 WechatMessageSendScript
-        return `
-            (async function(userName, content, type = 'text') {
-                const delay = ms => new Promise(r => setTimeout(r, ms));
-                const getDoc = () => {
-                    const iframes = document.querySelectorAll('iframe');
-                    for (let iframe of iframes) {
-                        try {
-                            const doc = iframe.contentDocument || iframe.contentWindow.document;
-                            if (doc && doc.querySelectorAll('.private-msg-list').length > 0) return doc;
-                        } catch (e) { continue; }
-                    }
-                    return document;
-                };
-
-                try {
-                    const doc = getDoc();
-                    const currentTab = doc.querySelector('li.weui-desktop-tab__nav_current a');
-                    if (!currentTab || currentTab.textContent.trim() !== '私信') {
-                        const privateTab = Array.from(doc.querySelectorAll('li.weui-desktop-tab__nav a'))
-                            .find(tab => tab.textContent.trim() === '私信');
-                        if (privateTab) {
-                            privateTab.click();
-                            await delay(1000);
-                        }
-                    }
-
-                    const userElements = doc.querySelectorAll('.session-wrap');
-                    let targetUser = null;
-                    for (let userElement of userElements) {
-                        const nameElement = userElement.querySelector('.name');
-                        if (nameElement && nameElement.textContent.trim() === userName) {
-                            targetUser = userElement;
-                            break;
-                        }
-                    }
-
-                    if (!targetUser) throw new Error('用户未找到: ' + userName);
-
-                    targetUser.click();
-                    await delay(1500);
-
-                    if (type === 'image') {
-                        const base64ToFile = (base64, filename) => {
-                            const arr = base64.split(',');
-                            const mime = arr[0].match(/:(.*);\\/)[1];
-                            const bstr = atob(arr[1]);
-                            let n = bstr.length;
-                            const u8arr = new Uint8Array(n);
-                            while (n--) u8arr[n] = bstr.charCodeAt(n);
-                            return new File([u8arr], filename, { type: mime });
-                        };
-
-                        const fileInput = doc.querySelector('input.file-uploader[type="file"]');
-                        if (!fileInput) throw new Error('文件上传控件未找到');
-
-                        const imageFile = base64ToFile(content, 'image.png');
-                        const dt = new DataTransfer();
-                        dt.items.add(imageFile);
-                        fileInput.files = dt.files;
-                        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-                        await delay(2000);
-                    } else {
-                        const textarea = doc.querySelector('textarea.edit_area');
-                        if (!textarea) throw new Error('输入框未找到');
-
-                        textarea.value = '';
-                        textarea.focus();
-                        textarea.value = content;
-                        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-                        textarea.dispatchEvent(new Event('change', { bubbles: true }));
-                        await delay(300);
-                    }
-
-                    const sendButton = doc.querySelector('button.weui-desktop-btn.weui-desktop-btn_default');
-                    if (!sendButton) throw new Error('发送按钮未找到');
-
-                    sendButton.click();
-                    await delay(type === 'image' ? 1500 : 800);
-
-                    return {
-                        success: true,
-                        message: \`\${type === 'image' ? '图片' : '消息'}发送成功\`,
-                        user: userName,
-                        type: type,
-                        content: type === 'text' ? content : 'image'
-                    };
-                } catch (error) {
-                    return {
-                        success: false,
-                        error: error.message,
-                        user: userName,
-                        type: type
-                    };
-                }
-            })('${userName}', \`${content}\`, '${type}')
-        `;
+        // 读取发送脚本文件
+        const scriptPath = path.join(__dirname, './scripts/wechat-send.js');
+        const scriptTemplate = fs.readFileSync(scriptPath, 'utf-8');
+        
+        // 转义参数中的特殊字符
+        const escapedUserName = userName.replace(/'/g, "\\'").replace(/"/g, '\\"');
+        const escapedContent = content.replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/`/g, '\\`');
+        
+        // 调用脚本并传入参数
+        return `${scriptTemplate}('${escapedUserName}', \`${escapedContent}\`, '${type}')`;
     }
 
     /**

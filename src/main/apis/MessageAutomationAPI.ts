@@ -474,8 +474,21 @@ export class MessageAutomationAPI {
      */
     async handleSendMessage(req: Request, res: Response): Promise<void> {
         try {
-            const { platform, tabId, userName, content, type, accountId } = req.body;
+            let { platform, tabId, userName, content, type, accountId } = req.body;
 
+            // 🔥 强制查找逻辑（用于测试）
+            if (accountId) {
+                const accountKey = `${platform}_${accountId}`;
+                const foundTabId = this.messageEngine.getMonitoringTabId(accountKey);
+                console.log(`🔍 查找TabId结果: ${accountKey} -> ${foundTabId}`);
+                
+                if (foundTabId) {
+                    tabId = foundTabId;
+                    console.log(`✅ 使用监听TabId: ${tabId}`);
+                } else {
+                    console.log(`❌ 未找到监听TabId，当前监听状态:`, this.messageEngine.getActiveMonitoringStatus());
+                }
+            }
             if (!platform || !tabId || !userName || !content || !type) {
                 res.status(400).json({
                     success: false,

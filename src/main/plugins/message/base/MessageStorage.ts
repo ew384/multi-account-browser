@@ -396,6 +396,7 @@ export class MessageStorage {
                     t.unread_count,
                     t.last_message_time,
                     t.last_sync_time,
+                    -- 🔥 修改子查询，按ID降序获取真正的最后一条消息
                     (SELECT text_content 
                     FROM messages m 
                     WHERE m.thread_id = t.id 
