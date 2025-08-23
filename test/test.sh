@@ -36,9 +36,9 @@ curl -X POST http://localhost:3409/api/account/execute \
 curl -X POST http://localhost:3409/api/account/create \
   -H "Content-Type: application/json" \
   -d '{
-    "accountName": "小红去美国大结果",
+    "accountName": "endian",
     "platform": "wechat",
-    "cookieFile": "wechat_小红去美国大结果_1755867777382.json",
+    "cookieFile": "wechat_endian_1755920783264.json",
     "initialUrl": "https://channels.weixin.qq.com/platform/private_msg"
   }'
 curl -X POST http://localhost:3409/api/account/create \
@@ -75,9 +75,8 @@ curl -X POST http://localhost:3409/api/account/save-cookies \
 curl -X POST http://localhost:3409/api/account/execute \
 -H "Content-Type: application/json" \
 -d '{
-  "tabId": "douyin-1754966921207",
-  "script": "(function(){var bodyText=document.body?document.body.textContent:"";return{currentUrl:window.location.href,pageTitle:document.title,bodyTextLength:bodyText.length,bodyTextPreview:bodyText.substring(0,300),hasPhoneLogin:bodyText.includes("手机号登录"),hasQRLogin:bodyText.includes("扫码登录"),hasPleaseLogin:bodyText.includes("请登录"),originalResult:!(bodyText.includes("手机号登录")||bodyText.includes("扫码登录")||bodyText.includes("请登录")),hasLogin:bodyText.includes("登录"),hasAccount:bodyText.includes("账号"),hasAuth:bodyText.includes("认证")||bodyText.includes("授权"),readyState:document.readyState,hasBody:!!document.body,bodyChildrenCount:document.body?document.body.children.length:0}})()"
-  }'
+  "tabId": "wechat-1755942784577",
+  "script": ""  }'
 
 
 curl -X POST http://localhost:3409/validateAccount \
