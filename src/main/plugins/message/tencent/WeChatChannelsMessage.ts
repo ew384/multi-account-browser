@@ -171,7 +171,19 @@ export class WeChatChannelsMessage implements PluginMessage {
                     // 解析脚本返回的数据
                     const parsedData = this.parseMessageData(scriptResult);
                     
-                    if (parsedData.success && parsedData.users) {
+                    if (parsedData.success && parsedData.users !== undefined) {
+                    // 🔥 修改：处理无用户的成功情况
+                        if (parsedData.users.length === 0) {
+                            console.log(`✅ 微信消息同步成功: ${parsedData.message || '该账号暂无私信用户'}`);
+                            return {
+                                success: true,
+                                threads: [],
+                                newMessages: 0,
+                                updatedThreads: 0,
+                                message: parsedData.message || '该账号暂无私信用户',
+                                syncTime: new Date().toISOString()
+                            };
+                        }
                         // 转换为标准格式
                         const threads = this.convertToStandardFormat(parsedData.users, params.platform, params.accountId);
                         
@@ -427,19 +439,30 @@ export class WeChatChannelsMessage implements PluginMessage {
         success: boolean;
         users?: any[];
         errors?: string[];
+        message?: string;  // 新增message字段
     } {
         try {
-            // 🔥 添加调试信息
             console.log('📊 脚本返回的原始数据:', JSON.stringify(scriptResult, null, 2));
             console.log('📊 数据类型:', typeof scriptResult);
             
             // 如果脚本结果直接是解析好的对象
             if (scriptResult && typeof scriptResult === 'object') {
-                if (scriptResult.users && Array.isArray(scriptResult.users)) {
+                // 🔥 新增：检查是否是"无用户"的成功情况
+                if (Array.isArray(scriptResult.users)) {
+                    if (scriptResult.users.length === 0 && scriptResult.message) {
+                        console.log('✅ 账号无私信用户:', scriptResult.message);
+                        return {
+                            success: true,
+                            users: [],
+                            message: scriptResult.message
+                        };
+                    }
+                    
                     console.log('✅ 找到users数组，长度:', scriptResult.users.length);
                     return {
                         success: true,
-                        users: scriptResult.users
+                        users: scriptResult.users,
+                        message: scriptResult.message
                     };
                 } else {
                     console.log('⚠️ scriptResult是对象但没有users数组');
@@ -451,11 +474,23 @@ export class WeChatChannelsMessage implements PluginMessage {
             if (typeof scriptResult === 'string') {
                 console.log('📝 尝试解析字符串数据...');
                 const parsed = JSON.parse(scriptResult);
-                if (parsed.users && Array.isArray(parsed.users)) {
+                
+                // 🔥 新增：检查解析后的"无用户"情况
+                if (Array.isArray(parsed.users)) {
+                    if (parsed.users.length === 0 && parsed.message) {
+                        console.log('✅ 账号无私信用户:', parsed.message);
+                        return {
+                            success: true,
+                            users: [],
+                            message: parsed.message
+                        };
+                    }
+                    
                     console.log('✅ 解析后找到users数组，长度:', parsed.users.length);
                     return {
                         success: true,
-                        users: parsed.users
+                        users: parsed.users,
+                        message: parsed.message
                     };
                 }
             }

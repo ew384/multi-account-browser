@@ -332,6 +332,7 @@ export interface MessageSyncResult {
     updatedThreads: number;         // 更新的线程数
     errors?: string[];              // 错误列表
     syncTime: string;               // 同步完成时间
+    message?: string;               // 附加消息（如"该账号暂无私信用户"）
 }
 
 /**

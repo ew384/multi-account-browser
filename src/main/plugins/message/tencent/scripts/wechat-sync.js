@@ -290,14 +290,45 @@
             await delay(1000); // 等待标签页切换
         }
         
-        console.log('👥 2. 等待用户列表加载...');
-        
-        // 2. 等待用户列表加载
-        await waitForElement(doc, '.session-wrap');
-        await delay(1000); // 额外等待确保完全加载
-        
-        // 3. 获取所有用户
-        const userElements = doc.querySelectorAll('.session-wrap');
+        console.log('👥 2. 检查是否有私信用户...');
+
+        // 2. 首先检查是否有用户列表容器
+        const userListContainer = doc.querySelector('.private-msg-list') || doc.querySelector('.session-list-wrapper');
+        if (!userListContainer) {
+            console.log('⚠️ 未找到用户列表容器，可能页面还未加载完成');
+            // 等待一下再检查
+            await delay(2000);
+            const retryContainer = doc.querySelector('.private-msg-list') || doc.querySelector('.session-list-wrapper');
+            if (!retryContainer) {
+                console.log('❌ 确认无法找到用户列表容器');
+                return {
+                    timestamp: new Date().toISOString(),
+                    users: [],
+                    message: '无法找到私信用户列表容器'
+                };
+            }
+        }
+
+        // 3. 检查是否有用户元素
+        let userElements = doc.querySelectorAll('.session-wrap');
+
+        // 如果没有找到用户，等待一下再试
+        if (userElements.length === 0) {
+            console.log('🔍 首次检查未发现用户，等待加载...');
+            await delay(3000);
+            userElements = doc.querySelectorAll('.session-wrap');
+        }
+
+        console.log(`找到 ${userElements.length} 个用户`);
+
+        if (userElements.length === 0) {
+            console.log('✅ 该账号暂无私信用户');
+            return {
+                timestamp: new Date().toISOString(),
+                users: [],
+                message: '该账号暂无私信用户'
+            };
+        }
         console.log(`找到 ${userElements.length} 个用户`);
         
         if (userElements.length === 0) {
