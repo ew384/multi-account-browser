@@ -31,7 +31,7 @@ export class WeChatVideoUploader implements PluginUploader {
             await this.addTitleAndTags(params.title, params.tags, tabId);
 
             // 4: 等待上传完全完成
-            await this.detectUploadStatusNoTimeout(tabId);
+            await this.detectUploadStatusWithTimeout(tabId);
             if (params.location) {
                 await this.setLocation(tabId, params.location);
             }
@@ -520,15 +520,23 @@ export class WeChatVideoUploader implements PluginUploader {
 
         console.log('✅ 标题和标签填写完成，短标题长度:', result.shortTitleLength);
     }
-    private async detectUploadStatusNoTimeout(tabId: string): Promise<void> {
+    private async detectUploadStatusWithTimeout(tabId: string): Promise<void> {
         const startTime = Date.now();
-        console.log("开始检测上传状态（无超时限制）");
+        const timeoutMs = 5 * 60 * 1000; // 5分钟超时
+        console.log("开始检测上传状态（5分钟超时）");
 
         while (true) {
             try {
                 const elapsed = (Date.now() - startTime) / 1000;
+                
+                // 🔥 检查超时
+                if (Date.now() - startTime > timeoutMs) {
+                    console.log(`⏰ 上传状态检测超时 (${elapsed.toFixed(1)}秒)，继续下一步...`);
+                    console.log("⚠️ 注意：可能上传未完全完成，但继续执行后续步骤");
+                    break;
+                }
 
-                // 🔥 修复：在Shadow DOM中检查发布按钮状态
+                // 🔥 修复：改进的Shadow DOM检查发布按钮状态
                 const checkButtonScript = `
                 (function() {
                     try {
@@ -540,34 +548,48 @@ export class WeChatVideoUploader implements PluginUploader {
                         const shadowDoc = wujieApp.shadowRoot;
                         const buttons = shadowDoc.querySelectorAll('button');
                         
+                        let publishButton = null;
+                        let hasDeleteBtn = false;
+                        
+                        // 遍历所有按钮，同时查找发表按钮和删除按钮
                         for (const btn of buttons) {
                             const buttonText = btn.textContent.trim();
+                            
+                            // 查找发表按钮
                             if (buttonText.includes('发表')) {
-                                const isDisabled = btn.disabled || btn.className.includes('weui-desktop-btn_disabled');
-                                const hasDeleteBtn = !!shadowDoc.querySelector('.delete-btn, [class*="delete"]');
-                                const noCancelUpload = !shadowDoc.querySelector('.media-opr .finder-tag-wrap .tag-inner');
-                                let isCancelUploadGone = true;
-                                if (!noCancelUpload) {
-                                    const cancelElements = shadowDoc.querySelectorAll('.media-opr .finder-tag-wrap .tag-inner');
-                                    for (const el of cancelElements) {
-                                        if (el.textContent && el.textContent.includes('取消上传')) {
-                                            isCancelUploadGone = false;
-                                            break;
-                                        }
-                                    }
-                                }
-                                return {
-                                    found: true,
-                                    disabled: isDisabled,
-                                    hasDeleteBtn: hasDeleteBtn,
-                                    isCancelUploadGone: isCancelUploadGone,
-                                    buttonText: buttonText,
-                                    className: btn.className
-                                };
+                                publishButton = btn;
+                            }
+                            
+                            // 🔥 修复：直接通过按钮文本查找删除按钮
+                            if (buttonText === '删除') {
+                                hasDeleteBtn = true;
                             }
                         }
                         
-                        return { found: false, disabled: true, error: '未找到发表按钮' };
+                        if (!publishButton) {
+                            return { found: false, disabled: true, error: '未找到发表按钮' };
+                        }
+                        
+                        const isDisabled = publishButton.disabled || publishButton.className.includes('weui-desktop-btn_disabled');
+                        
+                        // 检查取消上传按钮是否消失
+                        const cancelUploadElements = shadowDoc.querySelectorAll('.media-opr .finder-tag-wrap .tag-inner');
+                        let isCancelUploadGone = true;
+                        for (const el of cancelUploadElements) {
+                            if (el.textContent && el.textContent.includes('取消上传')) {
+                                isCancelUploadGone = false;
+                                break;
+                            }
+                        }
+                        
+                        return {
+                            found: true,
+                            disabled: isDisabled,
+                            hasDeleteBtn: hasDeleteBtn,
+                            isCancelUploadGone: isCancelUploadGone,
+                            buttonText: publishButton.textContent.trim(),
+                            className: publishButton.className
+                        };
                     } catch (e) {
                         return { found: false, disabled: true, error: e.message };
                     }
@@ -577,24 +599,28 @@ export class WeChatVideoUploader implements PluginUploader {
                 const result = await this.tabManager.executeScript(tabId, checkButtonScript);
 
                 if (result.found && !result.disabled && result.hasDeleteBtn && result.isCancelUploadGone) {
-                    console.log("✅ 发表按钮已激活、删除按钮存在且取消上传按钮已消失，视频上传完毕!");
+                    console.log(`✅ 发表按钮已激活、删除按钮存在且取消上传按钮已消失，视频上传完毕! (耗时: ${elapsed.toFixed(1)}秒)`);
                     break;
                 }
 
-                // 每5分钟报告一次进度
-                if (Math.floor(elapsed) % 300 === 0 && elapsed > 0) {
-                    console.log(`⏳ 上传中... (${(elapsed / 60).toFixed(1)}分钟)`);
+                // 每30秒报告一次进度
+                if (Math.floor(elapsed) % 30 === 0 && elapsed > 0) {
+                    const remainingTime = (timeoutMs / 1000 - elapsed).toFixed(1);
+                    console.log(`⏳ 上传中... (${elapsed.toFixed(1)}秒/${(timeoutMs/1000).toFixed(1)}秒) 剩余: ${remainingTime}秒`);
+                    
+                    // 🔥 输出当前检测状态用于调试
+                    console.log(`📊 当前状态: 发表按钮${result.found ? '已找到' : '未找到'}, ${result.disabled ? '已禁用' : '未禁用'}, 删除按钮${result.hasDeleteBtn ? '存在' : '不存在'}, 取消上传${result.isCancelUploadGone ? '已消失' : '仍存在'}`);
                 }
 
-                await new Promise(resolve => setTimeout(resolve, 15000)); // 每15秒检查一次
+                await new Promise(resolve => setTimeout(resolve, 10000)); // 每10秒检查一次
 
             } catch (error) {
                 console.warn(`状态检测异常: ${error}`);
-                await new Promise(resolve => setTimeout(resolve, 15000));
+                await new Promise(resolve => setTimeout(resolve, 10000));
             }
         }
 
-        console.log("上传检测完成");
+        console.log("上传检测完成，继续下一步");
     }
 
     private async setThumbnail(tabId: string, thumbnailData?: string): Promise<void> {
