@@ -1,6 +1,4 @@
 // 微信视频号助手私信提取脚本
-// 使用方法：在微信视频号助手的私信管理页面打开Chrome开发者工具，在Console中粘贴并运行此脚本
-
 (async function extractPrivateMessages() {
     console.log('🚀 开始提取私信数据...');
     

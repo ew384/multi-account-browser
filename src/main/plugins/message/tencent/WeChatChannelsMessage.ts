@@ -153,7 +153,7 @@ export class WeChatChannelsMessage implements PluginMessage {
             const syncScript = this.generateWechatSyncScript(params.eventData);
             
             // 🔥 调整重试策略
-            const maxRetries = params.eventData ? 10 : 120; // 实时同步减少重试次数，但给一定容错
+            const maxRetries = params.eventData ? 10 : 10; // 实时同步减少重试次数，但给一定容错
             const retryDelay = params.eventData ? 300 : 1000; // 实时同步更快重试
             let lastError = '';
             

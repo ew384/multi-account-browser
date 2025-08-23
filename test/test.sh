@@ -4,7 +4,7 @@
 # 临时显示10秒
 curl -X POST http://localhost:3409/api/window/show-temp -d '{"duration":10000}'
 
-curl -X POST http://localhost:3409/api/tabs/wechat-1755589133206/make-visible
+curl -X POST http://localhost:3409/api/tabs/wechat-1755868201268/make-visible
 curl -X POST http://localhost:3409/api/tabs/xiaohongshu-1754981039318/make-headless
 # 获取有效账号列表
 curl -X GET http://localhost:3409/getValidAccounts
@@ -36,9 +36,9 @@ curl -X POST http://localhost:3409/api/account/execute \
 curl -X POST http://localhost:3409/api/account/create \
   -H "Content-Type: application/json" \
   -d '{
-    "accountName": "endian",
+    "accountName": "小红去美国大结果",
     "platform": "wechat",
-    "cookieFile": "wechat_endian_1755588156865.json",
+    "cookieFile": "wechat_小红去美国大结果_1755867777382.json",
     "initialUrl": "https://channels.weixin.qq.com/platform/private_msg"
   }'
 curl -X POST http://localhost:3409/api/account/create \
@@ -107,17 +107,17 @@ curl -X POST http://localhost:3409/api/messages/sync \
     "accountName": "endian", 
     "cookieFile": "wechat_endian_1755588156865.json"
   }'
-curl -X POST http://localhost:3409/api/messages/monitoring/start \
+curl -X POST http://localhost:3409/api/message-automation/monitoring/start \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "wechat",
-    "accountId": "endian", 
-    "cookieFile": "wechat_endian_1755596849499.json",
+    "accountId": "小红去美国大结果", 
+    "cookieFile": "wechat_小红去美国大结果_1755867777382.json",
     "headless": false
   }'
   # 一步到位启动
 
-curl -X POST http://localhost:3409/api/messages/monitoring/batch-start \
+curl -X POST http://localhost:3409/api/message-automation/monitoring/batch-start \
   -H "Content-Type: application/json" \
   -d '{
     "accounts": [
