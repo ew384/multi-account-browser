@@ -46,7 +46,7 @@ curl -X POST http://localhost:3409/api/account/create \
   -d '{
     "accountName": "Andy0919",
     "platform": "douyin",
-    "cookieFile": "douyin_Andy0919_1755009374518.json",
+    "cookieFile": "douyin_Andy0919_1755998690106.json",
     "initialUrl": "https://creator.douyin.com/creator-micro/content/upload"
   }'
 curl -X POST http://localhost:3409/api/account/create \

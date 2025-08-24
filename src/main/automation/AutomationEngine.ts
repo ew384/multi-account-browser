@@ -138,12 +138,13 @@ export class AutomationEngine {
                     console.log(`✅ 登录成功，开始后台处理: ${userId}`);
                 }
                 // 🔥 2. 立即将tab变为headless
+                /*
                 try {
                     await this.tabManager.makeTabHeadless(tabId);
                     console.log(`🔇 登录成功，tab已转为后台模式: ${userId}`);
                 } catch (error) {
                     console.warn(`⚠️ 转换headless失败，但继续处理: ${error}`);
-                }
+                }*/
                 // 🔥 3. 小红书特殊处理：分两步执行点击操作
                 if (platform === 'xiaohongshu') {
                     try {
