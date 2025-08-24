@@ -109,9 +109,9 @@ curl -X POST http://localhost:3409/api/messages/sync \
 curl -X POST http://localhost:3409/api/message-automation/monitoring/start \
   -H "Content-Type: application/json" \
   -d '{
-    "platform": "wechat",
-    "accountId": "小红去美国大结果", 
-    "cookieFile": "wechat_小红去美国大结果_1755867777382.json",
+    "platform": "douyin",
+    "accountId": "小红美国留学留下", 
+    "cookieFile": "douyin_小红美国留学留下_1755960977081.json",
     "headless": false
   }'
   # 一步到位启动

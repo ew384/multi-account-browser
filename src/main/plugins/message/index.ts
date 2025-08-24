@@ -2,7 +2,7 @@
 // 消息插件统一导出和注册
 
 import { WeChatChannelsMessage } from './tencent/WeChatChannelsMessage';
-// import { DouyinMessage } from './douyin/DouyinMessage';           // 🔥 预留，后续实现
+import { DouyinMessage } from './bytedance/DouyinMessage';
 // import { XiaohongshuMessage } from './xiaohongshu/XiaohongshuMessage'; // 🔥 预留，后续实现
 // import { KuaishouMessage } from './kuaishou/KuaishouMessage';     // 🔥 预留，后续实现
 
@@ -18,7 +18,7 @@ export { WeChatChannelsMessage };
 // 🔥 消息插件配置数组
 export const MESSAGE_PLUGINS: MessagePluginConstructor[] = [
     WeChatChannelsMessage,
-    // DouyinMessage,        // 🔥 预留，后续添加
+    DouyinMessage,
     // XiaohongshuMessage,   // 🔥 预留，后续添加  
     // KuaishouMessage,      // 🔥 预留，后续添加
 ];
@@ -26,7 +26,7 @@ export const MESSAGE_PLUGINS: MessagePluginConstructor[] = [
 // 🔥 按平台映射插件类
 export const MESSAGE_PLUGIN_MAP: Record<string, MessagePluginConstructor> = {
     'wechat': WeChatChannelsMessage,
-    // 'douyin': DouyinMessage,           // 🔥 预留，后续添加
+    'douyin': DouyinMessage,           // 🔥 预留，后续添加
     // 'xiaohongshu': XiaohongshuMessage, // 🔥 预留，后续添加
     // 'kuaishou': KuaishouMessage,       // 🔥 预留，后续添加
 };
@@ -46,13 +46,13 @@ export const MESSAGE_PLATFORM_CONFIGS: Record<string, {
         syncInterval: 5,
         maxConcurrency: 3
     },
-    // 'douyin': {
-    //     name: '抖音',
-    //     description: '抖音创作者中心私信管理',
-    //     features: ['私信同步', '消息发送'],
-    //     syncInterval: 5,
-    //     maxConcurrency: 3
-    // },
+    'douyin': {
+        name: '抖音',
+        description: '抖音创作者中心私信管理',
+        features: ['私信同步', '消息发送'],
+        syncInterval: 5,
+        maxConcurrency: 3
+    },
     // 'xiaohongshu': {
     //     name: '小红书',
     //     description: '小红书创作者中心私信管理',

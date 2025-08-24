@@ -171,7 +171,7 @@ export class MessageAutomationAPI {
             console.log(`   已在监听: ${alreadyMonitoring.length} 个`);
             
             // 🔥 如果全部已在监听，直接返回成功
-            if (toStart.length === 0 && alreadyMonitoring.length > 0) {
+            if (toStart.length === 0) {
                 console.log(`✅ 所有账号已在监听中，无需重复启动`);
                 
                 const response = {
