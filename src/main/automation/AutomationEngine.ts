@@ -319,6 +319,12 @@ export class AutomationEngine {
             // 🔥 步骤3：Validator 专注验证逻辑
             const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, params.platform);
             if (validator) {
+                if (recordId) {
+                    await this.updateUploadProgress(recordId, accountName, {
+                        status: 'uploading',
+                        upload_status: '验证账号中'
+                    });
+                }
                 const isValid = await validator.validateTab(tabId);
                 
                 if (!isValid) {
