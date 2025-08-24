@@ -114,10 +114,58 @@ export class DouyinLogin implements PluginLogin {
             console.error('❌ 取消登录失败:', error);
         }
     }
+    /**
+     * 🔥 获取二维码
+     * https://www.douyin.com/?recommend=1
+     
+    private async getQRCode(tabId: string): Promise<string | null> {
+        console.log('🔍 查找抖音登录二维码...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const qrCodeScript = `
+            (function() {
+                // 方法1: 查找扫码登录容器中的二维码图片
+                const qrCodeImg1 = document.querySelector('#douyin_login_comp_scan_code img[src^="data:image/png;base64"]');
+                if (qrCodeImg1 && qrCodeImg1.src) {
+                    console.log('✅ 找到抖音二维码 (扫码登录容器):', qrCodeImg1.src.substring(0, 50) + '...');
+                    return qrCodeImg1.src;
+                }
+                
+                // 方法2: 查找动画二维码容器中的图片
+                const qrCodeImg2 = document.querySelector('#animate_qrcode_container img[src^="data:image/png;base64"]');
+                if (qrCodeImg2 && qrCodeImg2.src) {
+                    console.log('✅ 找到抖音二维码 (动画容器):', qrCodeImg2.src.substring(0, 50) + '...');
+                    return qrCodeImg2.src;
+                }
+                
+                console.log('❌ 未找到抖音二维码');
+                return null;
+            })()
+        `;
+
+        // 🔥 等待二维码出现，最多尝试 20 次
+        let attempts = 0;
+        while (attempts < 20) {
+            try {
+                const qrCodeUrl = await this.tabManager.executeScript(tabId, qrCodeScript);
+                if (qrCodeUrl) {
+                    return qrCodeUrl;
+                }
+            } catch (error) {
+                console.warn(`二维码查找失败 (尝试 ${attempts + 1}):`, error);
+            }
+
+            attempts++;
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+
+        return null;
+    }*/
 
     /**
-     * 🔥 获取二维码（复用 Python 验证的逻辑）
-     */
+     * 🔥 获取二维码
+     * 'https://creator.douyin.com/'
+    */
     private async getQRCode(tabId: string): Promise<string | null> {
         console.log('🔍 查找抖音登录二维码...');
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -151,4 +199,5 @@ export class DouyinLogin implements PluginLogin {
 
         return null;
     }
+    
 }

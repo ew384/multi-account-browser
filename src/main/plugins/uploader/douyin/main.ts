@@ -98,6 +98,7 @@ export class DouyinVideoUploader implements PluginUploader {
         }
     }
     private async uploadFile(filePath: string, tabId: string): Promise<void> {
+        await this.tabManager.navigateTab(tabId, 'https://creator.douyin.com/creator-micro/content/upload');
         console.log('📤 上传文件到抖音...');
         // 🔥 步骤1：等待页面完全加载
         console.log('⏳ 等待抖音创作者页面完全加载...');

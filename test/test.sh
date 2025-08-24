@@ -44,9 +44,9 @@ curl -X POST http://localhost:3409/api/account/create \
 curl -X POST http://localhost:3409/api/account/create \
   -H "Content-Type: application/json" \
   -d '{
-    "accountName": "Andy0919",
+    "accountName": "阿拉蕾宝宝",
     "platform": "douyin",
-    "cookieFile": "douyin_Andy0919_1755998690106.json",
+    "cookieFile": "douyin_阿拉蕾宝宝_1756007952308.json",
     "initialUrl": "https://creator.douyin.com/creator-micro/content/upload"
   }'
 curl -X POST http://localhost:3409/api/account/create \
@@ -82,9 +82,9 @@ curl -X POST http://localhost:3409/api/account/execute \
 curl -X POST http://localhost:3409/validateAccount \
 -H "Content-Type: application/json" \
 -d '{
-    "accounName": "endian",
-    "platform": "wechat",
-    "cookieFile": "wechat_endian_1755305921950.json"
+    "accounName": "阿拉蕾宝宝",
+    "platform": "douyin",
+    "cookieFile": "douyin_阿拉蕾宝宝_1756007952308.json"
   }'
 系统级别操作
 

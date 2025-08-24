@@ -17,30 +17,12 @@ export class DouyinValidator implements PluginValidator {
             // 等待页面加载
             await new Promise(resolve => setTimeout(resolve, 4000));
 
-            // 检查当前URL是否为目标URL
-            const currentUrl = await this.tabManager.executeScript(tabId, 'window.location.href');
-            if (!currentUrl.includes('creator-micro/content/upload')) {
-                return false; // 被重定向了，Cookie失效
-            }
-
             // 多次检测登录状态，确保页面完全加载
             let hasLoginButton = false;
             for (let i = 0; i < 8; i++) {
                 hasLoginButton = await this.tabManager.executeScript(tabId, `
                     (function() {
                         try {
-                            // 主要检测方法：检测登录页面特有的元素
-                            const loginPageTitle = document.querySelector('.title-Y3NVRC .name-iixoUN');
-                            if (loginPageTitle && loginPageTitle.textContent.includes('抖音创作者中心·创作者')) {
-                                console.log('通过登录页面标题元素检测到登录界面');
-                                return true;
-                            }
-                            
-                            // 辅助检测：检测登录相关class容器
-                            if (document.querySelector('.title-Y3NVRC')) {
-                                console.log('通过登录页面容器元素检测到登录界面');
-                                return true;
-                            }
                             
                             // 备用检测方法：文本检测（保留原有逻辑）
                             const bodyText = document.body.textContent || '';
