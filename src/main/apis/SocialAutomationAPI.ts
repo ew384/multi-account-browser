@@ -36,7 +36,6 @@ export class SocialAutomationAPI {
         this.router.get('/deleteAccount', this.handleDeleteAccount.bind(this));
         this.router.post('/updateUserinfo', this.handleUpdateUserinfo.bind(this));
         this.router.post('/account', this.handleAddAccount.bind(this));
-         // 🔥 新增：手动验证账号API
         this.router.post('/validateAccount', this.handleValidateAccount.bind(this));
     }
     private setupPublishRecordRoutes(): void {
@@ -45,6 +44,8 @@ export class SocialAutomationAPI {
         this.router.get('/getPublishRecordDetail', this.handleGetPublishRecordDetail.bind(this));
         this.router.post('/deletePublishRecords', this.handleDeletePublishRecords.bind(this));
         this.router.get('/exportPublishRecords', this.handleExportPublishRecords.bind(this));
+        this.router.get('/getRepublishConfig', this.handleGetRepublishConfig.bind(this));
+        this.router.post('/republishVideo', this.handleRepublishVideo.bind(this));
     }
     private setupGroupRoutes(): void {
         // 分组管理API
@@ -806,7 +807,12 @@ export class SocialAutomationAPI {
                 videosPerDay,
                 dailyTimes,
                 startDays,
-                mode = 'background'
+                mode = 'background',
+                description,
+                original,
+                statement,
+                douyin_location,
+                wechat_location
             } = req.body;
 
             console.log(`📤 接收到视频发布请求:`);
@@ -845,18 +851,7 @@ export class SocialAutomationAPI {
                 return;
             }
             
-            // 🔥 保存封面截图
-            if (thumbnail && thumbnail.startsWith('data:image/')) {
-                for (const videoFile of fileList) {
-                    const coverPath = await PublishRecordStorage.saveCoverScreenshot(
-                        thumbnail, 
-                        videoFile
-                    );
-                    if (coverPath) {
-                        savedCoverPaths.push(coverPath);
-                    }
-                }
-            }
+
             
             // 🔥 1. 创建发布记录
             const publishRecordData = {
@@ -874,7 +869,35 @@ export class SocialAutomationAPI {
                 total_accounts: accountList.length,
                 success_accounts: 0,
                 failed_accounts: 0,
-                created_by: 'system'
+                created_by: 'system',
+                // 保存完整的发布配置
+                publish_config: {
+                    title: title || '',
+                    description: description || '',
+                    tags: Array.isArray(tags) ? tags : (tags ? [tags] : []),
+                    thumbnail: thumbnail || '',
+                    location: location || '',
+                    enableTimer: Boolean(enableTimer),
+                    videosPerDay: videosPerDay || 1,
+                    dailyTimes: dailyTimes || ['10:00'],
+                    startDays: startDays || 0,
+                    category: category || 0,
+                    mode: mode,
+                    original: Boolean(original !== false), // 默认为 true
+                    platformSpecific: {
+                        douyin: {
+                            statement: statement || '无需声明',
+                            location: douyin_location || location || ''
+                        },
+                        wechat: {
+                            original: Boolean(original !== false),
+                            location: wechat_location || location || ''
+                        }
+                    }
+                },
+                
+                // 🔥 保存原始请求数据用于重新发布
+                original_request_data: req.body
             };
         
             const recordResult = PublishRecordStorage.savePublishRecord(publishRecordData);
@@ -936,7 +959,18 @@ export class SocialAutomationAPI {
             // 🔥 4. 执行批量上传，传递 recordId
             console.log(`🚀 开始执行批量上传，记录ID: ${recordId}`);
             const uploadResults = await this.automationEngine.batchUpload(batchRequest, recordId);
-
+            // 🔥 保存封面截图
+            if (thumbnail && thumbnail.startsWith('data:image/')) {
+                for (const videoFile of fileList) {
+                    const coverPath = await PublishRecordStorage.saveCoverScreenshot(
+                        thumbnail, 
+                        videoFile
+                    );
+                    if (coverPath) {
+                        savedCoverPaths.push(coverPath);
+                    }
+                }
+            }
             // 🔥 5. 统计结果
             const successCount = uploadResults.filter(r => r.success).length;
             const failedCount = uploadResults.length - successCount;
@@ -992,7 +1026,77 @@ export class SocialAutomationAPI {
             this.sendResponse(res, 500, `发布失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
         }
     }
+    // 3. 新增：获取重新发布配置
+    private async handleGetRepublishConfig(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const recordId = parseInt(req.query.id as string);
+            const mode = req.query.mode as string; // 'all' 或 'failed'
 
+            if (!recordId || isNaN(recordId)) {
+                this.sendResponse(res, 400, '发布记录ID不能为空', null);
+                return;
+            }
+
+            const result = await PublishRecordStorage.getRepublishConfig(recordId, mode);
+
+            if (result.success) {
+                this.sendResponse(res, 200, result.message, result.data);
+            } else {
+                this.sendResponse(res, 404, result.message, null);
+            }
+
+        } catch (error) {
+            console.error('❌ 获取重新发布配置失败:', error);
+            this.sendResponse(res, 500, `获取配置失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
+        }
+    }
+
+    // 4. 新增：重新发布接口
+    private async handleRepublishVideo(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const { recordId, mode, selectedAccounts } = req.body;
+
+            if (!recordId) {
+                this.sendResponse(res, 400, '发布记录ID不能为空', null);
+                return;
+            }
+
+            // 获取重新发布配置
+            const configResult = await PublishRecordStorage.getRepublishConfig(recordId, mode);
+            if (!configResult.success) {
+                this.sendResponse(res, 404, configResult.message, null);
+                return;
+            }
+
+            const config = configResult.data;
+            
+            // 过滤账号（如果提供了selectedAccounts）
+            let targetAccounts = config.accounts;
+            if (selectedAccounts && Array.isArray(selectedAccounts)) {
+                targetAccounts = config.accounts.filter((account: any) => 
+                    selectedAccounts.includes(account.accountName)
+                );
+            }
+
+            // 构造新的发布请求
+            const republishRequest = {
+                ...config.originalRequest,
+                accountList: targetAccounts,
+                // 可以让用户选择是否修改标题
+                title: `${config.originalRequest.title} (重新发布)`
+            };
+
+            console.log(`🔄 开始重新发布: 记录${recordId}, 模式${mode}, 账号数${targetAccounts.length}`);
+
+            // 调用原有的发布逻辑（复用 handlePostVideo 的核心逻辑）
+            req.body = republishRequest;
+            await this.handlePostVideo(req, res);
+
+        } catch (error) {
+            console.error('❌ 重新发布失败:', error);
+            this.sendResponse(res, 500, `重新发布失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
+        }
+    }
     /**
      * 🔥 批量视频发布 - 对应 Python 的 postVideoBatch
      */

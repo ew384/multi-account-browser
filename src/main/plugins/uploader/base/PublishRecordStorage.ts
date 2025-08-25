@@ -22,8 +22,74 @@ export interface PublishRecordData {
     failed_accounts: number;
     duration?: number;               // 耗时(秒)
     created_by?: string;             // 发布人
+    cover_screenshots?: string[];    // 封面截图
+    publish_config?: {               // 发布配置
+        title: string;
+        description: string;
+        tags: string[];
+        thumbnail: string;
+        location: string;
+        enableTimer: boolean;
+        videosPerDay: number;
+        dailyTimes: string[];
+        startDays: number;
+        category: number;
+        mode: string;
+        original: boolean;
+        platformSpecific: {
+            douyin: {
+                statement: string;
+                location: string;
+            };
+            wechat: {
+                original: boolean;
+                location: string;
+            };
+        };
+    };
+    original_request_data?: any;     // 原始请求数据
 }
-
+export interface PublishConfig {
+    title: string;
+    description: string;
+    tags: string[];
+    thumbnail: string;
+    location: string;
+    enableTimer: boolean;
+    videosPerDay: number;
+    dailyTimes: string[];
+    startDays: number;
+    category: number;
+    mode: string;
+    original: boolean;
+    platformSpecific: {
+        douyin: {
+            statement: string;
+            location: string;
+        };
+        wechat: {
+            original: boolean;
+            location: string;
+        };
+    };
+}
+export interface RepublishConfigResponse {
+    recordId: number;
+    title: string;
+    videoFiles: string[];
+    coverScreenshots: string[];
+    accounts: Array<{
+        accountName: string;
+        platform: string;
+        filePath: string;
+        accountId?: string;
+    }>;
+    publishConfig: PublishConfig | null;
+    originalRequest: any;
+    platformType: number;
+    mode: string;
+    accountCount: number;
+}
 export interface PublishRecordFilters {
     publisher?: string;              // 发布人筛选
     content_type?: string;           // 内容类型筛选 
@@ -124,7 +190,9 @@ export class PublishRecordStorage {
                 duration INTEGER DEFAULT 0,      -- 耗时(秒)
                 created_by TEXT DEFAULT 'system',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                publish_config TEXT,              -- JSON存储完整的发布配置
+                original_request_data TEXT        -- JSON存储原始请求数据，用于重新发布
             )
         `);
 
@@ -267,7 +335,9 @@ export class PublishRecordStorage {
                 success_accounts,
                 failed_accounts,
                 duration = 0,
-                created_by = 'system'
+                created_by = 'system',
+                publish_config,
+                original_request_data
             } = recordData;
 
             const currentTime = new Date().toISOString();
@@ -279,8 +349,9 @@ export class PublishRecordStorage {
                     INSERT INTO publish_records (
                         title, video_files, account_list, cover_screenshots, platform_type, status,
                         total_accounts, success_accounts, failed_accounts,
-                        start_time, end_time, duration, created_by, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        start_time, end_time, duration, created_by, updated_at,
+                        publish_config, original_request_data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `);
 
                 const result = insertRecord.run(
@@ -297,7 +368,9 @@ export class PublishRecordStorage {
                     status !== 'pending' ? currentTime : null,
                     duration,
                     created_by,
-                    currentTime
+                    currentTime,
+                    publish_config ? JSON.stringify(publish_config) : null,  // 🔥 新增
+                    original_request_data ? JSON.stringify(original_request_data) : null 
                 );
 
                 const recordId = result.lastInsertRowid as number;
@@ -338,7 +411,123 @@ export class PublishRecordStorage {
             };
         }
     }
+    /**
+     * 🔥 新增：获取重新发布配置
+     */
+    static getRepublishConfig(recordId: number, mode: string = 'all'): { success: boolean, message: string, data?: any } {
+        try {
+            const db = this.getDatabase();
 
+            // 获取发布记录
+            const recordStmt = db.prepare(`
+                SELECT id, title, video_files, account_list, cover_screenshots, 
+                    publish_config, original_request_data, platform_type
+                FROM publish_records 
+                WHERE id = ?
+            `);
+            const record = recordStmt.get(recordId) as any;
+
+            if (!record) {
+                return { success: false, message: "发布记录不存在" };
+            }
+
+            // 获取账号状态
+            const statusStmt = db.prepare(`
+                SELECT account_name, platform, status, error_message
+                FROM publish_account_status 
+                WHERE record_id = ?
+            `);
+            const accountStatuses = statusStmt.all(recordId) as any[];
+
+            // 根据模式过滤账号
+            let targetAccounts = JSON.parse(record.account_list);
+            
+            if (mode === 'failed') {
+                const failedAccountNames = accountStatuses
+                    .filter(status => status.status === 'failed')
+                    .map(status => status.account_name);
+                
+                targetAccounts = targetAccounts.filter((account: any) => 
+                    failedAccountNames.includes(account.accountName)
+                );
+            }
+
+            if (targetAccounts.length === 0) {
+                return { 
+                    success: false, 
+                    message: mode === 'failed' ? "没有发布失败的账号" : "没有可重新发布的账号" 
+                };
+            }
+
+            // 构造返回数据
+            const configData = {
+                recordId: record.id,
+                title: record.title,
+                videoFiles: JSON.parse(record.video_files),
+                coverScreenshots: record.cover_screenshots ? JSON.parse(record.cover_screenshots) : [],
+                accounts: targetAccounts,
+                publishConfig: record.publish_config ? JSON.parse(record.publish_config) : null,
+                originalRequest: record.original_request_data ? JSON.parse(record.original_request_data) : null,
+                platformType: record.platform_type,
+                mode: mode,
+                accountCount: targetAccounts.length
+            };
+
+            return {
+                success: true,
+                message: `找到 ${targetAccounts.length} 个${mode === 'failed' ? '失败' : ''}账号可重新发布`,
+                data: configData
+            };
+
+        } catch (error) {
+            console.error('❌ 获取重新发布配置失败:', error);
+            return {
+                success: false,
+                message: `获取配置失败: ${error instanceof Error ? error.message : 'unknown error'}`
+            };
+        }
+    }
+
+    /**
+     * 🔥 新增：获取可重新发布的账号统计
+     */
+    static getRepublishStats(recordId: number): { 
+        total: number, 
+        failed: number, 
+        success: number,
+        canRepublishAll: boolean,
+        canRepublishFailed: boolean 
+    } {
+        try {
+            const db = this.getDatabase();
+            
+            const stmt = db.prepare(`
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success
+                FROM publish_account_status 
+                WHERE record_id = ?
+            `);
+            
+            const stats = stmt.get(recordId) as any;
+            
+            return {
+                total: stats.total || 0,
+                failed: stats.failed || 0,
+                success: stats.success || 0,
+                canRepublishAll: stats.total > 0,
+                canRepublishFailed: (stats.failed || 0) > 0
+            };
+            
+        } catch (error) {
+            console.error('❌ 获取重新发布统计失败:', error);
+            return {
+                total: 0, failed: 0, success: 0,
+                canRepublishAll: false, canRepublishFailed: false
+            };
+        }
+    }
     /**
      * 🔥 获取发布记录列表
      */
