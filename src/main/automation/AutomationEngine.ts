@@ -315,15 +315,6 @@ export class AutomationEngine {
             // 🔥 步骤2：等待页面加载
             console.log(`⏳ 等待页面加载完成...`);
             await new Promise(resolve => setTimeout(resolve, 3000));
-            
-
-            
-            if (recordId) {
-                await this.updateUploadProgress(recordId, accountName, {
-                    status: 'uploading',
-                    upload_status: '上传中'
-                });
-            }
 
             const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, params.platform);
             if (!uploader) {
@@ -366,14 +357,23 @@ export class AutomationEngine {
                     console.warn(`⚠️ ${params.platform} 上传超时，URL未跳转`);
                 }
             }else{
-                // 🔥 步骤3：Validator 专注验证逻辑
+                // 🔥 步骤5：Validator 专注验证逻辑
                 const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, params.platform);
                 if (validator) {
                     const isValid = await validator.validateTab(tabId);
                     
                     if (!isValid) {
                         console.warn(`❌ 账号验证失败，Cookie已失效: ${params.platform}`);
-                        
+                        // 🔥 通知前端账号失效状态
+                        if (recordId) {
+                            await this.updateUploadProgress(recordId, accountName, {
+                                status: 'failed',
+                                upload_status: '账号已失效',
+                                push_status: '推送失败',
+                                review_status: '发布失败',
+                                error_message: '账号已失效，请重新登录'
+                            });
+                        }                        
                         // 🔥 AutomationEngine 负责立即关闭失效的Tab
                         try {
                             await this.tabManager.closeTab(tabId);
@@ -866,17 +866,18 @@ export class AutomationEngine {
         }
     }
 
-    async validateAccount(platform: string, cookieFile: string): Promise<boolean> {
+    async validateAccount(platform: string, cookieFile: string, headless: boolean = true, tabClose: boolean = true): Promise<boolean> {
         let tabId: string | null = null;
         
         try {
-            // 🔥 使用统一的URL
+            // 使用传入的 headless 参数
             tabId = await this.tabManager.createAccountTab(
                 cookieFile,
                 platform,
-                this.getPlatformUrl(platform), // 使用统一方法
-                true // headless模式
+                this.getPlatformUrl(platform),
+                headless // 使用参数而不是硬编码的 true
             );
+
             const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, platform);
             if (!validator) {
                 console.warn(`⚠️ 平台 ${platform} 暂不支持验证功能`);
@@ -885,7 +886,7 @@ export class AutomationEngine {
 
             const isValid = await validator.validateTab(tabId);
 
-            // 2. 统一处理数据库更新
+            // 统一处理数据库更新
             const currentTime = new Date().toISOString();
             await AccountStorage.updateValidationStatus(cookieFile, isValid, currentTime);
 
@@ -903,9 +904,9 @@ export class AutomationEngine {
             }
 
             return false;
-        }finally {
-            // AutomationEngine 统一负责Tab关闭
-            if (tabId) {
+        } finally {
+            // 根据 tabClose 参数决定是否关闭Tab
+            if (tabId && tabClose) {
                 try {
                     await this.tabManager.closeTab(tabId);
                 } catch (closeError) {

@@ -1559,9 +1559,9 @@ export class AccountStorage {
     }
 
     /**
-     * 🔥 根据ID获取单个账号信息
+     * 🔥 根据ID获取单个账号信息 - 返回标准格式
      */
-    static getAccountById(accountId: number): any | null {
+    static getAccountById(accountId: number): { success: boolean, message: string, data?: any } {
         try {
             const db = this.getDatabase();
 
@@ -1572,11 +1572,26 @@ export class AccountStorage {
             `);
             
             const account = stmt.get(accountId);
-            return account || null;
+            
+            if (!account) {
+                return {
+                    success: false,
+                    message: `账号不存在: ID ${accountId}`
+                };
+            }
+
+            return {
+                success: true,
+                message: '账号找到',
+                data: account
+            };
 
         } catch (error) {
             console.error('❌ 获取账号信息失败:', error);
-            return null;
+            return {
+                success: false,
+                message: `查找失败: ${error instanceof Error ? error.message : 'unknown error'}`
+            };
         }
     }
 

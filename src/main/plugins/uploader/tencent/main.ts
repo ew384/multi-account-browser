@@ -19,19 +19,15 @@ export class WeChatVideoUploader implements PluginUploader {
             console.log(`🎭 开始微信视频号完整上传流程... (${params.title})`);
             // 1. 文件上传
             await this.uploadFile(params.filePath, tabId);
-            const uploadStarted = await this.verifyUploadStarted(tabId);
-            if (!uploadStarted) {
-                throw new Error("文件上传验证失败");
-            }
-
+            //const uploadStarted = await this.verifyUploadStarted(tabId);
+            //if (!uploadStarted) {
+            //    throw new Error("文件上传验证失败");
+            //}
             // 2. 等待视频处理
-            await this.waitForVideoProcessing(tabId);
-
+            //await this.waitForVideoProcessing(tabId);
             // 3. 填写标题和标签
             await this.addTitleAndTags(params.title, params.tags, tabId);
-
-            // 4: 等待上传完全完成
-            await this.detectUploadStatusWithTimeout(tabId);
+            // 4. 填写地点
             if (params.location) {
                 await this.setLocation(tabId, params.location);
             }
@@ -51,10 +47,11 @@ export class WeChatVideoUploader implements PluginUploader {
                 await this.setScheduleTime(params.publishDate, tabId);
             }
             // 8: 设置封面（如果有）
-            if (params.thumbnailPath) {
-                await this.setThumbnail(tabId, params.thumbnailPath);
-            }
-
+            //if (params.thumbnailPath) {
+            //    await this.setThumbnail(tabId, params.thumbnailPath);
+            //}
+            // 9: 等待上传完全完成
+            await this.detectUploadStatusWithTimeout(tabId);
             // 9. 发布
             await this.clickPublish(tabId);
 
@@ -75,10 +72,8 @@ export class WeChatVideoUploader implements PluginUploader {
         if (!elementReady) {
             throw new Error('页面wujie-app元素加载超时');
         }
-        console.log('✅ wujie-app元素已加载');
 
         // 🔥 步骤2：等待Shadow DOM准备好（新增）
-        console.log('⏳ 等待Shadow DOM完全准备...');
         const shadowReady = await this.waitForShadowDOMReady(tabId);
         if (!shadowReady) {
             throw new Error('Shadow DOM准备超时');
@@ -86,16 +81,12 @@ export class WeChatVideoUploader implements PluginUploader {
         console.log('✅ Shadow DOM已准备好');
 
         // 🔥 步骤3：等待文件输入框出现（新增）
-        console.log('⏳ 等待文件输入框准备...');
+
         const inputReady = await this.waitForFileInput(tabId);
         if (!inputReady) {
             throw new Error('文件输入框准备超时');
         }
         console.log('✅ 文件输入框已准备好');
-
-        // 🔥 步骤4：参考Python的稳定等待
-        console.log('⏳ 稳定等待0.1秒...');
-        await new Promise(resolve => setTimeout(resolve, 100));
 
         // 🔥 步骤5：开始文件上传
         console.log('🚀 开始流式文件上传...');

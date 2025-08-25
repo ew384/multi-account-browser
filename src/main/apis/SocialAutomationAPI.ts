@@ -11,7 +11,6 @@ export class SocialAutomationAPI {
     private router: express.Router;
     private automationEngine: AutomationEngine;
 
-
     constructor(automationEngine: AutomationEngine) {
         this.router = express.Router();
         this.automationEngine = automationEngine;
@@ -1185,18 +1184,12 @@ private async handleGetPublishRecordStats(req: express.Request, res: express.Res
      */
     private async handleValidateAccount(req: express.Request, res: express.Response): Promise<void> {
         try {
-            const { accountId, platform, cookieFile } = req.body;
+            const { accountId, headless = true, tabClose = true } = req.body;
 
-            // 参数验证
-            if (!accountId && !cookieFile) {
-                this.sendResponse(res, 400, '需要提供 accountId 或 cookieFile', null);
-                return;
-            }
-
-            let targetPlatform = platform;
-            let targetCookieFile = cookieFile;
-
-            // 如果提供了accountId，从数据库获取信息
+            let targetPlatform: string;
+            let targetCookieFile: string;
+            console.log('accountId:', accountId);
+            // 方式1: 直接提供accountId
             if (accountId) {
                 const account = await AccountStorage.getAccountById(accountId);
                 if (!account.success) {
@@ -1207,24 +1200,25 @@ private async handleGetPublishRecordStats(req: express.Request, res: express.Res
                 targetPlatform = AccountStorage.getPlatformName(account.data.type);
                 targetCookieFile = account.data.filePath;
             }
-
-            if (!targetPlatform || !targetCookieFile) {
-                this.sendResponse(res, 400, 'platform 和 cookieFile 不能为空', null);
+            else {
+                this.sendResponse(res, 400, '需要提供 accountId', null);
                 return;
             }
 
-            console.log(`🔍 手动验证账号: ${targetPlatform} - ${targetCookieFile}`);
+            console.log(`🔍 手动验证账号: ${targetPlatform} - ${targetCookieFile}, headless: ${headless}, tabClose: ${tabClose}`);
 
-            // 调用验证引擎
-            const isValid = await this.automationEngine.validateAccount(targetPlatform, targetCookieFile);
+            // 调用验证引擎，传入新参数
+            const isValid = await this.automationEngine.validateAccount(targetPlatform, targetCookieFile, headless, tabClose);
 
             // 返回验证结果
             this.sendResponse(res, 200, `验证完成: 账号${isValid ? '有效' : '无效'}`, {
                 platform: targetPlatform,
                 cookieFile: targetCookieFile,
+                userName: accountId,
                 isValid: isValid,
                 status: isValid ? '正常' : '异常',
-                validateTime: new Date().toISOString()
+                validateTime: new Date().toISOString(),
+                tabOpened: !tabClose
             });
 
         } catch (error) {
