@@ -316,58 +316,7 @@ export class AutomationEngine {
             console.log(`⏳ 等待页面加载完成...`);
             await new Promise(resolve => setTimeout(resolve, 3000));
             
-            // 🔥 步骤3：Validator 专注验证逻辑
-            const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, params.platform);
-            if (validator) {
-                if (recordId) {
-                    await this.updateUploadProgress(recordId, accountName, {
-                        status: 'uploading',
-                        upload_status: '验证账号中'
-                    });
-                }
-                const isValid = await validator.validateTab(tabId);
-                
-                if (!isValid) {
-                    console.warn(`❌ 账号验证失败，Cookie已失效: ${params.platform}`);
-                    
-                    // 🔥 AutomationEngine 负责立即关闭失效的Tab
-                    try {
-                        await this.tabManager.closeTab(tabId);
-                        console.log(`🗑️ 已关闭失效账号的Tab: ${tabId}`);
-                        tabId = null; // 避免finally重复关闭
-                    } catch (closeError) {
-                        console.warn(`⚠️ 关闭失效Tab失败:`, closeError);
-                    }
-                    
-                    // 🔥 立即更新数据库状态为无效
-                    const currentTime = new Date().toISOString();
-                    await AccountStorage.updateValidationStatus(params.cookieFile, false, currentTime);                 
-                    // 🔥 更新上传进度状态
-                    if (recordId) {
-                        await this.updateUploadProgress(recordId, accountName, {
-                            status: 'failed',
-                            upload_status: '账号已失效',
-                            push_status: '推送失败',
-                            review_status: '发布失败',
-                            error_message: 'Cookie已失效，需要重新登录'
-                        });
-                    }
-                    
-                    return {
-                        success: false,
-                        error: '账号已失效，请重新登录',
-                        file: params.filePath,
-                        account: accountName,
-                        platform: params.platform,
-                        uploadTime: startTime
-                    };
-                }
-            } else {
-                console.warn(`⚠️ 未找到 ${params.platform} 平台的验证器，跳过验证`);
-            }
 
-            // 🔥 步骤4：账号正常，继续上传流程
-            console.log(`✅ 账号验证通过，开始上传流程`);
             
             if (recordId) {
                 await this.updateUploadProgress(recordId, accountName, {
@@ -380,59 +329,77 @@ export class AutomationEngine {
             if (!uploader) {
                 throw new Error(`不支持的平台: ${params.platform}`);
             }
-
+            if (recordId) {
+                await this.updateUploadProgress(recordId, accountName, {
+                    status: 'uploading',
+                    upload_status: '上传成功',
+                    push_status: '推送中'
+                });
+            }
             // 🔥 调用uploader，传递已验证的tabId
-            const result = await uploader.uploadVideoComplete(params, tabId);
-            
+            const result = await uploader.uploadVideoComplete(params, tabId);            
             if (result.success && result.tabId) {
-                tabId = result.tabId;
-                
+                tabId = result.tabId;                
                 // 🔥 步骤3：上传完成，开始推送
                 if (recordId) {
                     await this.updateUploadProgress(recordId, accountName, {
-                        status: 'uploading',
+                        status: 'success',
                         upload_status: '上传成功',
-                        push_status: '推送中'
+                        push_status: '推送成功',
+                        review_status: '发布成功'
                     });
-                }
-                
+                }                
                 // 🔥 步骤4：等待URL跳转（推送完成）
                 console.log(`⏳ 等待 ${params.platform} 上传完成，监听URL跳转...`);
-                try {
-                    const urlChanged = await this.tabManager.waitForUrlChange(tabId, 300000);
-                    
-                    if (urlChanged) {
-                        // 🔥 步骤5：推送成功，进入审核
-                        if (recordId) {
-                            await this.updateUploadProgress(recordId, accountName, {
-                                status: 'success',
-                                upload_status: '上传成功',
-                                push_status: '推送成功',
-                                review_status: '发布成功'
-                            });
-                        }
-                        console.log(`✅ ${params.platform} 视频发布成功，URL已跳转`);
-                    } else {
-                        // 推送超时
-                        if (recordId) {
-                            await this.updateUploadProgress(recordId, accountName, {
-                                push_status: '推送超时',
-                                review_status: '状态未知'
-                            });
-                        }
-                        console.warn(`⚠️ ${params.platform} 上传超时，URL未跳转`);
-                    }
-                } catch (urlWaitError) {
+                const urlChanged = await this.tabManager.waitForUrlChange(tabId, 200000);                    
+                if (urlChanged) {
+                    // 🔥 步骤5：推送成功，进入审核
+                    console.log(`✅ ${params.platform} 视频发布成功，URL已跳转`);
+                } else {
+                    // 推送超时
                     if (recordId) {
                         await this.updateUploadProgress(recordId, accountName, {
-                            push_status: '推送异常',
-                            review_status: '发布失败'
+                            push_status: '推送超时',
+                            review_status: '状态未知'
                         });
                     }
-                    console.error(`❌ 等待URL跳转异常:`, urlWaitError);
+                    console.warn(`⚠️ ${params.platform} 上传超时，URL未跳转`);
+                }
+            }else{
+                // 🔥 步骤3：Validator 专注验证逻辑
+                const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, params.platform);
+                if (validator) {
+                    const isValid = await validator.validateTab(tabId);
+                    
+                    if (!isValid) {
+                        console.warn(`❌ 账号验证失败，Cookie已失效: ${params.platform}`);
+                        
+                        // 🔥 AutomationEngine 负责立即关闭失效的Tab
+                        try {
+                            await this.tabManager.closeTab(tabId);
+                            console.log(`🗑️ 已关闭失效账号的Tab: ${tabId}`);
+                            tabId = null; // 避免finally重复关闭
+                        } catch (closeError) {
+                            console.warn(`⚠️ 关闭失效Tab失败:`, closeError);
+                        }
+                        
+                        // 🔥 立即更新数据库状态为无效
+                        const currentTime = new Date().toISOString();
+                        await AccountStorage.updateValidationStatus(params.cookieFile, false, currentTime);                    
+                        
+                        return {
+                            success: false,
+                            error: '账号已失效，请重新登录',
+                            file: params.filePath,
+                            account: accountName,
+                            platform: params.platform,
+                            uploadTime: startTime
+                        };
+                    }
+                } else {
+                    console.warn(`⚠️ 未找到 ${params.platform} 平台的验证器，跳过验证`);
                 }
             }
-            
             return {
                 success: result.success,
                 error: result.success ? undefined : '上传失败',
