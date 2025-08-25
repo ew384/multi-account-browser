@@ -1249,11 +1249,11 @@ export class AccountStorage {
             const db = this.getDatabase();
 
             //const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-            const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+            const tenHoursAgo = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
             // 🔥 添加调试日志
             console.log('🕐 当前时间:', new Date().toISOString());
             //console.log('🕐 30分钟前:', thirtyMinutesAgo);
-            console.log('🕐 4小时前:', fourHoursAgo);
+            console.log('🕐10小时前:', tenHoursAgo);
             const stmt = db.prepare(`
                 SELECT 
                     id, type, filePath, userName,
@@ -1268,7 +1268,7 @@ export class AccountStorage {
             `);
             
             //const accounts = stmt.all(thirtyMinutesAgo) as any[];
-            const accounts = stmt.all(fourHoursAgo) as any[];
+            const accounts = stmt.all(tenHoursAgo) as any[];
             // 🔥 添加详细调试日志
             console.log('📊 需要验证的账号数量:', accounts.length);
             accounts.forEach(acc => {
