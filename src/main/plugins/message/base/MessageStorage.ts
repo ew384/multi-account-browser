@@ -659,7 +659,7 @@ export class MessageStorage {
         const endIndex = insertRange?.end || allMessages.length;
         const insertCount = endIndex - startIndex;
         
-        console.log(`🔧 addMessagesSync: 线程${threadId}, 插入第${startIndex+1}-${endIndex}条消息 (共${insertCount}条)`);
+        //console.log(`🔧 addMessagesSync: 线程${threadId}, 插入第${startIndex+1}-${endIndex}条消息 (共${insertCount}条)`);
         
         if (insertCount <= 0) {
             console.log(`⏭️ 无消息需要插入`);
@@ -690,7 +690,7 @@ export class MessageStorage {
                     const contentHash = this.generateStableHistoryFingerprint(allMessages, i, threadId);
                     const contentType = message.images ? (message.text ? 'mixed' : 'image') : 'text';
                     
-                    // 🔥 详细打印即将插入的消息信息
+                    /*
                     console.log(`\n📝 准备插入第${i+1}条消息:`);
                     console.log(`   索引: ${i}`);
                     console.log(`   发送者: ${message.sender}`);
@@ -701,7 +701,7 @@ export class MessageStorage {
                     console.log(`   内容Hash: ${contentHash}`);
                     console.log(`   时间戳: ${timestamp}`);
                     console.log(`   是否已读: ${message.is_read ? 1 : 0}`);
-                    
+                    */
                     // 🔥 检查是否可能有重复hash
                     const existingCheck = db.prepare(`
                         SELECT id, text_content FROM messages 
@@ -740,16 +740,16 @@ export class MessageStorage {
                     insertedIds.push(insertedId);
                     actualInsertCount++;
                     
-                    console.log(`   ✅ 插入成功! 新ID: ${insertedId}`);
+                    //console.log(`   ✅ 插入成功! 新ID: ${insertedId}`);
                     
                     // 🔥 验证插入是否真的成功
-                    const verifyStmt = db.prepare(`SELECT id, text_content FROM messages WHERE id = ?`);
-                    const verified = verifyStmt.get(insertedId) as {id: number; text_content: string} | undefined;
-                    if (verified) {
-                        console.log(`   ✅ 验证成功: 数据库中确实存在ID=${verified.id}的记录`);
-                    } else {
-                        console.log(`   ❌ 验证失败: 插入后在数据库中找不到记录!`);
-                    }
+                    //const verifyStmt = db.prepare(`SELECT id, text_content FROM messages WHERE id = ?`);
+                    //const verified = verifyStmt.get(insertedId) as {id: number; text_content: string} | undefined;
+                    //if (verified) {
+                    //    console.log(`   ✅ 验证成功: 数据库中确实存在ID=${verified.id}的记录`);
+                    //} else {
+                    //    console.log(`   ❌ 验证失败: 插入后在数据库中找不到记录!`);
+                    //}
                     
                 } catch (error) {
                     // 🔥 详细记录失败信息

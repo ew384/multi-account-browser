@@ -442,15 +442,15 @@ export class WeChatChannelsMessage implements PluginMessage {
         message?: string;  // 新增message字段
     } {
         try {
-            console.log('📊 脚本返回的原始数据:', JSON.stringify(scriptResult, null, 2));
-            console.log('📊 数据类型:', typeof scriptResult);
+            //console.log('📊 脚本返回的原始数据:', JSON.stringify(scriptResult, null, 2));
+            //console.log('📊 数据类型:', typeof scriptResult);
             
             // 如果脚本结果直接是解析好的对象
             if (scriptResult && typeof scriptResult === 'object') {
                 // 🔥 新增：检查是否是"无用户"的成功情况
                 if (Array.isArray(scriptResult.users)) {
                     if (scriptResult.users.length === 0 && scriptResult.message) {
-                        console.log('✅ 账号无私信用户:', scriptResult.message);
+                        //console.log('✅ 账号无私信用户:', scriptResult.message);
                         return {
                             success: true,
                             users: [],
@@ -472,7 +472,7 @@ export class WeChatChannelsMessage implements PluginMessage {
 
             // 如果脚本结果是字符串，尝试解析
             if (typeof scriptResult === 'string') {
-                console.log('📝 尝试解析字符串数据...');
+                //console.log('📝 尝试解析字符串数据...');
                 const parsed = JSON.parse(scriptResult);
                 
                 // 🔥 新增：检查解析后的"无用户"情况

@@ -83,7 +83,7 @@ export class SocialAutomationAPI {
     }
     // ==================== 账号管理相关处理方法 ====================
     /**
-     * 🔥 获取带分组信息的账号列表 - 对应 Python 的 getAccountsWithGroups
+     * 🔥 获取带分组信息的账号列表 - getAccountsWithGroups
      */
     private async handleGetAccountsWithGroups(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -99,7 +99,7 @@ export class SocialAutomationAPI {
     }
 
     /**
-     * 🔥 删除账号 - 对应 Python 的 delete_account
+     * 🔥 删除账号 - delete_account
      */
     private async handleDeleteAccount(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -126,7 +126,7 @@ export class SocialAutomationAPI {
     }
 
     /**
-     * 🔥 更新账号信息 - 对应 Python 的 updateUserinfo
+     * 🔥 更新账号信息 - updateUserinfo
      */
     private async handleUpdateUserinfo(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -207,7 +207,7 @@ export class SocialAutomationAPI {
     // ==================== 分组管理相关处理方法 ====================
 
     /**
-     * 🔥 获取所有分组 - 对应 Python 的 get_groups
+     * 🔥 获取所有分组 - get_groups
      */
     private async handleGetGroups(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -226,7 +226,7 @@ export class SocialAutomationAPI {
     }
 
     /**
-     * 🔥 创建分组 - 对应 Python 的 create_group
+     * 🔥 创建分组 - create_group
      */
     private async handleCreateGroup(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -255,7 +255,7 @@ export class SocialAutomationAPI {
     }
 
     /**
-     * 🔥 更新分组 - 对应 Python 的 update_group
+     * 🔥 更新分组 - update_group
      */
     private async handleUpdateGroup(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -284,7 +284,7 @@ export class SocialAutomationAPI {
     }
 
     /**
-     * 🔥 删除分组 - 对应 Python 的 delete_group
+     * 🔥 删除分组 - delete_group
      */
     private async handleDeleteGroup(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -310,7 +310,7 @@ export class SocialAutomationAPI {
     }
 
     /**
-     * 🔥 更新账号分组 - 对应 Python 的 update_account_group
+     * 🔥 更新账号分组 - update_account_group
      */
     private async handleUpdateAccountGroup(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -338,7 +338,7 @@ export class SocialAutomationAPI {
     // ==================== 素材管理相关处理方法 ====================
 
     /**
-     * 🔥 获取所有素材文件 - 对应 Python 的 get_all_files
+     * 🔥 获取所有素材文件 - get_all_files
      */
     private async handleGetFiles(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -356,7 +356,7 @@ export class SocialAutomationAPI {
         }
     }
     /**
-     * 🔥 上传文件 - 对应 Python 的 upload
+     * 🔥 上传文件 - upload
      */
     private async handleUpload(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -389,7 +389,7 @@ export class SocialAutomationAPI {
         }
     }
     /**
-     * 🔥 上传保存素材文件 - 对应 Python 的 upload_save
+     * 🔥 上传保存素材文件 - upload_save
      */
     private async handleUploadSave(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -453,7 +453,7 @@ export class SocialAutomationAPI {
     }
 
     /**
-     * 🔥 删除素材文件 - 对应 Python 的 delete_file
+     * 🔥 删除素材文件 - delete_file
      */
     private async handleDeleteFile(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -480,7 +480,7 @@ export class SocialAutomationAPI {
     }
 
     /**
-     * 🔥 获取素材文件 - 对应 Python 的 get_file
+     * 🔥 获取素材文件 - get_file
      */
     private async handleGetFile(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -549,7 +549,7 @@ export class SocialAutomationAPI {
         }
     }    
     /**
-     * 🔥 获取最近上传的视频文件 - 对应 Python 的 get_recent_uploads
+     * 🔥 获取最近上传的视频文件 - get_recent_uploads
      */
     private async handleGetRecentUploads(req: express.Request, res: express.Response): Promise<void> {
         try {
@@ -788,7 +788,7 @@ export class SocialAutomationAPI {
 
     // ==================== 视频发布相关处理方法 ====================
     /**
-     * 🔥 视频发布 - 对应 Python 的 postVideo
+     * 🔥 视频发布 - postVideo
      */
     private async handlePostVideo(req: express.Request, res: express.Response): Promise<void> {
         let recordId: number | undefined = undefined;
@@ -917,7 +917,7 @@ export class SocialAutomationAPI {
             recordId = recordResult.data.recordId;
             console.log(`✅ 发布记录已创建: ID ${recordId}`);
 
-            // 🔥 2. 设置初始状态 - 添加类型检查
+            /*
             if (recordId !== undefined) {
                 for (const account of accountList) {
                     const statusData = {
@@ -929,7 +929,7 @@ export class SocialAutomationAPI {
 
                     await PublishRecordStorage.updateAccountPublishStatus(recordId, account.accountName, statusData);
                 }
-            }
+            }*/
 
             // 🔥 3. 构造批量上传请求
             const batchRequest = {
@@ -1213,7 +1213,7 @@ export class SocialAutomationAPI {
         }
     }
     /**
-     * 🔥 批量视频发布 - 对应 Python 的 postVideoBatch
+     * 🔥 批量视频发布 - postVideoBatch
      */
     private async handlePostVideoBatch(req: express.Request, res: express.Response): Promise<void> {
         try {
