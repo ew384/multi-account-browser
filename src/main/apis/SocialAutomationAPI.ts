@@ -851,7 +851,13 @@ export class SocialAutomationAPI {
                 return;
             }
             
-
+            let scheduledTime: string | undefined = undefined;
+            if (enableTimer && videosPerDay && dailyTimes && Array.isArray(dailyTimes) && dailyTimes.length > 0) {
+                const calculatedDate = this.calculatePublishDate(videosPerDay, dailyTimes, startDays);
+                if (calculatedDate) {
+                    scheduledTime = calculatedDate.toISOString();
+                }
+            }
             
             // 🔥 1. 创建发布记录
             const publishRecordData = {
@@ -897,7 +903,8 @@ export class SocialAutomationAPI {
                 },
                 
                 // 🔥 保存原始请求数据用于重新发布
-                original_request_data: req.body
+                original_request_data: req.body,
+                scheduled_time: scheduledTime,
             };
         
             const recordResult = PublishRecordStorage.savePublishRecord(publishRecordData);
@@ -1087,7 +1094,30 @@ export class SocialAutomationAPI {
 
             console.log(`🔄 开始重新发布: 记录${recordId}, 模式${mode}, 账号数${targetAccounts.length}`);
 
-            // 🔥 不调用 handlePostVideo，而是直接调用核心逻辑
+            // 🔥 处理定时发布时间
+            let scheduledTime: string | undefined = undefined;
+            if (config.publishConfig) {
+                const publishConfig = config.publishConfig;
+                
+                // 如果原来是定时发布，重新计算新的定时发布时间
+                if (publishConfig.enableTimer && 
+                    publishConfig.videosPerDay && 
+                    publishConfig.dailyTimes && 
+                    Array.isArray(publishConfig.dailyTimes) && 
+                    publishConfig.dailyTimes.length > 0) {
+                    
+                    const calculatedDate = this.calculatePublishDate(
+                        publishConfig.videosPerDay, 
+                        publishConfig.dailyTimes, 
+                        publishConfig.startDays || 0
+                    );
+                    
+                    if (calculatedDate) {
+                        scheduledTime = calculatedDate.toISOString();
+                        console.log('🔄 重新发布定时时间已设置:', calculatedDate.toLocaleString('zh-CN'));
+                    }
+                }
+            }
             // 创建发布记录
             const publishRecordData = {
                 title: republishRequest.title || '重新发布任务',
@@ -1105,7 +1135,8 @@ export class SocialAutomationAPI {
                 failed_accounts: 0,
                 created_by: 'system',
                 publish_config: config.publishConfig,
-                original_request_data: republishRequest
+                original_request_data: republishRequest,
+                scheduled_time: scheduledTime
             };
 
             const recordResult = PublishRecordStorage.savePublishRecord(publishRecordData);

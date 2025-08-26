@@ -49,6 +49,7 @@ export interface PublishRecordData {
         };
     };
     original_request_data?: any;     // 原始请求数据
+    scheduled_time?: string;         // 🔥 新增：定时发布时间
 }
 export interface PublishConfig {
     title: string;
@@ -193,7 +194,8 @@ export class PublishRecordStorage {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 publish_config TEXT,              -- JSON存储完整的发布配置
-                original_request_data TEXT        -- JSON存储原始请求数据，用于重新发布
+                original_request_data TEXT,        -- JSON存储原始请求数据，用于重新发布
+                scheduled_time DATETIME
             )
         `);
 
@@ -338,7 +340,8 @@ export class PublishRecordStorage {
                 duration = 0,
                 created_by = 'system',
                 publish_config,
-                original_request_data
+                original_request_data,
+                scheduled_time
             } = recordData;
 
             const currentTime = new Date().toISOString();
@@ -351,8 +354,8 @@ export class PublishRecordStorage {
                         title, video_files, account_list, cover_screenshots, platform_type, status,
                         total_accounts, success_accounts, failed_accounts,
                         start_time, end_time, duration, created_by, updated_at,
-                        publish_config, original_request_data
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        publish_config, original_request_data,scheduled_time
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `);
 
                 const result = insertRecord.run(
@@ -371,7 +374,8 @@ export class PublishRecordStorage {
                     created_by,
                     currentTime,
                     publish_config ? JSON.stringify(publish_config) : null,  // 🔥 新增
-                    original_request_data ? JSON.stringify(original_request_data) : null 
+                    original_request_data ? JSON.stringify(original_request_data) : null,
+                    scheduled_time ? scheduled_time: null
                 );
 
                 const recordId = result.lastInsertRowid as number;
