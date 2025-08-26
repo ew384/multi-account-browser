@@ -1083,7 +1083,7 @@ export class SocialAutomationAPI {
                 ...config.originalRequest,
                 accountList: targetAccounts,
                 // 可以让用户选择是否修改标题
-                title: `${config.originalRequest.title} (重新发布)`
+                title: `${config.originalRequest.title}`
             };
 
             console.log(`🔄 开始重新发布: 记录${recordId}, 模式${mode}, 账号数${targetAccounts.length}`);
