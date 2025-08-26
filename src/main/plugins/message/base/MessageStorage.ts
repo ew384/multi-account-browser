@@ -535,7 +535,7 @@ export class MessageStorage {
         try {
             const db = this.getDatabase();
             
-            console.log(`🔍 开始指纹边界检测: 分析 ${messages.length} 条消息...`);
+            //console.log(`🔍 开始指纹边界检测: 分析 ${messages.length} 条消息...`);
             
             let needSyncCount = 0;
             let boundaryIndex: number | undefined = undefined;
@@ -560,11 +560,11 @@ export class MessageStorage {
                 if (exists) {
                     // 🔥 找到边界
                     boundaryIndex = i;
-                    console.log(`📍 找到同步边界: 第 ${i + 1} 条消息已存在 (hash: ${messageHash.substring(0, 8)}...)`);
+                    //console.log(`📍 找到同步边界: 第 ${i + 1} 条消息已存在 (hash: ${messageHash.substring(0, 8)}...)`);
                     break;
                 } else {
                     needSyncCount++;
-                    console.log(`  ✅ 第 ${i + 1} 条消息需要同步: "${(message.text || '').substring(0, 20)}..."`);
+                    //console.log(`  ✅ 第 ${i + 1} 条消息需要同步: "${(message.text || '').substring(0, 20)}..."`);
                 }
             }
             
@@ -724,7 +724,7 @@ export class MessageStorage {
                     }
                     
                     // 🔥 执行插入
-                    console.log(`   🚀 执行SQL插入...`);
+                    //console.log(`   🚀 执行SQL插入...`);
                     const result = insertStmt.run(
                         threadId,
                         message.message_id || null,
@@ -775,6 +775,7 @@ export class MessageStorage {
         });
 
         transaction(); // 执行事务
+        /*
         // 🔥 详细汇总报告
         console.log(`\n📊 插入汇总报告:`);
         console.log(`   目标插入数量: ${insertCount}`);
@@ -785,7 +786,7 @@ export class MessageStorage {
         if (insertedIds.length > 0) {
             console.log(`   插入的ID列表: [${insertedIds.slice(0, 5).join(', ')}${insertedIds.length > 5 ? '...' : ''}]`);
         }
-        
+        */
         if (failedMessages.length > 0) {
             console.log(`\n❌ 失败消息详情:`);
             failedMessages.forEach((failed, idx) => {
@@ -795,18 +796,18 @@ export class MessageStorage {
                 console.log(`     发送者: ${failed.message.sender}`);
             });
         }
-        
+        /*
         // 🔥 最终数据库验证
         console.log(`\n🔍 最终数据库验证:`);
         const finalCount = db.prepare(`SELECT COUNT(*) as count FROM messages WHERE thread_id = ?`).get(threadId) as {count: number};
         console.log(`   线程${threadId}当前总消息数: ${finalCount.count}`);
-        
+        */
         // 线程状态更新
         if (actualInsertCount > 0) {
             const lastMessage = allMessages[endIndex - 1];
             const isFromUser = lastMessage.sender === 'user';
             
-            console.log(`🔄 准备更新线程状态: threadId=${threadId}, timestamp=${timestamp}, isFromUser=${isFromUser}`);
+            //console.log(`🔄 准备更新线程状态: threadId=${threadId}, timestamp=${timestamp}, isFromUser=${isFromUser}`);
             this.updateThreadStatus(threadId, timestamp, isFromUser);
             
             console.log(`📊 插入完成: ${actualInsertCount}/${insertCount}条消息成功，最后消息时间: ${timestamp}`);
@@ -941,7 +942,7 @@ export class MessageStorage {
                     const lastMessage = messages[messages.length - 1];
                     const isFromUser = lastMessage.sender === 'user';
                     this.updateThreadStatus(threadId, lastMessage.timestamp, isFromUser);
-                    console.log(`✅ 线程状态更新成功`);
+                    //console.log(`✅ 线程状态更新成功`);
                 } catch (updateError) {
                     console.warn(`⚠️ 线程状态更新失败，但消息插入成功:`, updateError);
                 }
@@ -1340,7 +1341,7 @@ export class MessageStorage {
                 console.warn('⚠️ 更新同步时间失败:', syncTimeError);
             }
 
-            console.log(`✅ 智能增量同步完成: 新消息 ${totalNewMessages} 条，更新线程 ${updatedThreads} 个`);
+            //console.log(`✅ 智能增量同步完成: 新消息 ${totalNewMessages} 条，更新线程 ${updatedThreads} 个`);
 
             return { newMessages: totalNewMessages, updatedThreads, errors };
 
