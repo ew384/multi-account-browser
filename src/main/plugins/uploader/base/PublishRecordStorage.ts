@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Config } from '../../../config/Config';
 import { globalDB } from '../../../config/DatabaseManager';
+
 // 🔥 发布记录相关类型定义
 export interface PublishRecordData {
     title: string;
@@ -411,8 +412,9 @@ export class PublishRecordStorage {
             };
         }
     }
+
     /**
-     * 🔥 新增：获取重新发布配置
+     * 🔥 修改：获取重新发布配置 - 动态获取最新账号信息
      */
     static getRepublishConfig(recordId: number, mode: string = 'all'): { success: boolean, message: string, data?: any } {
         try {
@@ -440,23 +442,68 @@ export class PublishRecordStorage {
             const accountStatuses = statusStmt.all(recordId) as any[];
 
             // 根据模式过滤账号
-            let targetAccounts = JSON.parse(record.account_list);
+            let targetAccountNames = JSON.parse(record.account_list).map((acc: any) => acc.accountName);
             
             if (mode === 'failed') {
                 const failedAccountNames = accountStatuses
                     .filter(status => status.status === 'failed')
                     .map(status => status.account_name);
                 
-                targetAccounts = targetAccounts.filter((account: any) => 
-                    failedAccountNames.includes(account.accountName)
+                targetAccountNames = targetAccountNames.filter((name: string) => 
+                    failedAccountNames.includes(name)
                 );
             }
 
-            if (targetAccounts.length === 0) {
+            if (targetAccountNames.length === 0) {
                 return { 
                     success: false, 
                     message: mode === 'failed' ? "没有发布失败的账号" : "没有可重新发布的账号" 
                 };
+            }
+
+            // 🔥 关键修改：通过 accountName 查找最新账号信息
+            const { AccountStorage } = require('../../login/base/AccountStorage');
+            const originalAccountList = JSON.parse(record.account_list);
+            const updatedAccounts = [];
+
+            for (const accountName of targetAccountNames) {
+                try {
+                    const db = AccountStorage.getDatabase();
+                    
+                    // 🔥 直接通过 userName 查找数据库主键ID和最新信息
+                    const stmt = db.prepare(`
+                        SELECT id, type, filePath, userName, status
+                        FROM user_info 
+                        WHERE userName = ?
+                        ORDER BY updated_at DESC
+                        LIMIT 1
+                    `);
+                    
+                    const currentAccount = stmt.get(accountName);
+                    
+                    if (currentAccount) {
+                        updatedAccounts.push({
+                            accountName: currentAccount.userName,
+                            platform: AccountStorage.getPlatformName(currentAccount.type),
+                            filePath: currentAccount.filePath, // 🔥 使用最新的cookie路径
+                            accountId: currentAccount.id // 🔥 使用数据库主键ID
+                        });
+                        
+                        console.log(`🔄 账号信息已更新: ${accountName} -> ${currentAccount.filePath}`);
+                    } else {
+                        console.warn(`⚠️ 账号 ${accountName} 在数据库中未找到，使用原始数据`);
+                        const originalAccount = originalAccountList.find((acc: any) => acc.accountName === accountName);
+                        if (originalAccount) {
+                            updatedAccounts.push(originalAccount);
+                        }
+                    }
+                } catch (error) {
+                    console.error(`❌ 查找账号 ${accountName} 失败:`, error);
+                    const originalAccount = originalAccountList.find((acc: any) => acc.accountName === accountName);
+                    if (originalAccount) {
+                        updatedAccounts.push(originalAccount);
+                    }
+                }
             }
 
             // 构造返回数据
@@ -465,17 +512,19 @@ export class PublishRecordStorage {
                 title: record.title,
                 videoFiles: JSON.parse(record.video_files),
                 coverScreenshots: record.cover_screenshots ? JSON.parse(record.cover_screenshots) : [],
-                accounts: targetAccounts,
+                accounts: updatedAccounts, // 🔥 使用更新后的账号信息
                 publishConfig: record.publish_config ? JSON.parse(record.publish_config) : null,
                 originalRequest: record.original_request_data ? JSON.parse(record.original_request_data) : null,
                 platformType: record.platform_type,
                 mode: mode,
-                accountCount: targetAccounts.length
+                accountCount: updatedAccounts.length
             };
 
+            console.log(`🔄 重新发布配置已更新: ${updatedAccounts.length} 个账号使用最新cookie路径`);
+            
             return {
                 success: true,
-                message: `找到 ${targetAccounts.length} 个${mode === 'failed' ? '失败' : ''}账号可重新发布`,
+                message: `找到 ${updatedAccounts.length} 个${mode === 'failed' ? '失败' : ''}账号可重新发布`,
                 data: configData
             };
 
