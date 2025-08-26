@@ -1174,8 +1174,15 @@ export class SocialAutomationAPI {
                         })),
                         params: {
                             title: republishRequest.title || '重新发布',
-                            tags: republishRequest.tags || [],
-                            category: republishRequest.category,
+                            tags: Array.isArray(republishRequest.tags) ? republishRequest.tags : (republishRequest.tags ? [republishRequest.tags] : []),
+                            category: republishRequest.category === 0 ? undefined : republishRequest.category,
+                            enableOriginal: targetAccounts[0]?.platform === 'wechat' ? (republishRequest.original !== false) : undefined,
+                            addToCollection: false,
+                            publishDate: config.publishConfig?.enableTimer ? this.calculatePublishDate(
+                                config.publishConfig.videosPerDay, 
+                                config.publishConfig.dailyTimes, 
+                                config.publishConfig.startDays || 0
+                            ) : undefined,
                             headless: true,
                             thumbnailPath: republishRequest.thumbnail,
                             location: republishRequest.location

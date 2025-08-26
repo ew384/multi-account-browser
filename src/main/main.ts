@@ -1,3 +1,4 @@
+process.env.TZ = 'Asia/Shanghai';
 import { app, BrowserWindow, Menu, MenuItem, ipcMain } from 'electron';
 import * as path from 'path';
 import { SessionManager } from './SessionManager';
