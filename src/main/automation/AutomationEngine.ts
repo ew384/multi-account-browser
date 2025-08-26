@@ -281,11 +281,7 @@ export class AutomationEngine {
     isLoginSupported(platform: string): boolean {
         return this.pluginManager.isPlatformSupported(PluginType.LOGIN, platform);
     }
-    /**
-     * 🔥 单个账号视频上传 - 完整流程包含tab管理
-     * @param params 上传参数
-     * @returns 上传结果
-     */
+
     async uploadVideo(params: UploadParams, recordId?: number): Promise<UploadResult> {
         let tabId: string | null = null;
         const startTime = new Date().toISOString();
@@ -301,6 +297,7 @@ export class AutomationEngine {
                 accountName = parts.slice(1, -1).join('_') || 'unknown';
             }
         }
+        
         try {
             console.log(`🚀 开始 ${params.platform} 平台视频上传: ${params.title || params.filePath}`);
 
@@ -320,32 +317,61 @@ export class AutomationEngine {
             if (!uploader) {
                 throw new Error(`不支持的平台: ${params.platform}`);
             }
+            
             if (recordId) {
                 await this.updateUploadProgress(recordId, accountName, {
                     status: 'uploading',
-                    upload_status: '上传成功',
-                    push_status: '推送中'
+                    upload_status: '上传中',
+                    push_status: '待推送'
                 });
             }
-            // 🔥 调用uploader，传递已验证的tabId
-            const result = await uploader.uploadVideoComplete(params, tabId);            
+
+            // 🔥 关键修改：使用 try-catch 包装 uploader 调用
+            let result: { success: boolean; tabId?: string; error?: string } = { success: false };
+            let uploaderError: Error | null = null;
+            
+            try {
+                // 🔥 调用uploader，传递已验证的tabId
+                result = await uploader.uploadVideoComplete(params, tabId);
+            } catch (error) {
+                // 🔥 捕获uploader异常，不直接抛出
+                uploaderError = error instanceof Error ? error : new Error('上传过程异常');
+                result = { 
+                    success: false, 
+                    error: uploaderError.message,
+                    tabId: tabId 
+                };
+                console.warn(`⚠️ ${params.platform} 上传器执行异常: ${uploaderError.message}`);
+            }
+            
+            // 🔥 步骤3：处理上传结果
             if (result.success && result.tabId) {
-                tabId = result.tabId;                
-                // 🔥 步骤3：上传完成，开始推送
+                // 上传成功流程
+                tabId = result.tabId;
+                
                 if (recordId) {
                     await this.updateUploadProgress(recordId, accountName, {
-                        status: 'success',
+                        status: 'uploading',
                         upload_status: '上传成功',
-                        push_status: '推送成功',
-                        review_status: '发布成功'
+                        push_status: '推送中'
                     });
-                }                
+                }
+                
                 // 🔥 步骤4：等待URL跳转（推送完成）
                 console.log(`⏳ 等待 ${params.platform} 上传完成，监听URL跳转...`);
-                const urlChanged = await this.tabManager.waitForUrlChange(tabId, 200000);                    
+                const urlChanged = await this.tabManager.waitForUrlChange(tabId, 200000);
+                
                 if (urlChanged) {
                     // 🔥 步骤5：推送成功，进入审核
                     console.log(`✅ ${params.platform} 视频发布成功，URL已跳转`);
+                    if (recordId) {
+                        await this.updateUploadProgress(recordId, accountName, {
+                            status: 'success',
+                            upload_status: '上传成功',
+                            push_status: '推送成功',
+                            review_status: '发布成功'
+                        });
+                    }
                 } else {
                     // 推送超时
                     if (recordId) {
@@ -356,53 +382,88 @@ export class AutomationEngine {
                     }
                     console.warn(`⚠️ ${params.platform} 上传超时，URL未跳转`);
                 }
-            }else{
-                // 🔥 步骤5：Validator 专注验证逻辑
+            } else {
+                // 🔥 上传失败或异常 - 总是进行Cookie验证
+                console.log(`⚠️ ${params.platform} 上传失败，开始验证Cookie状态...`);
+                
                 const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, params.platform);
-                if (validator) {
-                    const isValid = await validator.validateTab(tabId);
-                    
-                    if (!isValid) {
-                        console.warn(`❌ 账号验证失败，Cookie已失效: ${params.platform}`);
-                        // 🔥 通知前端账号失效状态
+                if (validator && tabId) {
+                    try {
+                        const isValid = await validator.validateTab(tabId);
+                        
+                        if (!isValid) {
+                            console.warn(`❌ Cookie验证失败，账号已失效: ${params.platform}`);
+                            
+                            // 🔥 通知前端账号失效状态
+                            if (recordId) {
+                                await this.updateUploadProgress(recordId, accountName, {
+                                    status: 'failed',
+                                    upload_status: '账号已失效',
+                                    push_status: '推送失败',
+                                    review_status: '发布失败',
+                                    error_message: '账号已失效，请重新登录'
+                                });
+                            }
+                            
+                            // 🔥 立即更新数据库状态为无效
+                            const currentTime = new Date().toISOString();
+                            await AccountStorage.updateValidationStatus(params.cookieFile, false, currentTime);
+                            
+                            return {
+                                success: false,
+                                error: '账号已失效，请重新登录',
+                                file: params.filePath,
+                                account: accountName,
+                                platform: params.platform,
+                                uploadTime: startTime
+                            };
+                        } else {
+                            console.log(`✅ Cookie验证成功，账号状态正常，上传失败原因为其他问题`);
+                            
+                            // 🔥 账号正常但上传失败，更新为技术性错误
+                            if (recordId) {
+                                await this.updateUploadProgress(recordId, accountName, {
+                                    status: 'failed',
+                                    upload_status: '上传失败',
+                                    push_status: '推送失败', 
+                                    review_status: '发布失败',
+                                    error_message: result.error || uploaderError?.message || '技术性错误，请重试'
+                                });
+                            }
+                        }
+                    } catch (validationError) {
+                        console.warn(`⚠️ Cookie验证过程异常: ${validationError}`);
+                        
+                        // 🔥 验证异常时，保守处理为技术性错误
                         if (recordId) {
                             await this.updateUploadProgress(recordId, accountName, {
                                 status: 'failed',
-                                upload_status: '账号已失效',
+                                upload_status: '验证异常',
                                 push_status: '推送失败',
                                 review_status: '发布失败',
-                                error_message: '账号已失效，请重新登录'
+                                error_message: result.error || uploaderError?.message || '验证异常，请重试'
                             });
-                        }                        
-                        // 🔥 AutomationEngine 负责立即关闭失效的Tab
-                        try {
-                            await this.tabManager.closeTab(tabId);
-                            console.log(`🗑️ 已关闭失效账号的Tab: ${tabId}`);
-                            tabId = null; // 避免finally重复关闭
-                        } catch (closeError) {
-                            console.warn(`⚠️ 关闭失效Tab失败:`, closeError);
                         }
-                        
-                        // 🔥 立即更新数据库状态为无效
-                        const currentTime = new Date().toISOString();
-                        await AccountStorage.updateValidationStatus(params.cookieFile, false, currentTime);                    
-                        
-                        return {
-                            success: false,
-                            error: '账号已失效，请重新登录',
-                            file: params.filePath,
-                            account: accountName,
-                            platform: params.platform,
-                            uploadTime: startTime
-                        };
                     }
                 } else {
-                    console.warn(`⚠️ 未找到 ${params.platform} 平台的验证器，跳过验证`);
+                    console.warn(`⚠️ 未找到 ${params.platform} 平台的验证器或Tab已关闭，跳过验证`);
+                    
+                    // 🔥 无验证器时，标记为技术性错误
+                    if (recordId) {
+                        await this.updateUploadProgress(recordId, accountName, {
+                            status: 'failed',
+                            upload_status: '上传失败',
+                            push_status: '推送失败',
+                            review_status: '发布失败',
+                            error_message: result.error || uploaderError?.message || '上传失败'
+                        });
+                    }
                 }
             }
+
             return {
                 success: result.success,
-                error: result.success ? undefined : '上传失败',
+                error: result.success ? undefined : (result.error || uploaderError?.message || '上传失败'),
                 file: params.filePath,
                 account: accountName,
                 platform: params.platform,
@@ -411,20 +472,22 @@ export class AutomationEngine {
 
         } catch (error) {
             // 🔥 异常处理：更新失败状态
+            const errorMessage = error instanceof Error ? error.message : '未知错误';
+            
             if (recordId) {
                 await this.updateUploadProgress(recordId, accountName, {
                     status: 'failed',
-                    upload_status: '上传失败',
+                    upload_status: '系统异常',
                     push_status: '推送失败',
                     review_status: '发布失败',
-                    error_message: error instanceof Error ? error.message : '未知错误'
+                    error_message: errorMessage
                 });
             }
             
-            console.error(`❌ ${params.platform} 视频上传失败:`, error);
+            console.error(`❌ ${params.platform} 视频上传系统异常:`, error);
             return {
                 success: false,
-                error: error instanceof Error ? error.message : '未知错误',
+                error: errorMessage,
                 file: params.filePath,
                 account: accountName,
                 platform: params.platform,
