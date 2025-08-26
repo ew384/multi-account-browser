@@ -1082,15 +1082,99 @@ export class SocialAutomationAPI {
             const republishRequest = {
                 ...config.originalRequest,
                 accountList: targetAccounts,
-                // 可以让用户选择是否修改标题
-                title: `${config.originalRequest.title}`
+                title: config.originalRequest.title
             };
 
             console.log(`🔄 开始重新发布: 记录${recordId}, 模式${mode}, 账号数${targetAccounts.length}`);
 
-            // 调用原有的发布逻辑（复用 handlePostVideo 的核心逻辑）
-            req.body = republishRequest;
-            await this.handlePostVideo(req, res);
+            // 🔥 不调用 handlePostVideo，而是直接调用核心逻辑
+            // 创建发布记录
+            const publishRecordData = {
+                title: republishRequest.title || '重新发布任务',
+                video_files: republishRequest.fileList || [],
+                account_list: republishRequest.accountList.map((account: any) => ({
+                    accountName: account.accountName || account.userName,
+                    platform: account.platform,
+                    filePath: account.filePath,
+                    accountId: account.accountId
+                })),
+                platform_type: republishRequest.type || 2,
+                status: 'pending' as const,
+                total_accounts: republishRequest.accountList.length,
+                success_accounts: 0,
+                failed_accounts: 0,
+                created_by: 'system',
+                publish_config: config.publishConfig,
+                original_request_data: republishRequest
+            };
+
+            const recordResult = PublishRecordStorage.savePublishRecord(publishRecordData);
+            
+            if (!recordResult.success) {
+                this.sendResponse(res, 500, `创建发布记录失败: ${recordResult.message}`, null);
+                return;
+            }
+
+            const newRecordId = recordResult.data.recordId;
+            console.log(`✅ 重新发布记录已创建: ID ${newRecordId}`);
+
+            // 🔥 立即返回响应，让前端切换到新记录
+            this.sendResponse(res, 200, `重新发布任务已提交，共${targetAccounts.length}个账号`, {
+                recordId: newRecordId,
+                originalRecordId: recordId,
+                accountCount: targetAccounts.length,
+                mode: mode
+            });
+
+            // 🔥 在后台异步执行上传任务
+            setImmediate(async () => {
+                try {
+                    console.log(`🚀 开始执行重新发布的批量上传，记录ID: ${newRecordId}`);
+                    
+                    // 构造批量上传请求
+                    const batchRequest = {
+                        platform: targetAccounts[0]?.platform || 'wechat',
+                        files: republishRequest.fileList || [],
+                        accounts: targetAccounts.map((account: any) => ({
+                            cookieFile: account.filePath,
+                            platform: account.platform,
+                            accountName: account.accountName || account.userName,
+                            accountId: account.accountId
+                        })),
+                        params: {
+                            title: republishRequest.title || '重新发布',
+                            tags: republishRequest.tags || [],
+                            category: republishRequest.category,
+                            headless: true,
+                            thumbnailPath: republishRequest.thumbnail,
+                            location: republishRequest.location
+                        }
+                    };
+
+                    // 执行批量上传
+                    const uploadResults = await this.automationEngine.batchUpload(batchRequest, newRecordId);
+                    
+                    // 统计结果并更新记录状态
+                    const successCount = uploadResults.filter(r => r.success).length;
+                    const failedCount = uploadResults.length - successCount;
+                    
+                    let finalStatus = 'failed';
+                    if (failedCount === 0) finalStatus = 'success';
+                    else if (successCount > 0) finalStatus = 'partial';
+
+                    await PublishRecordStorage.updatePublishRecordStatus(newRecordId, finalStatus, {
+                        success: successCount,
+                        failed: failedCount,
+                        total: uploadResults.length
+                    });
+
+                    console.log(`📊 重新发布完成: 成功 ${successCount}, 失败 ${failedCount}`);
+                    
+                } catch (uploadError) {
+                    console.error(`❌ 重新发布上传失败:`, uploadError);
+                    await PublishRecordStorage.updatePublishRecordStatus(newRecordId, 'failed');
+                }
+            });
 
         } catch (error) {
             console.error('❌ 重新发布失败:', error);

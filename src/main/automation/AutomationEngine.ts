@@ -319,6 +319,7 @@ export class AutomationEngine {
             }
             
             if (recordId) {
+                console.log(`📝 [DEBUG] 更新进度 - 开始上传: recordId=${recordId}, account=${accountName}`);
                 await this.updateUploadProgress(recordId, accountName, {
                     status: 'uploading',
                     upload_status: '上传中',
@@ -350,6 +351,7 @@ export class AutomationEngine {
                 tabId = result.tabId;
                 
                 if (recordId) {
+                    console.log(`📝 [DEBUG] 更新进度 - 上传成功: recordId=${recordId}, account=${accountName}`);
                     await this.updateUploadProgress(recordId, accountName, {
                         status: 'uploading',
                         upload_status: '上传成功',
