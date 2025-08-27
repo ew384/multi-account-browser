@@ -300,7 +300,10 @@ export class AutomationEngine {
         
         try {
             console.log(`🚀 开始 ${params.platform} 平台视频上传: ${params.title || params.filePath}`);
-
+            const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, params.platform);
+            if (!uploader) {
+                throw new Error(`不支持的平台: ${params.platform}`);
+            }
             // 🔥 步骤1：AutomationEngine 负责创建Tab
             tabId = await this.tabManager.createAccountTab(
                 params.cookieFile,
@@ -308,25 +311,14 @@ export class AutomationEngine {
                 this.getPlatformUrl(params.platform),
                 params.headless ?? true
             );
-
-            // 🔥 步骤2：等待页面加载
-            console.log(`⏳ 等待页面加载完成...`);
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
-            const uploader = this.pluginManager.getPlugin<PluginUploader>(PluginType.UPLOADER, params.platform);
-            if (!uploader) {
-                throw new Error(`不支持的平台: ${params.platform}`);
-            }
-            
+    
             if (recordId) {
-                console.log(`📝 [DEBUG] 更新进度 - 开始上传: recordId=${recordId}, account=${accountName}`);
                 await this.updateUploadProgress(recordId, accountName, {
                     status: 'uploading',
                     upload_status: '上传中',
                     push_status: '待推送'
                 });
             }
-
             // 🔥 关键修改：使用 try-catch 包装 uploader 调用
             let result: { success: boolean; tabId?: string; error?: string } = { success: false };
             let uploaderError: Error | null = null;
@@ -349,39 +341,22 @@ export class AutomationEngine {
             if (result.success && result.tabId) {
                 // 上传成功流程
                 tabId = result.tabId;
-                
                 if (recordId) {
-                    console.log(`📝 [DEBUG] 更新进度 - 上传成功: recordId=${recordId}, account=${accountName}`);
                     await this.updateUploadProgress(recordId, accountName, {
-                        status: 'uploading',
+                        status: 'success',
                         upload_status: '上传成功',
-                        push_status: '推送中'
+                        push_status: '推送成功',
+                        review_status: '发布成功'
                     });
-                }
-                
+                }                
                 // 🔥 步骤4：等待URL跳转（推送完成）
                 console.log(`⏳ 等待 ${params.platform} 上传完成，监听URL跳转...`);
-                const urlChanged = await this.tabManager.waitForUrlChange(tabId, 200000);
+                const urlChanged = await this.tabManager.waitForUrlChange(tabId, 100000);
                 
                 if (urlChanged) {
                     // 🔥 步骤5：推送成功，进入审核
                     console.log(`✅ ${params.platform} 视频发布成功，URL已跳转`);
-                    if (recordId) {
-                        await this.updateUploadProgress(recordId, accountName, {
-                            status: 'success',
-                            upload_status: '上传成功',
-                            push_status: '推送成功',
-                            review_status: '发布成功'
-                        });
-                    }
                 } else {
-                    // 推送超时
-                    if (recordId) {
-                        await this.updateUploadProgress(recordId, accountName, {
-                            push_status: '推送超时',
-                            review_status: '状态未知'
-                        });
-                    }
                     console.warn(`⚠️ ${params.platform} 上传超时，URL未跳转`);
                 }
             } else {
