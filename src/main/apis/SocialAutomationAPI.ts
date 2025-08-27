@@ -901,7 +901,7 @@ export class SocialAutomationAPI {
             
             // 🔥 1. 创建发布记录
             const publishRecordData = {
-                title: title || '未命名发布任务',
+                title: req.body.displayTitle || '未命名发布任务',
                 video_files: fileList,
                 cover_screenshots: savedCoverPaths,
                 account_list: accountList.map((account: any) => ({
@@ -986,7 +986,7 @@ export class SocialAutomationAPI {
                     bio: account.bio
                 })),
                 params: {
-                    title: title || '默认标题',
+                    title: req.body.title || '',
                     tags: Array.isArray(tags) ? tags : (tags ? [tags] : []),
                     category: category === 0 ? undefined : category,
                     enableOriginal: platform === 'wechat' ? (req.body.original !== false) : undefined, // 🔥 默认为 true，除非明确设置为 false
@@ -1148,7 +1148,7 @@ export class SocialAutomationAPI {
             }
             // 创建发布记录
             const publishRecordData = {
-                title: republishRequest.title || '重新发布任务',
+                title: republishRequest.displayTitle || '重新发布任务',
                 video_files: republishRequest.fileList || [],
                 account_list: republishRequest.accountList.map((account: any) => ({
                     accountName: account.accountName || account.userName,
@@ -1201,7 +1201,7 @@ export class SocialAutomationAPI {
                             accountId: account.accountId
                         })),
                         params: {
-                            title: republishRequest.title || '重新发布',
+                            title: republishRequest.title || '',
                             tags: Array.isArray(republishRequest.tags) ? republishRequest.tags : (republishRequest.tags ? [republishRequest.tags] : []),
                             category: republishRequest.category === 0 ? undefined : republishRequest.category,
                             enableOriginal: targetAccounts[0]?.platform === 'wechat' ? (republishRequest.original !== false) : undefined,
