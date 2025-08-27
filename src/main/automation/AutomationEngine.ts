@@ -304,14 +304,6 @@ export class AutomationEngine {
             if (!uploader) {
                 throw new Error(`不支持的平台: ${params.platform}`);
             }
-            // 🔥 步骤1：AutomationEngine 负责创建Tab
-            tabId = await this.tabManager.createAccountTab(
-                params.cookieFile,
-                params.platform,
-                this.getPlatformUrl(params.platform),
-                params.headless ?? true
-            );
-    
             if (recordId) {
                 await this.updateUploadProgress(recordId, accountName, {
                     status: 'uploading',
@@ -319,6 +311,13 @@ export class AutomationEngine {
                     push_status: '待推送'
                 });
             }
+            // 🔥 步骤1：AutomationEngine 负责创建Tab
+            tabId = await this.tabManager.createAccountTab(
+                params.cookieFile,
+                params.platform,
+                this.getPlatformUrl(params.platform),
+                params.headless ?? true
+            );
             // 🔥 关键修改：使用 try-catch 包装 uploader 调用
             let result: { success: boolean; tabId?: string; error?: string } = { success: false };
             let uploaderError: Error | null = null;
