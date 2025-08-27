@@ -65,6 +65,7 @@ export class SocialAutomationAPI {
         this.router.get('/getFile', this.handleGetFile.bind(this));
         this.router.get('/getCover', this.handleGetCover.bind(this));
         this.router.get('/getRecentUploads', this.handleGetRecentUploads.bind(this));
+        this.router.post('/saveCoverScreenshot', this.handleSaveCoverScreenshot.bind(this));
     }
 
     private setupUploadRoutes(): void {
@@ -566,7 +567,46 @@ export class SocialAutomationAPI {
             this.sendResponse(res, 500, `获取最近上传文件失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
         }
     }
+    // 🔥 新增：处理封面保存的方法
+    private async handleSaveCoverScreenshot(req: express.Request, res: express.Response): Promise<void> {
+        try {
+            const { base64Data, videoFileName } = req.body;
 
+            if (!base64Data) {
+                this.sendResponse(res, 400, 'base64Data 不能为空', null);
+                return;
+            }
+
+            if (!videoFileName) {
+                this.sendResponse(res, 400, 'videoFileName 不能为空', null);
+                return;
+            }
+
+            // 验证 base64 数据格式
+            if (!base64Data.startsWith('data:image/')) {
+                this.sendResponse(res, 400, '无效的图片数据格式', null);
+                return;
+            }
+
+            console.log(`📸 保存视频封面: ${videoFileName}`);
+            
+            const coverPath = await PublishRecordStorage.saveCoverScreenshot(base64Data, videoFileName);
+
+            if (coverPath) {
+                this.sendResponse(res, 200, '封面保存成功', {
+                    coverPath: coverPath,
+                    videoFileName: videoFileName,
+                    timestamp: new Date().toISOString()
+                });
+            } else {
+                this.sendResponse(res, 500, '封面保存失败', null);
+            }
+
+        } catch (error) {
+            console.error('❌ 保存封面失败:', error);
+            this.sendResponse(res, 500, `保存封面失败: ${error instanceof Error ? error.message : 'unknown error'}`, null);
+        }
+    }
 // ==================== 路径管理相关处理方法 ====================
 
     /**
@@ -966,18 +1006,6 @@ export class SocialAutomationAPI {
             // 🔥 4. 执行批量上传，传递 recordId
             console.log(`🚀 开始执行批量上传，记录ID: ${recordId}`);
             const uploadResults = await this.automationEngine.batchUpload(batchRequest, recordId);
-            // 🔥 保存封面截图
-            if (thumbnail && thumbnail.startsWith('data:image/')) {
-                for (const videoFile of fileList) {
-                    const coverPath = await PublishRecordStorage.saveCoverScreenshot(
-                        thumbnail, 
-                        videoFile
-                    );
-                    if (coverPath) {
-                        savedCoverPaths.push(coverPath);
-                    }
-                }
-            }
             // 🔥 5. 统计结果
             const successCount = uploadResults.filter(r => r.success).length;
             const failedCount = uploadResults.length - successCount;

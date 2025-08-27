@@ -82,9 +82,7 @@ curl -X POST http://localhost:3409/api/account/execute \
 curl -X POST http://localhost:3409/validateAccount \
 -H "Content-Type: application/json" \
 -d '{
-    "accounName": "阿拉蕾宝宝",
-    "platform": "douyin",
-    "cookieFile": "douyin_阿拉蕾宝宝_1756007952308.json"
+    "accountId": 1
   }'
 系统级别操作
 
