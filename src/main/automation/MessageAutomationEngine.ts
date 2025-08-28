@@ -648,35 +648,7 @@ export class MessageAutomationEngine {
             console.log(`⏳ 等待页面加载: ${accountKey}`);
             await new Promise(resolve => setTimeout(resolve, 4000));
 
-            // 🔥 步骤4: 检查平台支持并进行平台特定准备
-            const plugin = this.pluginManager.getPlugin<PluginMessage>(PluginType.MESSAGE, params.platform);
-            if (!plugin) {
-                console.warn(`⚠️ 平台 ${params.platform} 暂不支持消息功能`);
-                try {
-                    await this.tabManager.closeTab(tabId);
-                } catch (closeError) {
-                    console.warn(`⚠️ 关闭Tab失败:`, closeError);
-                }
-                return {
-                    success: false,
-                    reason: 'general_error',
-                    error: `平台 ${params.platform} 暂不支持消息功能`
-                };
-            }
-
-            // 微信平台必须先导航到私信页面
-            if (params.platform === 'wechat') {
-                console.log(`🖱️ 点击私信导航: ${accountKey}`);
-                if (typeof (plugin as any).clickPrivateMessage === 'function') {
-                    const navSuccess = await (plugin as any).clickPrivateMessage(tabId);
-                    if (!navSuccess) {
-                        console.warn('⚠️ 私信导航失败，尝试继续...');
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                }
-            }
-
-            // 🔥 步骤5: 强制同步数据
+            // 🔥 步骤4: 强制同步数据
             console.log(`🔄 开始同步数据: ${accountKey}`);
             let syncResult: any = null;
 
@@ -702,7 +674,7 @@ export class MessageAutomationEngine {
                 };
             }
 
-            // 🔥 步骤6: 仅在同步失败时验证账号
+            // 🔥 步骤5: 仅在同步失败时验证账号
             if (!syncResult.success) {
                 console.log(`🔍 同步失败，验证账号有效性: ${accountKey}`);
                 
@@ -750,7 +722,7 @@ export class MessageAutomationEngine {
             }
             // 🔥 同步成功时无需更新状态（账号本来就是有效的）
 
-            // 🔥 步骤7: 注入监听脚本
+            // 🔥 步骤6: 注入监听脚本
             console.log(`🎧 注入监听脚本: ${accountKey}`);
             const scriptSuccess = await this.injectListeningScript(tabId, params.platform, params.accountId);
             
@@ -770,7 +742,7 @@ export class MessageAutomationEngine {
                 };
             }
 
-            // 🔥 步骤8: 记录监听状态
+            // 🔥 步骤7: 记录监听状态
             this.activeMonitoring.set(accountKey, {
                 accountKey,
                 platform: params.platform,
