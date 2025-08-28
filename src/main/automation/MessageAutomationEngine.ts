@@ -622,14 +622,14 @@ export class MessageAutomationEngine {
         const accountKey = `${params.platform}_${params.accountId}`;
         
         try {
-            console.log(`🚀 启动监听 (${params.withSync ? '含同步' : '仅监听'}): ${accountKey}`);
+            console.log(`🚀 启动监听: ${accountKey}`);
 
             // 🔥 步骤1: 检查是否已在监听
             const existingMonitoring = this.activeMonitoring.get(accountKey);
             if (existingMonitoring) {
                 console.warn(`⚠️ 意外情况：账号 ${accountKey} 已在监听中，但API层未过滤`);
                 return {
-                    success: true, // 🔥 改为返回成功
+                    success: true,
                     reason: 'already_monitoring',
                     tabId: existingMonitoring.tabId
                 };
@@ -648,65 +648,26 @@ export class MessageAutomationEngine {
             console.log(`⏳ 等待页面加载: ${accountKey}`);
             await new Promise(resolve => setTimeout(resolve, 4000));
 
-            // 🔥 步骤4: 验证账号有效性
-            console.log(`🔍 验证账号有效性: ${accountKey}`);
-            const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, params.platform);
-            let isValid = true;
-            
-            if (validator) {
-                isValid = await validator.validateTab(tabId);
-                console.log(`🔍 验证结果: ${accountKey} - ${isValid ? '有效' : '无效'}`);
-            } else {
-                console.warn(`⚠️ 未找到 ${params.platform} 平台的验证器，跳过验证`);
-            }
-
-            // 🔥 步骤5: 处理验证结果
-            if (!isValid) {
-                console.warn(`❌ 账号验证失败: ${accountKey} - Cookie已失效`);
-                
-                // 关闭失效账号的Tab
+            // 🔥 步骤4: 检查平台支持并进行平台特定准备
+            const plugin = this.pluginManager.getPlugin<PluginMessage>(PluginType.MESSAGE, params.platform);
+            if (!plugin) {
+                console.warn(`⚠️ 平台 ${params.platform} 暂不支持消息功能`);
                 try {
                     await this.tabManager.closeTab(tabId);
-                    console.log(`🗑️ 已关闭失效账号的Tab: ${tabId}`);
                 } catch (closeError) {
-                    console.warn(`⚠️ 关闭失效Tab失败:`, closeError);
+                    console.warn(`⚠️ 关闭Tab失败:`, closeError);
                 }
-                
-                // 更新数据库状态为无效
-                try {
-                    const currentTime = new Date().toISOString();
-                    const { AccountStorage } = await import('../plugins/login/base/AccountStorage');
-                    await AccountStorage.updateValidationStatus(params.cookieFile, false, currentTime);
-                    console.log(`📝 已更新账号状态为失效: ${accountKey}`);
-                } catch (dbError) {
-                    console.warn(`⚠️ 更新账号状态失败:`, dbError);
-                }
-                
                 return {
                     success: false,
-                    reason: 'validation_failed',
-                    error: '账号已失效，请重新登录',
-                    validationResult: false
+                    reason: 'general_error',
+                    error: `平台 ${params.platform} 暂不支持消息功能`
                 };
             }
 
-            // 🔥 步骤6: 验证通过，继续监听流程
-            console.log(`✅ 账号验证通过，继续监听流程: ${accountKey}`);
-            
-            // 更新数据库状态为有效
-            try {
-                const currentTime = new Date().toISOString();
-                const { AccountStorage } = await import('../plugins/login/base/AccountStorage');
-                await AccountStorage.updateValidationStatus(params.cookieFile, true, currentTime);
-            } catch (dbError) {
-                console.warn(`⚠️ 更新有效状态失败:`, dbError);
-            }
-
-            // 🔥 步骤7: 平台特定的准备工作
+            // 微信平台必须先导航到私信页面
             if (params.platform === 'wechat') {
                 console.log(`🖱️ 点击私信导航: ${accountKey}`);
-                const plugin = this.pluginManager.getPlugin<PluginMessage>(PluginType.MESSAGE, params.platform);
-                if (plugin && typeof (plugin as any).clickPrivateMessage === 'function') {
+                if (typeof (plugin as any).clickPrivateMessage === 'function') {
                     const navSuccess = await (plugin as any).clickPrivateMessage(tabId);
                     if (!navSuccess) {
                         console.warn('⚠️ 私信导航失败，尝试继续...');
@@ -715,7 +676,81 @@ export class MessageAutomationEngine {
                 }
             }
 
-            // 🔥 步骤8: 注入监听脚本
+            // 🔥 步骤5: 强制同步数据
+            console.log(`🔄 开始同步数据: ${accountKey}`);
+            let syncResult: any = null;
+
+            try {
+                syncResult = await this.syncPlatformMessages(
+                    params.platform,
+                    params.accountId,
+                    params.cookieFile,
+                    params.syncOptions,
+                    tabId  // 🔥 传入现有Tab
+                );
+                
+                if (syncResult.success) {
+                    console.log(`✅ 启动同步完成: ${accountKey}, 新消息 ${syncResult.newMessages} 条`);
+                } else {
+                    console.warn(`⚠️ 启动同步失败但继续监听: ${accountKey}:`, syncResult.errors);
+                }
+            } catch (syncError) {
+                console.warn(`⚠️ 启动同步异常: ${accountKey}:`, syncError);
+                syncResult = {
+                    success: false,
+                    error: syncError instanceof Error ? syncError.message : 'unknown error'
+                };
+            }
+
+            // 🔥 步骤6: 仅在同步失败时验证账号
+            if (!syncResult.success) {
+                console.log(`🔍 同步失败，验证账号有效性: ${accountKey}`);
+                
+                const validator = this.pluginManager.getPlugin<PluginValidator>(PluginType.VALIDATOR, params.platform);
+                let isValid = true;
+                
+                if (validator) {
+                    isValid = await validator.validateTab(tabId);
+                    console.log(`🔍 验证结果: ${accountKey} - ${isValid ? '有效' : '无效'}`);
+                } else {
+                    console.warn(`⚠️ 未找到 ${params.platform} 平台的验证器，跳过验证`);
+                }
+
+                if (!isValid) {
+                    console.warn(`❌ 账号验证失败: ${accountKey} - Cookie已失效`);
+                    
+                    // 关闭失效账号的Tab
+                    try {
+                        await this.tabManager.closeTab(tabId);
+                        console.log(`🗑️ 已关闭失效账号的Tab: ${tabId}`);
+                    } catch (closeError) {
+                        console.warn(`⚠️ 关闭失效Tab失败:`, closeError);
+                    }
+                    
+                    // 更新数据库状态为无效
+                    try {
+                        const currentTime = new Date().toISOString();
+                        const { AccountStorage } = await import('../plugins/login/base/AccountStorage');
+                        await AccountStorage.updateValidationStatus(params.cookieFile, false, currentTime);
+                        console.log(`📝 已更新账号状态为失效: ${accountKey}`);
+                    } catch (dbError) {
+                        console.warn(`⚠️ 更新账号状态失败:`, dbError);
+                    }
+                    
+                    return {
+                        success: false,
+                        reason: 'validation_failed',
+                        error: '账号已失效，请重新登录',
+                        validationResult: false
+                    };
+                }
+                
+                // 账号有效但同步失败，继续建立监听
+                console.warn(`⚠️ 账号有效但同步失败，继续建立监听: ${accountKey}`);
+            }
+            // 🔥 同步成功时无需更新状态（账号本来就是有效的）
+
+            // 🔥 步骤7: 注入监听脚本
             console.log(`🎧 注入监听脚本: ${accountKey}`);
             const scriptSuccess = await this.injectListeningScript(tabId, params.platform, params.accountId);
             
@@ -734,34 +769,8 @@ export class MessageAutomationEngine {
                     validationResult: true
                 };
             }
-            // 🔥 步骤9: 可选执行启动同步 (新增)
-            let syncResult: any = null;
-            if (params.withSync) {
-                console.log(`🔄 开始启动同步: ${accountKey}`);
-                try {
-                    syncResult = await this.syncPlatformMessages(
-                        params.platform,
-                        params.accountId,
-                        params.cookieFile,
-                        params.syncOptions,
-                        tabId  // 🔥 传入现有Tab
-                    );
-                    
-                    if (syncResult.success) {
-                        console.log(`✅ 启动同步完成: ${accountKey}, 新消息 ${syncResult.newMessages} 条`);
-                    } else {
-                        console.warn(`⚠️ 启动同步失败但继续监听: ${accountKey}:`, syncResult.errors);
-                    }
-                } catch (syncError) {
-                    console.warn(`⚠️ 启动同步异常但继续监听: ${accountKey}:`, syncError);
-                    syncResult = {
-                        success: false,
-                        error: syncError instanceof Error ? syncError.message : 'unknown error'
-                    };
-                }
-            }
 
-            // 🔥 步骤10: 记录监听状态
+            // 🔥 步骤8: 记录监听状态
             this.activeMonitoring.set(accountKey, {
                 accountKey,
                 platform: params.platform,
@@ -778,7 +787,6 @@ export class MessageAutomationEngine {
                 validationResult: true,
                 syncResult
             };
-
 
         } catch (error) {
             console.error(`❌ 启动监听失败: ${accountKey}:`, error);
