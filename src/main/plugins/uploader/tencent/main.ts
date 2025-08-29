@@ -462,7 +462,7 @@ export class WeChatVideoUploader implements PluginUploader {
                     await new Promise(resolve => setTimeout(resolve, 200)); 
                     
                     // 修改：只填入标签，不包含标题
-                    const contentWithTags = tags.map(tag => "#" + tag).join(" "); 
+                    const contentWithTags = tags
                     
                     if (descriptionEditor.tagName === "INPUT") { 
                         descriptionEditor.value = ""; 

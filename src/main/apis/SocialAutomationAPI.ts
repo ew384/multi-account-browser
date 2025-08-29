@@ -859,7 +859,7 @@ export class SocialAutomationAPI {
             console.log(`   文件数: ${fileList.length}`);
             console.log(`   账号数: ${accountList.length}`);
             console.log(`   发布模式: ${mode}`);
-            
+            console.log(`   tags: ${tags}`);
             // 验证必要参数
             if (!fileList || !Array.isArray(fileList) || fileList.length === 0) {
                 this.sendResponse(res, 400, '文件列表不能为空', null);
