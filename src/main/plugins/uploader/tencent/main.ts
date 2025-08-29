@@ -737,12 +737,28 @@ export class WeChatVideoUploader implements PluginUploader {
     }   
     private async setScheduleTime(publishDate: Date, tabId: string): Promise<void> {
         console.log('⏰ 设置定时发布...');
+        
+        const targetYear = publishDate.getFullYear();
+        const targetMonth = publishDate.getMonth() + 1; // 1-12
+        const targetDay = publishDate.getDate();
+        const targetHour = publishDate.getHours();
+        const targetMinute = publishDate.getMinutes();
+        
+        console.log(`🎯 目标时间: ${publishDate.toLocaleString('zh-CN')}`);
+        console.log(`📅 目标: ${targetYear}年${targetMonth}月${targetDay}日 ${targetHour}:${String(targetMinute).padStart(2, '0')}`);
 
         const scheduleScript = `
-        (async function() {
+        (async function setWechatScheduleTime() {
             try {
-                console.log('🔥 开始设置定时发布...');
+                console.log('🔧 开始设置微信视频号定时发布...');
                 
+                const targetYear = ${targetYear};
+                const targetMonth = ${targetMonth};
+                const targetDay = ${targetDay};
+                const targetHour = ${targetHour};
+                const targetMinute = ${targetMinute};
+                
+                // 检测Shadow DOM
                 const wujieApp = document.querySelector('wujie-app');
                 if (!wujieApp || !wujieApp.shadowRoot) {
                     throw new Error('未找到Shadow DOM');
@@ -750,10 +766,11 @@ export class WeChatVideoUploader implements PluginUploader {
                 
                 const shadowDoc = wujieApp.shadowRoot;
                 
-                // 步骤1：激活定时发布选项
+                // 步骤1：激活定时发布
+                console.log('📍 激活定时发布');
                 const timeSection = shadowDoc.querySelector('.post-time-wrap');
                 if (!timeSection) {
-                    throw new Error('未找到定时发表区域');
+                    throw new Error('未找到定时发布区域');
                 }
                 
                 const scheduledRadio = timeSection.querySelector('input[type="radio"][value="1"]');
@@ -763,92 +780,214 @@ export class WeChatVideoUploader implements PluginUploader {
                 
                 if (!scheduledRadio.checked) {
                     scheduledRadio.click();
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    console.log('✅ 已激活定时发布');
-                }
-                
-                // 步骤2：等待时间选择器出现
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                const targetMonth = ${publishDate.getMonth() + 1};
-                const targetDay = ${publishDate.getDate()};
-                const targetHour = ${publishDate.getHours()};
-                const targetMinute = ${publishDate.getMinutes()};
-                
-                console.log('目标时间:', targetMonth + '月' + targetDay + '日 ' + targetHour + ':' + String(targetMinute).padStart(2, '0'));
-                
-                // 步骤3：查找并操作时间选择器
-                const dateTimePicker = shadowDoc.querySelector('.weui-desktop-picker__date-time');
-                if (!dateTimePicker) {
-                    throw new Error('激活定时后未找到时间选择器');
-                }
-                
-                const dateInput = dateTimePicker.querySelector('input');
-                if (!dateInput) {
-                    throw new Error('未找到日期输入框');
-                }
-                
-                // 步骤4：点击日期输入框弹出日历
-                dateInput.click();
-                console.log('✅ 已点击日期输入框');
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                // 检查日历是否已显示，如果未显示尝试其他点击方式
-                const calendarPanel = shadowDoc.querySelector('.weui-desktop-picker__dd');
-                if (calendarPanel && calendarPanel.style.display === 'none') {
-                    const dateTimeArea = shadowDoc.querySelector('.weui-desktop-picker__dt');
-                    if (dateTimeArea) {
-                        dateTimeArea.click();
-                        await new Promise(resolve => setTimeout(resolve, 800));
-                    }
-                }
-                
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                // 步骤5：选择日期
-                const dayLinks = shadowDoc.querySelectorAll('a[href="javascript:;"]');
-                const targetDayLink = Array.from(dayLinks).find(link => 
-                    link.textContent.trim() === targetDay.toString() && 
-                    !link.classList.contains('weui-desktop-picker__disabled') && 
-                    !link.classList.contains('weui-desktop-picker__faded')
-                );
-                
-                if (targetDayLink) {
-                    targetDayLink.click();
-                    console.log('✅ 已选择日期:', targetDay + '日');
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    console.log('✅ 激活定时发布中...');
+                    await new Promise(resolve => setTimeout(resolve, 2000));
                 } else {
-                    console.log('⚠️ 未找到目标日期，使用当前选中日期');
+                    console.log('✅ 定时发布已激活');
                 }
                 
-                // 步骤6：设置时间
-                const timeInput = shadowDoc.querySelector('.weui-desktop-picker__time input');
-                if (!timeInput) {
-                    throw new Error('未找到时间输入框');
+                // 步骤2：确保日历面板打开
+                console.log('📍 确保日历面板打开');
+                let calendarPanel = shadowDoc.querySelector('.weui-desktop-picker__dd');
+                let panelStyle = calendarPanel ? window.getComputedStyle(calendarPanel) : null;
+                
+                if (!calendarPanel || panelStyle.display === 'none') {
+                    console.log('🔄 打开日历面板...');
+                    const dateIcon = shadowDoc.querySelector('.weui-desktop-icon__date');
+                    if (dateIcon) {
+                        dateIcon.click();
+                    } else {
+                        const dateTimePicker = shadowDoc.querySelector('.weui-desktop-picker__date-time');
+                        if (dateTimePicker) dateTimePicker.click();
+                    }
+                    
+                    await new Promise(resolve => setTimeout(resolve, 1500));
                 }
                 
-                // 点击时间输入框显示时间选择面板
-                timeInput.click();
-                await new Promise(resolve => setTimeout(resolve, 500));
+                // 获取当前显示的年月
+                function getCurrentYearMonth() {
+                    const labelElements = shadowDoc.querySelectorAll('.weui-desktop-picker__panel__label');
+                    
+                    if (labelElements.length < 2) {
+                        console.log('❌ 标签元素数量不足:', labelElements.length);
+                        return null;
+                    }
+                    
+                    const yearText = labelElements[0].textContent.trim();
+                    const monthText = labelElements[1].textContent.trim();
+                    
+                    const year = parseInt(yearText.replace('年', ''));
+                    const month = parseInt(monthText.replace('月', ''));
+                    
+                    if (isNaN(year) || isNaN(month)) {
+                        console.log('❌ 年月解析失败:', yearText, monthText);
+                        return null;
+                    }
+                    
+                    return { year, month };
+                }
                 
-                // 如果时间面板未显示，尝试点击时间图标
-                let timePanel = shadowDoc.querySelector('.weui-desktop-picker__dd__time');
-                if (timePanel && timePanel.style.display === 'none') {
-                    const timeIcon = shadowDoc.querySelector('.weui-desktop-icon__time');
-                    if (timeIcon) {
-                        timeIcon.click();
-                        await new Promise(resolve => setTimeout(resolve, 300));
+                // 步骤3：月份切换逻辑
+                console.log('📍 月份切换逻辑');
+                
+                async function navigateToTargetMonth(targetYear, targetMonth) {
+                    const maxAttempts = 24;
+                    let attempts = 0;
+                    
+                    while (attempts < maxAttempts) {
+                        const current = getCurrentYearMonth();
+                        if (!current) {
+                            console.log('⚠️ 无法获取当前年月，重试中...');
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            attempts++;
+                            continue;
+                        }
+                        
+                        console.log('当前:', current.year + '年' + current.month + '月, 目标:', targetYear + '年' + targetMonth + '月');
+                        
+                        // 如果已经是目标月份
+                        if (current.year === targetYear && current.month === targetMonth) {
+                            console.log('✅ 已到达目标月份');
+                            return true;
+                        }
+                        
+                        // 决定点击左箭头还是右箭头
+                        const currentTimestamp = new Date(current.year, current.month - 1).getTime();
+                        const targetTimestamp = new Date(targetYear, targetMonth - 1).getTime();
+                        const needGoForward = currentTimestamp < targetTimestamp;
+                        
+                        const btnSelector = needGoForward 
+                            ? '.weui-desktop-btn__icon__right'
+                            : '.weui-desktop-btn__icon__left';
+                        
+                        const navigationBtn = shadowDoc.querySelector(btnSelector);
+                        
+                        if (!navigationBtn) {
+                            console.log('❌ 未找到导航按钮:', btnSelector);
+                            return false;
+                        }
+                        
+                        // 检查按钮是否可用
+                        const btnStyle = window.getComputedStyle(navigationBtn);
+                        if (btnStyle.display === 'none' || navigationBtn.disabled) {
+                            console.log('⚠️ 导航按钮不可用 (display:', btnStyle.display, ', disabled:', navigationBtn.disabled + ')');
+                            return false;
+                        }
+                        
+                        console.log('🔄 点击' + (needGoForward ? '右' : '左') + '箭头切换月份...');
+                        navigationBtn.click();
+                        
+                        // 等待月份切换完成
+                        await new Promise(resolve => setTimeout(resolve, 1200));
+                        attempts++;
+                    }
+                    
+                    console.log('❌ 月份切换超时');
+                    return false;
+                }
+                
+                // 执行月份切换
+                const monthSuccess = await navigateToTargetMonth(targetYear, targetMonth);
+                if (!monthSuccess) {
+                    console.log('⚠️ 月份切换失败，但继续尝试选择日期...');
+                }
+                
+                // 步骤4：选择目标日期
+                console.log('📍 选择目标日期');
+                
+                // 等待DOM更新
+                await new Promise(resolve => setTimeout(resolve, 800));
+                
+                // 查找目标日期
+                const dayLinks = shadowDoc.querySelectorAll('.weui-desktop-picker__table a[href="javascript:;"]');
+                console.log('找到', dayLinks.length, '个日期链接');
+                
+                let targetDayLink = null;
+                const availableDays = [];
+                
+                for (const link of dayLinks) {
+                    const dayText = link.textContent.trim();
+                    const isDisabled = link.classList.contains('weui-desktop-picker__disabled');
+                    const isFaded = link.classList.contains('weui-desktop-picker__faded');
+                    const isAvailable = !isDisabled && !isFaded;
+                    
+                    if (isAvailable) {
+                        availableDays.push(dayText);
+                    }
+                    
+                    // 查找目标日期
+                    if (dayText === targetDay.toString() && isAvailable) {
+                        targetDayLink = link;
+                        console.log('✅ 找到目标日期:', dayText + '日');
+                        break;
                     }
                 }
+                
+                console.log('可选日期: [' + availableDays.join(', ') + ']');
+                
+                if (!targetDayLink) {
+                    console.log('⚠️ 目标日期', targetDay + '日不可选择');
+                    console.log('建议日期: [' + availableDays.join(', ') + ']');
+                    
+                    // 尝试选择最接近的可用日期
+                    const availableNumbers = availableDays.map(d => parseInt(d)).filter(d => !isNaN(d)).sort((a, b) => a - b);
+                    const closestDay = availableNumbers.find(d => d >= targetDay) || availableNumbers[availableNumbers.length - 1];
+                    
+                    if (closestDay) {
+                        console.log('🔄 尝试选择最接近的日期:', closestDay + '日');
+                        for (const link of dayLinks) {
+                            const dayText = link.textContent.trim();
+                            const isDisabled = link.classList.contains('weui-desktop-picker__disabled');
+                            const isFaded = link.classList.contains('weui-desktop-picker__faded');
+                            
+                            if (dayText === closestDay.toString() && !isDisabled && !isFaded) {
+                                targetDayLink = link;
+                                console.log('✅ 找到替代日期:', closestDay + '日');
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if (!targetDayLink) {
+                    throw new Error('没有可选择的日期');
+                }
+                
+                // 点击目标日期
+                targetDayLink.click();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                const selectedDay = targetDayLink.textContent.trim();
+                console.log('✅ 已选择日期:', selectedDay + '日');
+                
+                // 步骤5：设置时间
+                console.log('📍 设置时间');
+                
+                // 点击时间图标打开时间面板
+                const timeIcon = shadowDoc.querySelector('.weui-desktop-icon__time');
+                if (!timeIcon) {
+                    throw new Error('未找到时间图标');
+                }
+                
+                timeIcon.click();
+                await new Promise(resolve => setTimeout(resolve, 1000));
                 
                 // 设置小时
                 const hourList = shadowDoc.querySelector('.weui-desktop-picker__time__hour');
                 if (hourList) {
                     const hourItems = hourList.querySelectorAll('li');
                     if (hourItems[targetHour]) {
+                        // 移除之前的选中状态
+                        const prevSelectedHour = hourList.querySelector('.weui-desktop-picker__selected');
+                        if (prevSelectedHour) {
+                            prevSelectedHour.classList.remove('weui-desktop-picker__selected');
+                        }
+                        
+                        // 设置新的小时
                         hourItems[targetHour].click();
+                        await new Promise(resolve => setTimeout(resolve, 500));
                         console.log('✅ 已设置小时:', targetHour);
-                        await new Promise(resolve => setTimeout(resolve, 300));
+                    } else {
+                        console.log('❌ 小时', targetHour, '不存在');
                     }
                 }
                 
@@ -857,44 +996,107 @@ export class WeChatVideoUploader implements PluginUploader {
                 if (minuteList) {
                     const minuteItems = minuteList.querySelectorAll('li');
                     if (minuteItems[targetMinute]) {
+                        // 移除之前的选中状态
+                        const prevSelectedMinute = minuteList.querySelector('.weui-desktop-picker__selected');
+                        if (prevSelectedMinute) {
+                            prevSelectedMinute.classList.remove('weui-desktop-picker__selected');
+                        }
+                        
+                        // 设置新的分钟
                         minuteItems[targetMinute].click();
-                        console.log('✅ 已设置分钟:', String(targetMinute).padStart(2, '0'));
-                        await new Promise(resolve => setTimeout(resolve, 300));
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        console.log('✅ 已设置分钟:', targetMinute);
+                    } else {
+                        console.log('❌ 分钟', targetMinute, '不存在');
                     }
                 }
                 
-                // 步骤7：确认时间设置
-                const dateInputForConfirm = shadowDoc.querySelector('.weui-desktop-picker__date-time input');
-                if (dateInputForConfirm) {
-                    dateInputForConfirm.click();
-                    await new Promise(resolve => setTimeout(resolve, 300));
+                // 步骤6：确认设置
+                console.log('📍 确认时间设置');
+                
+                // 点击页面其他区域关闭面板
+                const formBody = shadowDoc.querySelector('.form-item-body');
+                if (formBody) {
+                    formBody.click();
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
                 
-                // 点击页面其他区域确保设置生效
-                const bodyArea = shadowDoc.querySelector('body') || shadowDoc;
-                if (bodyArea) {
-                    const event = new MouseEvent('click', {
-                        view: window,
-                        bubbles: true,
-                        cancelable: true
-                    });
-                    bodyArea.dispatchEvent(event);
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                // 步骤7：验证最终设置
+                console.log('📍 验证设置结果');
+                
+                const dateInput = shadowDoc.querySelector('.weui-desktop-picker__date-time input');
+                const timeInput = shadowDoc.querySelector('.weui-desktop-picker__time input');
+                
+                if (dateInput && timeInput) {
+                    const finalDate = dateInput.value;
+                    const finalTime = timeInput.value;
+                    
+                    console.log('✅ 最终设置结果:');
+                    console.log('  日期:', finalDate);
+                    console.log('  时间:', finalTime);
+                    
+                    // 验证设置
+                    const currentMonth = getCurrentYearMonth();
+                    const expectedDatePattern = currentMonth ? 
+                        currentMonth.year + '-' + String(currentMonth.month).padStart(2, '0') + '-' + String(selectedDay).padStart(2, '0') :
+                        targetYear + '-' + String(targetMonth).padStart(2, '0') + '-' + String(selectedDay).padStart(2, '0');
+                    const expectedTime = String(targetHour).padStart(2, '0') + ':' + String(targetMinute).padStart(2, '0');
+                    
+                    const dateMatch = finalDate.includes(expectedDatePattern) || finalDate.includes(selectedDay);
+                    const timeMatch = finalTime === expectedTime;
+                    
+                    console.log('期望日期包含:', expectedDatePattern, '或', selectedDay, ', 实际:', finalDate);
+                    console.log('期望时间:', expectedTime, ', 实际:', finalTime);
+                    
+                    if (dateMatch && timeMatch) {
+                        console.log('🎉 定时发布设置成功！');
+                        return { 
+                            success: true, 
+                            date: finalDate, 
+                            time: finalTime,
+                            selectedDay: selectedDay
+                        };
+                    } else {
+                        console.log('⚠️ 部分设置可能不准确，但基本完成');
+                        return { 
+                            success: true, 
+                            date: finalDate, 
+                            time: finalTime,
+                            selectedDay: selectedDay,
+                            warning: '部分设置可能不准确'
+                        };
+                    }
+                } else {
+                    throw new Error('无法获取最终输入框值');
                 }
                 
-                console.log('✅ 定时发布设置完成:', targetMonth + '月' + targetDay + '日 ' + targetHour + ':' + String(targetMinute).padStart(2, '0'));
-                return { success: true };
-
-            } catch (e) {
-                console.error('❌ 定时发布设置失败:', e);
-                return { success: false, error: e.message };
+            } catch (error) {
+                console.error('❌ 定时发布设置失败:', error.message);
+                return { success: false, error: error.message };
             }
         })()
         `;
 
-        const result = await this.tabManager.executeScript(tabId, scheduleScript);
-        if (!result || !result.success) {
-            throw new Error(`定时发布设置失败: ${result?.error || '未知错误'}`);
+        try {
+            const result = await this.tabManager.executeScript(tabId, scheduleScript);
+            
+            if (!result || !result.success) {
+                throw new Error(`定时发布设置失败: ${result?.error || '未知错误'}`);
+            }
+            
+            if (result.warning) {
+                console.warn(`⚠️ ${result.warning}`);
+            }
+            
+            console.log(`✅ 定时发布设置完成: ${result.date} ${result.time}`);
+            
+            if (result.selectedDay && parseInt(result.selectedDay) !== targetDay) {
+                console.log(`📝 注意：由于目标日期不可选，实际选择了 ${result.selectedDay}日`);
+            }
+            
+        } catch (error) {
+            console.error('❌ 定时发布设置脚本执行失败:', error);
+            throw error;
         }
     }
 
